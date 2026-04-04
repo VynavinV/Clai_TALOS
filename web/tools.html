@@ -197,6 +197,7 @@
     <a href="/keys">API Keys</a>
     <a href="/tools" class="active">Tools</a>
     <a href="/settings">Settings</a>
+    <a href="/projects">Projects</a>
   </div>
   
   <h1>Tools</h1>
@@ -315,11 +316,59 @@ var tools = [
     dangerous: false
   },
   {
+    id: 'send_telegram_message',
+    name: 'Telegram Message',
+    icon: '&#9993;',
+    desc: 'Send messages directly to user on Telegram',
+    category: 'communication',
+    dangerous: false
+  },
+  {
     id: 'send_voice_message',
     name: 'Voice Response',
     icon: '&#128264;',
     desc: 'Send voice message responses (requires Piper)',
     category: 'communication',
+    dangerous: false
+  },
+  {
+    id: 'read_file',
+    name: 'Read File',
+    icon: '&#128196;',
+    desc: 'Read file contents with line numbers and pagination',
+    category: 'files',
+    dangerous: false
+  },
+  {
+    id: 'write_file',
+    name: 'Write File',
+    icon: '&#128221;',
+    desc: 'Create or overwrite files with atomic writes',
+    category: 'files',
+    dangerous: true
+  },
+  {
+    id: 'edit_file',
+    name: 'Edit File',
+    icon: '&#9998;',
+    desc: 'Find and replace exact strings in files',
+    category: 'files',
+    dangerous: true
+  },
+  {
+    id: 'create_project',
+    name: 'Create Project',
+    icon: '&#127760;',
+    desc: 'Create a website, presentation, or app and make it live instantly',
+    category: 'projects',
+    dangerous: false
+  },
+  {
+    id: 'list_projects',
+    name: 'List Projects',
+    icon: '&#128196;',
+    desc: 'List all registered projects with URLs and status',
+    category: 'projects',
     dangerous: false
   }
 ];

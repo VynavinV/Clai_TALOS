@@ -1,6 +1,5 @@
 import asyncio
 from datetime import datetime, timezone
-from typing import Any
 
 from croniter import croniter
 
@@ -49,7 +48,7 @@ def remove_job(user_id: int, job_id: int) -> bool:
     return db.remove_cron_job(user_id, job_id)
 
 
-def _summarize_result(result: dict[str, Any]) -> str:
+def _summarize_result(result: dict) -> str:
     if "error" in result:
         return f"error: {result.get('error')}"
     stdout = (result.get("stdout") or "").strip()

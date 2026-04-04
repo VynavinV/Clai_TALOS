@@ -2,13 +2,11 @@ import os
 import sys
 import json
 import asyncio
-import subprocess
 import logging
+import platform
 import shutil
 import time
-from typing import Optional, Dict, List, Any
 from datetime import datetime, timezone
-from pathlib import Path
 
 try:
     import docker
@@ -30,17 +28,20 @@ audit_logger.addHandler(audit_handler)
 
 DANGEROUS_COMMANDS = {
     "rm", "dd", "mkfs", "shutdown", "reboot", "halt", "poweroff",
-    "init", "systemctl", "chmod", "chown", "mv", "cp"
+    "init", "systemctl", "chmod", "chown", "mv", "cp",
+    "del", "rmdir", "rd", "format", "diskpart", "reg",
 }
 
 DANGEROUS_PATTERNS = [
-    "rm -rf /", "dd if=", "mkfs", "> /dev/", "chmod 777",
-    "chown root", "shutdown", "reboot", "halt"
+    "rm -rf /", "rm -rf /*", "dd if=", "mkfs", "> /dev/", "chmod 777",
+    "chown root", "shutdown", "reboot", "halt",
+    "del /s /q", "rd /s /q", "rmdir /s /q", "format ",
+    "reg delete", "diskpart",
 ]
 
 
 class TerminalExecutor:
-    def __init__(self, config: Optional[Dict] = None):
+    def __init__(self, config: dict | None = None):
         if config is None:
             config = self._load_config()
         
@@ -50,7 +51,7 @@ class TerminalExecutor:
         self.default_timeout = config.get("default_timeout", 30)
         self.dangerous_commands = set(config.get("dangerous_commands", list(DANGEROUS_COMMANDS)))
         
-        self.command_timestamps: List[float] = []
+        self.command_timestamps: list[float] = []
         self.docker_client = None
         
         if self.sandbox_mode == "docker":
@@ -62,7 +63,7 @@ class TerminalExecutor:
             except Exception as e:
                 raise RuntimeError(f"Docker not available: {e}")
     
-    def _load_config(self) -> Dict:
+    def _load_config(self) -> dict:
         if os.path.isfile(CONFIG_FILE):
             with open(CONFIG_FILE, "r") as f:
                 return json.load(f)
@@ -95,7 +96,7 @@ class TerminalExecutor:
         
         return False
     
-    def _log_audit(self, command: str, status: str, result: Optional[Dict] = None):
+    def _log_audit(self, command: str, status: str, result: dict | None = None):
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         log_entry = {
             "timestamp": timestamp,
@@ -113,9 +114,9 @@ class TerminalExecutor:
     async def execute(
         self,
         command: str,
-        timeout: Optional[int] = None,
-        require_confirmation: Optional[bool] = None
-    ) -> Dict[str, Any]:
+        timeout: int | None = None,
+        require_confirmation: bool | None = None
+    ) -> dict:
         if timeout is None:
             timeout = self.default_timeout
         
@@ -156,7 +157,19 @@ class TerminalExecutor:
             self._log_audit(command, "error", error_result)
             return error_result
     
-    async def _execute_native(self, command: str, timeout: int) -> Dict[str, Any]:
+    async def _kill_process(self, process: asyncio.subprocess.Process):
+        if sys.platform == "win32":
+            import subprocess as sp
+            try:
+                sp.run(["taskkill", "/F", "/T", "/PID", str(process.pid)],
+                       capture_output=True, timeout=5)
+            except Exception:
+                process.kill()
+        else:
+            process.kill()
+        await process.wait()
+
+    async def _execute_native(self, command: str, timeout: int) -> dict:
         try:
             process = await asyncio.create_subprocess_shell(
                 command,
@@ -176,11 +189,10 @@ class TerminalExecutor:
                 "exit_code": process.returncode
             }
         except asyncio.TimeoutError:
-            process.kill()
-            await process.wait()
+            await self._kill_process(process)
             raise
     
-    async def _execute_docker(self, command: str, timeout: int) -> Dict[str, Any]:
+    async def _execute_docker(self, command: str, timeout: int) -> dict:
         if not self.docker_client:
             raise RuntimeError("Docker client not initialized")
         
@@ -222,11 +234,13 @@ class TerminalExecutor:
             if "container" in locals():
                 try:
                     container.remove(force=True)
-                except:
+                except Exception:
                     pass
             raise
     
-    async def _execute_firejail(self, command: str, timeout: int) -> Dict[str, Any]:
+    async def _execute_firejail(self, command: str, timeout: int) -> dict:
+        if platform.system() != "Linux":
+            raise RuntimeError("Firejail sandbox is only available on Linux")
         if not shutil.which("firejail"):
             raise RuntimeError("Firejail not installed")
         
@@ -258,11 +272,10 @@ class TerminalExecutor:
                 "exit_code": process.returncode
             }
         except asyncio.TimeoutError:
-            process.kill()
-            await process.wait()
+            await self._kill_process(process)
             raise
     
-    async def execute_workflow(self, steps: List[Dict[str, Any]]) -> Dict[str, Any]:
+    async def execute_workflow(self, steps: list[dict]) -> dict:
         results = []
         
         for i, step in enumerate(steps):
@@ -306,7 +319,7 @@ class TerminalExecutor:
             "results": results
         }
     
-    def _check_condition(self, condition: str, result: Dict) -> bool:
+    def _check_condition(self, condition: str, result: dict) -> bool:
         if condition == "success":
             return result.get("exit_code", 1) == 0
         elif condition == "failure":
@@ -317,7 +330,7 @@ class TerminalExecutor:
         return True
 
 
-_executor: Optional[TerminalExecutor] = None
+_executor: TerminalExecutor | None = None
 
 
 def get_executor() -> TerminalExecutor:
@@ -327,9 +340,9 @@ def get_executor() -> TerminalExecutor:
     return _executor
 
 
-async def execute_command(command: str, timeout: Optional[int] = None) -> Dict[str, Any]:
+async def execute_command(command: str, timeout: int | None = None) -> dict:
     return await get_executor().execute(command, timeout=timeout)
 
 
-async def execute_workflow(steps: List[Dict[str, Any]]) -> Dict[str, Any]:
+async def execute_workflow(steps: list[dict]) -> dict:
     return await get_executor().execute_workflow(steps)

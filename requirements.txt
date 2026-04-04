@@ -4,6 +4,8 @@ aiohttp
 bcrypt
 zhipuai
 httpx
-docker
 croniter
-google-generativeai
+google-genai
+openai
+anthropic
+gTTS

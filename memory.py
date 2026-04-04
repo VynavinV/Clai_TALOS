@@ -3,11 +3,10 @@ import os
 import re
 import json
 from datetime import datetime, timezone
-from typing import Optional
 from collections import Counter
+import db
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(SCRIPT_DIR, "talos.db")
+DB_PATH = db.DB_PATH
 
 STOP_WORDS = {
     "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
@@ -49,11 +48,7 @@ STOP_WORDS = {
 
 
 def _conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    return conn
+    return db._conn()
 
 
 def init():
@@ -105,7 +100,7 @@ def _calculate_relevance(message_keywords: list[str], memory_keywords: list[str]
     return intersection / union
 
 
-def save_memory(user_id: int, content: str, category: Optional[str] = None, importance: int = 5) -> dict:
+def save_memory(user_id: int, content: str, category: str | None = None, importance: int = 5) -> dict:
     keywords = _extract_keywords(content)
     
     with _conn() as conn:
@@ -195,7 +190,7 @@ def search_memories(user_id: int, query: str, limit: int = 10) -> list[dict]:
     return scored[:limit]
 
 
-def list_memories(user_id: int, category: Optional[str] = None, limit: int = 20) -> list[dict]:
+def list_memories(user_id: int, category: str | None = None, limit: int = 20) -> list[dict]:
     with _conn() as conn:
         if category:
             rows = conn.execute(
@@ -224,8 +219,8 @@ def delete_memory(user_id: int, memory_id: int) -> bool:
         return cursor.rowcount > 0
 
 
-def update_memory(user_id: int, memory_id: int, content: Optional[str] = None, 
-                  category: Optional[str] = None, importance: Optional[int] = None) -> bool:
+def update_memory(user_id: int, memory_id: int, content: str | None = None,
+                  category: str | None = None, importance: int | None = None) -> bool:
     updates = []
     params = []
     
@@ -274,6 +269,3 @@ def format_memories_for_context(memories: list[dict]) -> str:
         lines.append(f"- {category_str}{m['content']} (relevance: {m['relevance']})")
     
     return "\n".join(lines)
-
-
-init()

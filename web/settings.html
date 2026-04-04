@@ -197,6 +197,7 @@
     <a href="/keys">API Keys</a>
     <a href="/tools">Tools</a>
     <a href="/settings" class="active">Settings</a>
+    <a href="/projects">Projects</a>
   </div>
   
   <h1>Settings</h1>
@@ -239,7 +240,12 @@
     
     <div class="form-group">
       <label>OpenAI API Key <span id="openai-status"></span></label>
-      <input type="password" id="openai-key" placeholder="For voice transcription">
+      <input type="password" id="openai-key" placeholder="Get from https://platform.openai.com/">
+    </div>
+    
+    <div class="form-group">
+      <label>Anthropic API Key <span id="anthropic-status"></span></label>
+      <input type="password" id="anthropic-key" placeholder="Get from https://console.anthropic.com/">
     </div>
     
     <div class="form-group">
@@ -255,6 +261,56 @@
       <label>Piper Voice Model</label>
       <input type="text" id="piper-voice" placeholder="en_US-lessac-medium">
       <div class="form-hint">Voice model for TTS (default: en_US-lessac-medium)</div>
+    </div>
+  </div>
+  
+  <div class="section">
+    <div class="section-title">AI Configuration</div>
+    
+    <div class="form-group">
+      <label>Client Base URL</label>
+      <input type="text" id="client-base-url" placeholder="https://api.z.ai/api/coding/paas/v4">
+      <div class="form-hint">ZhipuAI API base URL endpoint</div>
+    </div>
+  </div>
+  
+  <div class="section">
+    <div class="section-title">Limits &amp; Thresholds</div>
+    
+    <div class="form-group">
+      <label>Max Tool Rounds</label>
+      <input type="text" id="max-tool-rounds" placeholder="5" inputmode="numeric" pattern="[0-9]*">
+      <div class="form-hint">Max agentic tool loop iterations (1-50)</div>
+    </div>
+    
+    <div class="form-group">
+      <label>Max Tool Calls Per Round</label>
+      <input type="text" id="max-tool-calls-per-round" placeholder="20" inputmode="numeric" pattern="[0-9]*">
+      <div class="form-hint">Max parallel tool calls in a single round (1-100)</div>
+    </div>
+    
+    <div class="form-group">
+      <label>Max Command Timeout (seconds)</label>
+      <input type="text" id="max-command-timeout" placeholder="120" inputmode="numeric" pattern="[0-9]*">
+      <div class="form-hint">Max execution time for terminal commands (5-600)</div>
+    </div>
+    
+    <div class="form-group">
+      <label>Max Workflow Steps</label>
+      <input type="text" id="max-workflow-steps" placeholder="12" inputmode="numeric" pattern="[0-9]*">
+      <div class="form-hint">Max steps in a single workflow (1-50)</div>
+    </div>
+    
+    <div class="form-group">
+      <label>Max Subagent Tool Rounds</label>
+      <input type="text" id="max-subagent-tool-rounds" placeholder="5" inputmode="numeric" pattern="[0-9]*">
+      <div class="form-hint">Max tool rounds for spawned subagents (1-50)</div>
+    </div>
+    
+    <div class="form-group">
+      <label>Max Subagent Tool Calls Per Round</label>
+      <input type="text" id="max-subagent-tool-calls-per-round" placeholder="15" inputmode="numeric" pattern="[0-9]*">
+      <div class="form-hint">Max parallel tool calls per subagent round (1-100)</div>
     </div>
   </div>
   
@@ -278,12 +334,21 @@ async function loadSettings() {
     document.getElementById('zhipuai-key').value = data.ZHIPUAI_API_KEY || '';
     document.getElementById('gemini-key').value = data.GEMINI_API_KEY || '';
     document.getElementById('openai-key').value = data.OPENAI_API_KEY || '';
+    document.getElementById('anthropic-key').value = data.ANTHROPIC_API_KEY || '';
     document.getElementById('firecrawl-key').value = data.FIRECRAWL_API_KEY || '';
     document.getElementById('piper-voice').value = data.PIPER_VOICE || 'en_US-lessac-medium';
+    document.getElementById('client-base-url').value = data.CLIENT_BASE_URL || '';
+    document.getElementById('max-tool-rounds').value = data.MAX_TOOL_ROUNDS || '5';
+    document.getElementById('max-tool-calls-per-round').value = data.MAX_TOOL_CALLS_PER_ROUND || '20';
+    document.getElementById('max-command-timeout').value = data.MAX_COMMAND_TIMEOUT || '120';
+    document.getElementById('max-workflow-steps').value = data.MAX_WORKFLOW_STEPS || '12';
+    document.getElementById('max-subagent-tool-rounds').value = data.MAX_SUBAGENT_TOOL_ROUNDS || '5';
+    document.getElementById('max-subagent-tool-calls-per-round').value = data.MAX_SUBAGENT_TOOL_CALLS_PER_ROUND || '15';
     
     updateStatus('zhipuai', data.ZHIPUAI_API_KEY);
     updateStatus('gemini', data.GEMINI_API_KEY);
     updateStatus('openai', data.OPENAI_API_KEY);
+    updateStatus('anthropic', data.ANTHROPIC_API_KEY);
     updateStatus('firecrawl', data.FIRECRAWL_API_KEY);
   } catch (e) {
     console.error(e);
@@ -314,8 +379,16 @@ async function saveSettings() {
     ZHIPUAI_API_KEY: document.getElementById('zhipuai-key').value.trim(),
     GEMINI_API_KEY: document.getElementById('gemini-key').value.trim(),
     OPENAI_API_KEY: document.getElementById('openai-key').value.trim(),
+    ANTHROPIC_API_KEY: document.getElementById('anthropic-key').value.trim(),
     FIRECRAWL_API_KEY: document.getElementById('firecrawl-key').value.trim(),
-    PIPER_VOICE: document.getElementById('piper-voice').value.trim() || 'en_US-lessac-medium'
+    PIPER_VOICE: document.getElementById('piper-voice').value.trim() || 'en_US-lessac-medium',
+    CLIENT_BASE_URL: document.getElementById('client-base-url').value.trim(),
+    MAX_TOOL_ROUNDS: document.getElementById('max-tool-rounds').value.trim(),
+    MAX_TOOL_CALLS_PER_ROUND: document.getElementById('max-tool-calls-per-round').value.trim(),
+    MAX_COMMAND_TIMEOUT: document.getElementById('max-command-timeout').value.trim(),
+    MAX_WORKFLOW_STEPS: document.getElementById('max-workflow-steps').value.trim(),
+    MAX_SUBAGENT_TOOL_ROUNDS: document.getElementById('max-subagent-tool-rounds').value.trim(),
+    MAX_SUBAGENT_TOOL_CALLS_PER_ROUND: document.getElementById('max-subagent-tool-calls-per-round').value.trim()
   };
   
   try {
@@ -331,6 +404,7 @@ async function saveSettings() {
       updateStatus('zhipuai', payload.ZHIPUAI_API_KEY);
       updateStatus('gemini', payload.GEMINI_API_KEY);
       updateStatus('openai', payload.OPENAI_API_KEY);
+      updateStatus('anthropic', payload.ANTHROPIC_API_KEY);
       updateStatus('firecrawl', payload.FIRECRAWL_API_KEY);
     } else {
       showMsg(data.error || 'Save failed', false);

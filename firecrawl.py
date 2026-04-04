@@ -1,6 +1,5 @@
 import os
 import logging
-from typing import Any
 import httpx
 from dotenv import load_dotenv
 
@@ -31,7 +30,7 @@ def scrape_url(
     only_main_content: bool = True,
     timeout: int = 30000,
     max_age: int = 172800000,
-) -> dict[str, Any]:
+) -> dict:
     if not url or not url.strip():
         return {"error": "No URL provided"}
     

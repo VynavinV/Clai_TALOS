@@ -5,7 +5,7 @@ A personal AI assistant for Telegram with terminal access, memory, and voice sup
 ## Features
 
 - **Telegram Bot** - Chat-based interface with multi-model AI support
-- **Voice Messages** - Send and receive voice messages (Whisper + Piper TTS)
+- **Voice Messages** - Send and receive voice messages (Whisper + gTTS)
 - **Terminal Access** - Execute commands in sandboxed environment
 - **Memory System** - Persistent storage with semantic search
 - **Web Search** - Real-time web search and scraping
@@ -17,23 +17,22 @@ A personal AI assistant for Telegram with terminal access, memory, and voice sup
 
 ## Quick Start
 
+**Linux/macOS:**
 ```bash
-# Just run it - everything auto-configures
 ./start.sh
 ```
 
-**First run will ask:**
+**Windows:**
+```cmd
+start.bat
+```
+
+First run will ask for:
 1. Telegram bot token (required - get from @BotFather)
 2. Bot name (optional - defaults to Clai-TALOS)
 3. API keys (optional - can skip each or say "never ask again")
 
-**Subsequent runs:**
-```
-./start.sh
-```
-- Silent startup
-- Auto-heals any issues
-- Never asks again
+Subsequent runs are silent and auto-heal any issues.
 
 ## Dashboard
 
@@ -53,65 +52,56 @@ Login: `admin` / `admin` (change on first login)
 
 Everything else is optional and configured via dashboard.
 
-## Manual Start (Alternative)
+## Manual Start
 
-If you prefer manual control:
-
+**Linux/macOS:**
 ```bash
-# Run setup
 python3 setup.py
-
-# Activate venv
 source venv/bin/activate
-
-# Start bot
 python3 telegram_bot.py
+```
+
+**Windows:**
+```cmd
+python setup.py
+venv\Scripts\activate
+python telegram_bot.py
 ```
 
 ## Voice Support
 
-**Incoming**: Voice messages transcribed using local Whisper (runs offline)  
-**Outgoing**: AI can respond with voice using Piper TTS (runs locally)
+**Incoming**: Voice messages transcribed using local Whisper (runs offline)
+**Outgoing**: AI can respond with voice using gTTS
 
 Setup:
-1. Just run `./start.sh` - Whisper installs automatically
-2. Install Piper TTS: `brew install piper-tts` (macOS) or download binary (Linux)
+1. Run `./start.sh` (Linux/macOS) or `start.bat` (Windows) - Whisper installs automatically
+2. gTTS installs automatically with pip
 
 See `tools/voice.md` for details.
-
-## Self-Healing Setup
-
-The `start.sh` script orchestrates everything:
-- ✅ Runs setup.py (checks venv, packages, config)
-- ✅ Starts bot automatically
-- ✅ Asks for required info once (first time only)
-- ✅ Remembers "never ask again" choices
-- ✅ All configuration via dashboard
 
 ## Architecture
 
 ```
-start.sh
-    ↓
+start.sh / start.bat
+    |
 setup.py (auto-heal)
-    ↓
+    |
 telegram_bot.py (bot + web dashboard)
-    ↓
+    |
 AI.py (orchestrator)
-    ↓
-├── ZhipuAI / Gemini (models)
-├── terminal_tools.py (command execution)
-├── memory.py (persistent storage)
-├── cron_jobs.py (scheduling)
-├── websearch.py (web search)
-├── firecrawl.py (web scraping)
-└── voice.py (TTS/STT)
+    |
+    +-- ZhipuAI / Gemini (models)
+    +-- terminal_tools.py (command execution)
+    +-- memory.py (persistent storage)
+    +-- cron_jobs.py (scheduling)
+    +-- websearch.py (web search)
+    +-- firecrawl.py (web scraping)
+    +-- voice.py (TTS/STT)
 ```
 
 ## Documentation
 
 - `CLAUDE.md` - Design philosophy
-- `toolguide.md` - Tool reference
 - `tools/*.md` - Individual tool docs
 
 ## License

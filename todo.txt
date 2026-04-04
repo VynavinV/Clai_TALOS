@@ -1,0 +1,27 @@
+locall gemma support
+image support
+to do
+browser automation
+SSH to other devices
+PA system
+dream system to consolidate
+In depth screen and browser control + logins
+Credentials logins manager - locall
+Cerebras fast mode
+dashboard UI overhaul
+Google Calendar, and login with google overall for ecosystem and appsscript
+Breifings 
+Email support - himalaya? gmail? 
+improved file support - pptx, xlsx, etc look at claude
+notebooklm? 
+improved error handling
+in depth insights to what agents and stuff are doing on dashboard
+native chat site
+Setup process open dashboard
+- dashboard setup process pipeline
+documentation and comments
+Lyria 3 music
+better web scraping
+message inturruption and multiple messages handling
+multiple messages out
+typing realtime llm chatgpt style on telegram

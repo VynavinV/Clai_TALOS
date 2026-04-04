@@ -1,19 +1,21 @@
+import re
+import os
+import asyncio
+import tempfile
+import logging
+from datetime import datetime, timezone
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ChatAction
 from telegram.ext import ContextTypes, Application, MessageHandler, filters, CommandHandler, CallbackQueryHandler
-import re
-import logging
-import os
-import tempfile
 import AI
 import db
-import zhipuai
+import core
+import model_router
 
 logger = logging.getLogger("talos.handlers")
 
 _whisper_model = None
 
-_GREETINGS = {"hi", "hello", "hey"}
 _ONBOARDING_STEP_KEY = "onboarding_step"
 _ONBOARDING_NAME_KEY = "onboarding_name"
 
@@ -31,11 +33,30 @@ def _strip_markdown(text: str) -> str:
     return text.strip()
 
 
+def _make_send_func(chat):
+    async def send_func(msg: str, voice: bool = False) -> None:
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        cleaned = _strip_markdown(msg)
+        try:
+            if voice:
+                import voice as v
+                audio_path = v.text_to_speech(msg)
+                if audio_path:
+                    with open(audio_path, 'rb') as audio_file:
+                        await chat.send_voice(voice=audio_file)
+                    v.cleanup_audio_file(audio_path)
+                    return
+            await _safe_send(chat, f"[{now}]\n{cleaned}")
+        except Exception:
+            logger.exception("Failed to send message to Telegram")
+    return send_func
+
+
 async def _fetch_models() -> list[str]:
     try:
         return AI.list_models()
     except Exception:
-        return list(AI._MODELS.values())
+        return list(model_router.get_all_model_aliases().values())
 
 
 def _model_keyboard(current: str, models: list[str]) -> InlineKeyboardMarkup:
@@ -46,11 +67,7 @@ def _model_keyboard(current: str, models: list[str]) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(buttons)
 
 
-async def _ensure_onboarding(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-    text: str,
-) -> bool:
+async def _ensure_onboarding(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
     user = update.effective_user
     if not user:
         return True
@@ -65,9 +82,7 @@ async def _ensure_onboarding(
 
     if step is None:
         context.user_data[_ONBOARDING_STEP_KEY] = "name"
-        await update.message.reply_text(
-            "Welcome to Clai TALOS. Before we start, what's your name?"
-        )
+        await update.message.reply_text("Welcome to Clai TALOS. Before we start, what's your name?")
         return True
 
     if step == "name":
@@ -81,9 +96,7 @@ async def _ensure_onboarding(
 
         context.user_data[_ONBOARDING_NAME_KEY] = name
         context.user_data[_ONBOARDING_STEP_KEY] = "about"
-        await update.message.reply_text(
-            "Nice to meet you. Tell me a bit about you (role, goals, or what you want help with)."
-        )
+        await update.message.reply_text("Nice to meet you. Tell me a bit about you (role, goals, or what you want help with).")
         return True
 
     if step == "about":
@@ -96,10 +109,7 @@ async def _ensure_onboarding(
         db.upsert_user_profile(uid, name, about[:500])
         context.user_data.pop(_ONBOARDING_STEP_KEY, None)
         context.user_data.pop(_ONBOARDING_NAME_KEY, None)
-
-        await update.message.reply_text(
-            f"Profile saved, {name}. You're all set. Ask me anything."
-        )
+        await update.message.reply_text(f"Profile saved, {name}. You're all set. Ask me anything.")
         return True
 
     context.user_data[_ONBOARDING_STEP_KEY] = "name"
@@ -168,7 +178,6 @@ async def cmd_clear(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def _safe_send(chat, text: str) -> None:
-    """Send a message, splitting if it exceeds Telegram's 4096 char limit."""
     max_len = 4096
     while text:
         chunk = text[:max_len]
@@ -176,46 +185,34 @@ async def _safe_send(chat, text: str) -> None:
         text = text[max_len:]
 
 
+async def _typing_loop(chat, interval: float = 4.0):
+    while True:
+        try:
+            await chat.send_action(ChatAction.TYPING)
+        except Exception:
+            return
+        await asyncio.sleep(interval)
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    text = update.message.text if update.message.text else ""
+    text = update.message.text or ""
 
     if await _ensure_onboarding(update, context, text):
         return
 
-    if text.lower().strip().rstrip("!") in _GREETINGS:
-        await update.message.reply_text("hello 👋 I am Clai TALOS")
-        return
-
     chat = update.message.chat
     uid = update.effective_user.id
+    send_func = _make_send_func(chat)
 
-    async def send_func(msg: str, voice: bool = False) -> None:
-        cleaned = _strip_markdown(msg)
-        try:
-            if voice:
-                import voice as v
-                audio_path = v.text_to_speech(msg)
-                if audio_path:
-                    await chat.send_voice(voice=open(audio_path, audio_path))
-                    v.cleanup_audio_file(audio_path)
-                else:
-                    await _safe_send(chat, cleaned)
-        except Exception:
-            logger.exception("Failed to send subagent message to Telegram")
-
+    typing_task = asyncio.create_task(_typing_loop(chat))
     try:
-        await chat.send_action(ChatAction.TYPING)
-        reply = await AI.respond(uid, text, send_func=send_func)
-        cleaned = _strip_markdown(reply)
-        await _safe_send(chat, cleaned)
-
-    except zhipuai.APIReachLimitError:
-        await update.message.reply_text("API rate limit or balance exhausted.")
-    except zhipuai.APIStatusError as e:
-        await update.message.reply_text(f"API error: {e}")
-    except Exception as e:
-        logger.exception("Error handling message")
-        await update.message.reply_text(f"Error: {e}")
+        await core.process_message(uid, text, send_func)
+    finally:
+        typing_task.cancel()
+        try:
+            await typing_task
+        except asyncio.CancelledError:
+            pass
 
 
 def _get_whisper_model():
@@ -268,18 +265,19 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 await update.message.reply_text("Couldn't transcribe the voice message.")
                 return
 
-            await update.message.reply_text(f"🎤 _{text}_", parse_mode="Markdown")
+            await update.message.reply_text(f"Transcription: {text}")
 
-            async def send_func(msg: str) -> None:
-                cleaned = _strip_markdown(msg)
+            send_func = _make_send_func(chat)
+
+            typing_task = asyncio.create_task(_typing_loop(chat))
+            try:
+                await core.process_message(uid, text, send_func)
+            finally:
+                typing_task.cancel()
                 try:
-                    await _safe_send(chat, cleaned)
-                except Exception:
-                    logger.exception("Failed to send message")
-
-            reply = await AI.respond(uid, text, send_func=send_func)
-            cleaned = _strip_markdown(reply)
-            await _safe_send(chat, cleaned)
+                    await typing_task
+                except asyncio.CancelledError:
+                    pass
 
         finally:
             if os.path.exists(tmp_path):

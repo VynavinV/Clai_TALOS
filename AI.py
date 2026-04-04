@@ -1,12 +1,10 @@
 import os
-import httpx
 import asyncio
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Callable, Awaitable
 from dotenv import load_dotenv
-from zhipuai import ZhipuAI
-import google.genai as genai
 import db
 import memory
 import terminal_tools
@@ -14,83 +12,59 @@ import environment
 import cron_jobs
 import websearch
 import firecrawl
+import file_tools
+import gateway
+import model_router
 
 load_dotenv()
 
 logger = logging.getLogger("talos.ai")
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-TOOLS_DIR = os.path.join(SCRIPT_DIR, "tools")
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_TOOLS_DIR = os.path.join(_SCRIPT_DIR, "tools")
+_tools_guide_cache: str | None = None
 
-_MODELS = {
-    "glm4": "glm-4",
-    "glm4v": "glm-4v",
-    "glm5": "glm-5",
-    "glm5turbo": "glm-5-turbo",
-    "charglm3": "charglm-3",
-    "gemini15flash": "gemini-1.5-flash",
-    "gemini20flash": "gemini-2.0-flash",
-    "gemini25pro": "gemini-2.5-pro",
-}
+_MODELS = model_router.get_all_model_aliases()
 
-_client: ZhipuAI | None = None
-_gemini_client: genai.Client | None = None
-
-_CLIENT_BASE_URL = "https://api.z.ai/api/coding/paas/v4"
-_MAX_TOOL_ROUNDS = 5
-_MAX_TOOL_CALLS_PER_ROUND = 8
-_MAX_COMMAND_TIMEOUT = 120
-_MAX_WORKFLOW_STEPS = 12
-_MAX_SUBAGENT_TOOL_ROUNDS = 3
-_MAX_SUBAGENT_TOOL_CALLS_PER_ROUND = 4
+_MAX_TOOL_ROUNDS = int(os.getenv("MAX_TOOL_ROUNDS", "5"))
+_MAX_TOOL_CALLS_PER_ROUND = int(os.getenv("MAX_TOOL_CALLS_PER_ROUND", "20"))
+_MAX_COMMAND_TIMEOUT = int(os.getenv("MAX_COMMAND_TIMEOUT", "120"))
+_MAX_WORKFLOW_STEPS = int(os.getenv("MAX_WORKFLOW_STEPS", "12"))
+_MAX_SUBAGENT_TOOL_ROUNDS = int(os.getenv("MAX_SUBAGENT_TOOL_ROUNDS", "5"))
+_MAX_SUBAGENT_TOOL_CALLS_PER_ROUND = int(os.getenv("MAX_SUBAGENT_TOOL_CALLS_PER_ROUND", "15"))
 
 SendFunc = Callable[[str], Awaitable[None]]
 
 
-def _get_zhipu_client() -> ZhipuAI:
-    global _client
-    if _client is None:
-        api_key = os.getenv("ZHIPUAI_API_KEY")
-        if not api_key:
-            raise RuntimeError("ZHIPUAI_API_KEY not set in .env")
-        _client = ZhipuAI(api_key=api_key, base_url=_CLIENT_BASE_URL)
-    return _client
-
-
-def _get_gemini_client() -> genai.Client:
-    global _gemini_client
-    if _gemini_client is None:
-        api_key = os.getenv("GEMINI_API_KEY")
-        if not api_key:
-            raise RuntimeError("GEMINI_API_KEY not set in .env")
-        _gemini_client = genai.Client(api_key=api_key)
-    return _gemini_client
-
-
 def reload_clients():
-    global _client, _gemini_client
-    _client = None
-    _gemini_client = None
+    global _tools_guide_cache
+    global _MAX_TOOL_ROUNDS, _MAX_TOOL_CALLS_PER_ROUND
+    global _MAX_COMMAND_TIMEOUT, _MAX_WORKFLOW_STEPS
+    global _MAX_SUBAGENT_TOOL_ROUNDS, _MAX_SUBAGENT_TOOL_CALLS_PER_ROUND
+    _tools_guide_cache = None
+    model_router.reload_clients()
     load_dotenv(override=True)
+    _MAX_TOOL_ROUNDS = int(os.getenv("MAX_TOOL_ROUNDS", "5"))
+    _MAX_TOOL_CALLS_PER_ROUND = int(os.getenv("MAX_TOOL_CALLS_PER_ROUND", "20"))
+    _MAX_COMMAND_TIMEOUT = int(os.getenv("MAX_COMMAND_TIMEOUT", "120"))
+    _MAX_WORKFLOW_STEPS = int(os.getenv("MAX_WORKFLOW_STEPS", "12"))
+    _MAX_SUBAGENT_TOOL_ROUNDS = int(os.getenv("MAX_SUBAGENT_TOOL_ROUNDS", "5"))
+    _MAX_SUBAGENT_TOOL_CALLS_PER_ROUND = int(os.getenv("MAX_SUBAGENT_TOOL_CALLS_PER_ROUND", "15"))
 
 
 def list_models() -> list[str]:
-    api_key = os.getenv("ZHIPUAI_API_KEY", "")
-    r = httpx.get(
-        f"{_CLIENT_BASE_URL}/models",
-        headers={"Authorization": f"Bearer {api_key}"},
-        timeout=10,
-    )
-    r.raise_for_status()
-    return [m["id"] for m in r.json().get("data", [])]
+    return model_router.list_provider_models()
 
 
 def _load_tools_guide() -> str:
+    global _tools_guide_cache
+    if _tools_guide_cache is not None:
+        return _tools_guide_cache
     guides = []
-    if os.path.isdir(TOOLS_DIR):
-        for filename in sorted(os.listdir(TOOLS_DIR)):
+    if os.path.isdir(_TOOLS_DIR):
+        for filename in sorted(os.listdir(_TOOLS_DIR)):
             if filename.endswith(".md"):
-                filepath = os.path.join(TOOLS_DIR, filename)
+                filepath = os.path.join(_TOOLS_DIR, filename)
                 try:
                     with open(filepath, "r") as f:
                         content = f.read().strip()
@@ -98,7 +72,12 @@ def _load_tools_guide() -> str:
                     guides.append(f"### {tool_name}\n{content}")
                 except Exception:
                     pass
-    return "\n\n".join(guides) if guides else ""
+    _tools_guide_cache = "\n\n".join(guides) if guides else ""
+    return _tools_guide_cache
+
+
+def _now_str() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
 def _build_system(user_id: int, current_message: str = "", include_memories: bool = True) -> str | None:
@@ -106,6 +85,8 @@ def _build_system(user_id: int, current_message: str = "", include_memories: boo
     prompt = db.read_system_prompt()
     if prompt:
         parts.append(prompt)
+
+    parts.append(f"[Current time] {_now_str()}")
 
     tools_guide = _load_tools_guide()
     if tools_guide:
@@ -146,6 +127,9 @@ def _build_subagent_system(user_id: int, role: str, task: str, context: str = ""
     prompt = db.read_system_prompt()
     if prompt:
         parts.append(prompt)
+
+    parts.append(f"[Current time] {_now_str()}")
+
     parts.append(
         "You are a subagent delegated by the main TALOS orchestrator. "
         "Stay narrowly focused on the assigned task. Do not spawn other subagents.\n\n"
@@ -386,8 +370,99 @@ def _get_all_tools(include_subagent: bool = True, include_telegram: bool = False
                     "required": ["url"]
                 }
             }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "read_file",
+                "description": (
+                    "Read a file's contents with line numbers. Always read a file BEFORE editing it. "
+                    "Returns encoding info and pagination metadata. On error, returns error_code, hint, and recoverable flag."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string", "description": "File path (absolute or relative to project root)"},
+                        "offset": {"type": "number", "description": "Line number to start from (1-indexed, default 0 = start)"},
+                        "limit": {"type": "number", "description": "Max lines to return (default 500, max 2000)"}
+                    },
+                    "required": ["path"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "write_file",
+                "description": (
+                    "Write content to a file atomically. Creates the file if it doesn't exist, overwrites if it does. "
+                    "Returns a unified diff preview for existing files. Warns if content is identical. "
+                    "Uses atomic writes (write to temp then move) to prevent corruption on crash."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string", "description": "File path (absolute or relative to project root)"},
+                        "content": {"type": "string", "description": "The full content to write"},
+                        "create_dirs": {"type": "boolean", "description": "Create parent directories if they don't exist (default false)"}
+                    },
+                    "required": ["path", "content"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "edit_file",
+                "description": (
+                    "Find and replace an exact string in a file. Use this for targeted edits instead of rewriting "
+                    "entire files. The old_string must match the file content EXACTLY (indentation, whitespace, etc). "
+                    "On failure, returns a fuzzy match suggestion and file preview to help you self-correct. "
+                    "Uses atomic writes to prevent corruption."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string", "description": "File path (absolute or relative to project root)"},
+                        "old_string": {"type": "string", "description": "The exact string to find in the file"},
+                        "new_string": {"type": "string", "description": "The replacement string"},
+                        "replace_all": {"type": "boolean", "description": "Replace all occurrences instead of just the first (default false)"}
+                    },
+                    "required": ["path", "old_string", "new_string"]
+                }
+            }
         }
     ]
+
+    tools.append({
+            "type": "function",
+            "function": {
+                "name": "create_project",
+                "description": (
+                    "Create a web project (website, presentation, app) and make it instantly live. "
+                    "Pass the full HTML content and this tool handles everything: creates the directory, "
+                    "writes index.html, registers it in the gateway, and returns the full public URL. "
+                    "You MUST send the returned url to the user — it is the live clickable link."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Project name (alphanumeric, hyphens, underscores). Used in the URL."},
+                        "html": {"type": "string", "description": "The full HTML content for index.html"},
+                        "description": {"type": "string", "description": "Short description of the project"}
+                    },
+                    "required": ["name", "html"]
+                }
+            }
+        })
+    tools.append({
+            "type": "function",
+            "function": {
+                "name": "list_projects",
+                "description": "List all registered projects in the gateway with their URLs and status.",
+                "parameters": {"type": "object", "properties": {}}
+            }
+        })
 
     if include_subagent:
         tools.append({
@@ -560,6 +635,69 @@ async def _execute_tool_call(
             )
             return json.dumps(result, indent=2)
 
+        elif tool_name == "read_file":
+            path = str(tool_args.get("path", "")).strip()
+            if not path:
+                return json.dumps({"error": "No path provided"})
+            offset = tool_args.get("offset", 0)
+            limit = tool_args.get("limit", 500)
+            if not isinstance(offset, (int, float)):
+                offset = 0
+            if not isinstance(limit, (int, float)):
+                limit = 500
+            limit = max(1, min(int(limit), 2000))
+            result = file_tools.read_file(path, offset=int(offset), limit=int(limit))
+            return json.dumps(result, indent=2)
+
+        elif tool_name == "write_file":
+            path = str(tool_args.get("path", "")).strip()
+            content = tool_args.get("content", "")
+            if not path:
+                return json.dumps({"error": "No path provided"})
+            if content is None:
+                content = ""
+            create_dirs = bool(tool_args.get("create_dirs", False))
+            result = file_tools.write_file(path, str(content), create_dirs=create_dirs)
+            return json.dumps(result, indent=2)
+
+        elif tool_name == "edit_file":
+            path = str(tool_args.get("path", "")).strip()
+            old_string = tool_args.get("old_string", "")
+            new_string = tool_args.get("new_string", "")
+            replace_all = bool(tool_args.get("replace_all", False))
+            if not path:
+                return json.dumps({"error": "No path provided"})
+            if old_string is None:
+                old_string = ""
+            if new_string is None:
+                new_string = ""
+            result = file_tools.edit_file(path, str(old_string), str(new_string), replace_all=replace_all)
+            return json.dumps(result, indent=2)
+
+        elif tool_name == "create_project":
+            name = str(tool_args.get("name", "")).strip()
+            html = str(tool_args.get("html", "")).strip()
+            if not name:
+                return json.dumps({"error": "No name provided"})
+            if not html:
+                return json.dumps({"error": "No html content provided"})
+            description = str(tool_args.get("description", "")).strip()
+            reg = gateway.register_project(name, description=description)
+            index_path = os.path.join(reg["path"], "index.html")
+            write_result = file_tools.write_file(index_path, html, create_dirs=True)
+            if "error" in write_result:
+                return json.dumps({"error": f"Failed to write index.html: {write_result['error']}"})
+            return json.dumps({
+                "status": "live",
+                "url": reg["url"],
+                "share_this_link": reg["url"],
+                "path": reg["path"],
+                "instruction": "Send the url to the user — this is the live clickable link to their project",
+            }, indent=2)
+
+        elif tool_name == "list_projects":
+            return json.dumps({"projects": gateway.list_projects()}, indent=2)
+
         elif tool_name == "send_telegram_message":
             message = str(tool_args.get("message", "")).strip()
             if not message:
@@ -575,13 +713,9 @@ async def _execute_tool_call(
                 return json.dumps({"error": "No text provided"})
             if len(text) > 500:
                 text = text[:500]
-            import voice
-            audio_path = voice.text_to_speech(text)
-            if not audio_path:
-                return json.dumps({"error": "Failed to generate voice message"})
             if send_func:
-                await send_func(audio_path, voice=True)
-                return json.dumps({"sent": True, "audio_path": audio_path})
+                await send_func(text, voice=True)
+                return json.dumps({"sent": True})
             return json.dumps({"error": "No Telegram send function available"})
 
         elif tool_name == "spawn_subagent":
@@ -630,14 +764,9 @@ async def _run_agent(
         tools = _get_all_tools(include_subagent=allow_subagent, include_telegram=send_func is not None)
 
     model_id = _MODELS.get(model.lower(), model)
-    
-    is_gemini = model_id.startswith("gemini")
-    
+
     for _ in range(max_rounds):
-        if is_gemini:
-            response = await _call_gemini(model_id, messages, tools)
-        else:
-            response = await _call_zhipu(model_id, messages, tools)
+        response = await model_router.call_model(model_id, messages, tools)
         
         if not response.get("tool_calls"):
             return response.get("content", "I could not generate a response right now.")
@@ -687,98 +816,10 @@ async def _run_agent(
             })
     
     try:
-        if is_gemini:
-            response = await _call_gemini(model_id, messages, None)
-        else:
-            response = await _call_zhipu(model_id, messages, None)
+        response = await model_router.call_model(model_id, messages, None)
         return response.get("content", "I could not generate a response right now.")
     except Exception:
         return "I ran out of processing rounds. Please try again."
-
-
-async def _call_zhipu(model_id: str, messages: list[dict], tools: list[dict] | None) -> dict:
-    try:
-        response = await asyncio.to_thread(
-            _get_zhipu_client().chat.completions.create,
-            model=model_id,
-            messages=messages,
-            tools=tools,
-            tool_choice="auto" if tools else None,
-        )
-        
-        choice = response.choices[0]
-        reply_text = choice.message.content or ""
-        
-        tool_calls = []
-        if hasattr(choice.message, 'tool_calls') and choice.message.tool_calls:
-            for tc in choice.message.tool_calls:
-                fn = getattr(tc, "function", None)
-                name = getattr(fn, "name", None)
-                if not name:
-                    continue
-                tool_calls.append({
-                    "id": getattr(tc, "id", f"tool_{len(tool_calls)}"),
-                    "name": name,
-                    "arguments": _safe_json_loads(getattr(fn, "arguments", None), {}),
-                })
-        
-        return {
-            "content": reply_text,
-            "tool_calls": tool_calls,
-            "message": {
-                "role": "assistant",
-                "content": reply_text,
-                "tool_calls": [
-                    {"id": tc["id"], "type": "function", "function": {"name": tc["name"], "arguments": json.dumps(tc["arguments"])}}
-                    for tc in tool_calls
-                ] if tool_calls else None,
-            }
-        }
-    except Exception as e:
-        logger.exception("ZhipuAI call failed")
-        return {"content": f"Error communicating with AI: {e}", "tool_calls": [], "message": None}
-
-
-async def _call_gemini(model_id: str, messages: list[dict], tools: list[dict] | None) -> dict:
-    try:
-        client = _get_gemini_client()
-        
-        contents = []
-        for msg in messages:
-            role = msg.get("role", "user")
-            content = msg.get("content", "")
-            
-            if role == "system":
-                contents.append({"role": "user", "parts": [{"text": f"System: {content}"}]})
-            elif role == "user":
-                contents.append({"role": "user", "parts": [{"text": content}]})
-            elif role == "assistant":
-                contents.append({"role": "model", "parts": [{"text": content}]})
-            elif role == "tool":
-                contents.append({"role": "user", "parts": [{"text": f"Tool result: {content}"}]})
-        
-        config = {
-            "temperature": 0.7,
-            "max_output_tokens": 2048,
-        }
-        
-        response = await asyncio.to_thread(
-            client.models.generate_content,
-            model=model_id,
-            contents=contents,
-            generation_config=config,
-        )
-        
-        text = response.text if hasattr(response, 'text') else ""
-        
-        return {
-            "content": text,
-            "tool_calls": [],
-            "message": {"role": "assistant", "content": text},
-        }
-    except Exception as e:
-        logger.exception("Gemini call failed")
-        return {"content": f"Error communicating with Gemini: {e}", "tool_calls": [], "message": None}
 
 
 # ---------------------------------------------------------------------------
@@ -829,31 +870,7 @@ async def _maybe_summarize(user_id: int, model: str) -> None:
         "Do not add commentary or meta-text. Output only the summary."
     )
     try:
-        is_gemini = model_id.startswith("gemini")
-        
-        if is_gemini:
-            client = _get_gemini_client()
-            contents = [
-                {"role": "user", "parts": [{"text": f"System: {system_msg}"}]},
-                {"role": "user", "parts": [{"text": f"Summarize this conversation:\n\n{conversation}"}]},
-            ]
-            response = await asyncio.to_thread(
-                client.models.generate_content,
-                model=model_id,
-                contents=contents,
-            )
-            summary = response.text if hasattr(response, 'text') else ""
-        else:
-            response = await asyncio.to_thread(
-                _get_zhipu_client().chat.completions.create,
-                model=model_id,
-                messages=[
-                    {"role": "system", "content": system_msg},
-                    {"role": "user", "content": f"Summarize this conversation:\n\n{conversation}"},
-                ],
-            )
-            summary = response.choices[0].message.content or ""
-        
+        summary = await model_router.call_model_simple(model_id, system_msg, f"Summarize this conversation:\n\n{conversation}")
         db.set_summary(user_id, summary)
     except Exception:
         logger.exception("Summarization failed")
@@ -872,7 +889,7 @@ async def respond(user_id: int, text: str, send_func: SendFunc | None = None) ->
         model, text,
         system=system,
         history=history,
-        tools=_get_all_tools(include_subagent=True, include_telegram=False),
+        tools=_get_all_tools(include_subagent=True, include_telegram=send_func is not None),
         user_id=user_id,
         send_func=send_func,
         allow_subagent=True,

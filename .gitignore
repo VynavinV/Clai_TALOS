@@ -2,7 +2,11 @@ venv/
 .env
 .credentials
 .security.log
+.setup_config
+.tools_config
 __pycache__/
 talos.db
 talos.db-wal
 talos.db-shm
+logs/
+projects/

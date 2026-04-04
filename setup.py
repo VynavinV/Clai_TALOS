@@ -5,7 +5,6 @@ import sys
 import subprocess
 import shutil
 import json
-from pathlib import Path
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 VENV_DIR = os.path.join(SCRIPT_DIR, "venv")
@@ -21,7 +20,8 @@ REQUIRED_PACKAGES = [
     "zhipuai",
     "httpx",
     "croniter",
-    "openai-whisper",
+    "google-genai",
+    "gTTS",
 ]
 
 BOLD = "\033[1m"
@@ -31,15 +31,33 @@ YELLOW = "\033[33m"
 DIM = "\033[2m"
 RESET = "\033[0m"
 
+if sys.platform == "win32":
+    try:
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        STD_OUTPUT_HANDLE = -11
+        handle = kernel32.GetStdHandle(STD_OUTPUT_HANDLE)
+        mode = ctypes.c_ulong()
+        kernel32.GetConsoleMode(handle, ctypes.byref(mode))
+        kernel32.SetConsoleMode(handle, mode.value | 0x0004)
+    except Exception:
+        BOLD = CYAN = GREEN = YELLOW = DIM = RESET = ""
+
 def run(cmd, **kwargs):
     return subprocess.run(cmd, capture_output=True, text=True, **kwargs)
 
 def check_python():
-    candidates = ["python3.13", "python3.12", "python3.11", "python3"]
+    if sys.platform == "win32":
+        candidates = ["py", "python"]
+    else:
+        candidates = ["python3.13", "python3.12", "python3.11", "python3.10", "python3"]
     for candidate in candidates:
         if shutil.which(candidate):
             result = run([candidate, "--version"])
             if result.returncode == 0:
+                version_str = result.stdout.strip()
+                if "3.14" in version_str or "3.15" in version_str:
+                    continue
                 return candidate
     return None
 
@@ -58,7 +76,7 @@ def load_setup_config():
         try:
             with open(CONFIG_FILE, "r") as f:
                 return json.load(f)
-        except:
+        except Exception:
             pass
     return {}
 
@@ -119,12 +137,21 @@ def auto_heal():
     config = load_setup_config()
     fixed = []
     
+    # Check existing venv Python version
+    if os.path.isdir(VENV_DIR):
+        venv_python = get_python()
+        if os.path.isfile(venv_python):
+            result = run([venv_python, "--version"])
+            if result.returncode == 0 and ("3.14" in result.stdout or "3.15" in result.stdout):
+                print(f"{YELLOW}[setup] Python 3.14+ has compatibility issues with zhipuai{RESET}")
+                print(f"{DIM}[setup] Recreating venv with Python 3.13...{RESET}")
+                shutil.rmtree(VENV_DIR)
+    
     # Create venv
     if not os.path.isdir(VENV_DIR):
         python = check_python()
         if not python:
-            print(f"\n{YELLOW}ERROR: Python 3 not found{RESET}")
-            print("Install Python 3.11+ and re-run")
+            print(f"\n{YELLOW}ERROR: Python 3.10-3.13 required (3.14+ has zhipuai compatibility issues){RESET}")
             sys.exit(1)
         print(f"{DIM}[setup] Creating virtual environment...{RESET}")
         result = run([python, "-m", "venv", VENV_DIR])
@@ -251,7 +278,8 @@ def auto_heal():
         with open(CREDS_FILE, "w") as f:
             f.write("USERNAME=admin\n")
             f.write("PASSWORD=admin\n")
-        os.chmod(CREDS_FILE, 0o600)
+        if sys.platform != "win32":
+            os.chmod(CREDS_FILE, 0o600)
         fixed.append("credentials (admin/admin)")
         print(f"{DIM}[setup] Created default credentials (admin/admin){RESET}")
         print(f"{DIM}[setup] Change via dashboard: http://localhost:8080{RESET}")

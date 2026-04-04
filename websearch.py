@@ -1,6 +1,5 @@
 import os
 import logging
-from typing import Any
 from dotenv import load_dotenv
 from google import genai
 
@@ -9,6 +8,15 @@ load_dotenv()
 logger = logging.getLogger("talos.websearch")
 
 _client: genai.Client | None = None
+_search_model: str | None = None
+
+_CANDIDATE_MODELS = [
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-2.5-pro",
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-exp",
+]
 
 
 def _get_client() -> genai.Client:
@@ -22,18 +30,71 @@ def _get_client() -> genai.Client:
 
 
 def reload_client():
-    global _client
+    global _client, _search_model
     _client = None
+    _search_model = None
     load_dotenv(override=True)
 
 
-def web_search(query: str, scope: str = "", location: str = "", recent_days: int = 0) -> dict[str, Any]:
+def _find_search_model() -> str | None:
+    global _search_model
+    if _search_model is not None:
+        return _search_model
+
+    client = _get_client()
+    try:
+        for model_name in _CANDIDATE_MODELS:
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents="test",
+                    config={"tools": [{"google_search": {}}]},
+                )
+                if response and hasattr(response, "candidates") and response.candidates:
+                    _search_model = model_name
+                    logger.info(f"Web search model selected: {model_name}")
+                    return _search_model
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    try:
+        available = client.models.list()
+        for m in available:
+            name = getattr(m, "name", "").removeprefix("models/")
+            if "flash" in name.lower() and name not in _CANDIDATE_MODELS:
+                try:
+                    response = client.models.generate_content(
+                        model=name,
+                        contents="test",
+                        config={"tools": [{"google_search": {}}]},
+                    )
+                    if response and hasattr(response, "candidates") and response.candidates:
+                        _search_model = name
+                        logger.info(f"Web search model auto-discovered: {name}")
+                        return _search_model
+                except Exception:
+                    continue
+    except Exception:
+        pass
+
+    _search_model = ""
+    logger.error("No Gemini model with google_search support found")
+    return None
+
+
+def web_search(query: str, scope: str = "", location: str = "", recent_days: int = 0) -> dict:
     if not query or not query.strip():
         return {"error": "No search query provided"}
-    
+
+    model = _find_search_model()
+    if not model:
+        return {"error": "No Gemini model with Google Search support available. Check GEMINI_API_KEY.", "query": query}
+
     try:
         client = _get_client()
-        
+
         search_prompt = f"Search the web for: {query.strip()}"
         if scope and scope.strip():
             search_prompt += f" (focus: {scope.strip()})"
@@ -41,14 +102,14 @@ def web_search(query: str, scope: str = "", location: str = "", recent_days: int
             search_prompt += f" (location: {location.strip()})"
         if recent_days and recent_days > 0:
             search_prompt += f" (from the last {recent_days} days)"
-        
+
         search_prompt += "\n\nProvide a summary of the most relevant search results with titles, URLs, and key information."
-        
+
         response = client.models.generate_content(
-            model="gemini-2.0-flash-exp",
+            model=model,
             contents=search_prompt,
             config={
-                "tools": [{"google_search_retrieval": {}}],
+                "tools": [{"google_search": {}}],
             },
         )
         
