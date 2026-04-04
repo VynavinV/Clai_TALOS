@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{BOT_NAME}} — Tools</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0a0a0f;
+    color: #e0e0e0;
+    min-height: 100vh;
+    padding: 2rem;
+  }
+  
+  .container {
+    max-width: 900px;
+    margin: 0 auto;
+  }
+  
+  h1 {
+    font-size: 1.6rem;
+    font-weight: 600;
+    margin-bottom: 0.3rem;
+    color: #fff;
+  }
+  
+  .subtitle {
+    font-size: 0.85rem;
+    color: #666;
+    margin-bottom: 2rem;
+  }
+  
+  .tool-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1rem;
+    margin-bottom: 2rem;
+  }
+  
+  .tool-card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 12px;
+    padding: 1.25rem;
+    transition: all 0.2s;
+  }
+  
+  .tool-card:hover {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+  
+  .tool-card.disabled {
+    opacity: 0.5;
+  }
+  
+  .tool-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.75rem;
+  }
+  
+  .tool-name {
+    font-size: 0.95rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  
+  .tool-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    background: rgba(99, 179, 237, 0.15);
+  }
+  
+  .toggle-switch {
+    position: relative;
+    width: 44px;
+    height: 24px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    cursor: pointer;
+    transition: background 0.3s;
+  }
+  
+  .toggle-switch.active {
+    background: rgba(72, 187, 120, 0.4);
+  }
+  
+  .toggle-switch::after {
+    content: '';
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    background: #fff;
+    border-radius: 50%;
+    top: 2px;
+    left: 2px;
+    transition: transform 0.3s;
+  }
+  
+  .toggle-switch.active::after {
+    transform: translateX(20px);
+  }
+  
+  .tool-desc {
+    font-size: 0.8rem;
+    color: #888;
+    line-height: 1.5;
+    margin-bottom: 0.75rem;
+  }
+  
+  .tool-meta {
+    font-size: 0.7rem;
+    color: #555;
+    display: flex;
+    gap: 1rem;
+  }
+  
+  .nav {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 2rem;
+  }
+  
+  .nav a {
+    font-size: 0.85rem;
+    color: #555;
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+  
+  .nav a:hover { color: #999; }
+  .nav a.active { color: #63b3ed; }
+  
+  .logout-btn {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    padding: 0.4rem 0.8rem;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 6px;
+    color: #666;
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  
+  .logout-btn:hover {
+    background: rgba(255,255,255,0.08);
+    color: #999;
+  }
+  
+  .msg {
+    font-size: 0.85rem;
+    margin-top: 1rem;
+    min-height: 1.2em;
+    transition: opacity 0.3s;
+  }
+  
+  .msg-ok { color: #48bb78; }
+  .msg-err { color: #f56565; }
+  
+  .btn {
+    padding: 0.65rem 1.5rem;
+    background: rgba(99, 179, 237, 0.15);
+    border: 1px solid rgba(99, 179, 237, 0.3);
+    border-radius: 8px;
+    color: #63b3ed;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  
+  .btn:hover {
+    background: rgba(99, 179, 237, 0.25);
+  }
+</style>
+</head>
+<body>
+<button class="logout-btn" onclick="logout()">Sign Out</button>
+<div class="container">
+  <div class="nav">
+    <a href="/dashboard">&larr; Dashboard</a>
+    <a href="/keys">API Keys</a>
+    <a href="/tools" class="active">Tools</a>
+    <a href="/settings">Settings</a>
+  </div>
+  
+  <h1>Tools</h1>
+  <p class="subtitle">Enable or disable AI tools</p>
+  
+  <div class="tool-grid" id="tool-grid"></div>
+  
+  <button class="btn" onclick="saveTools()">Save Changes</button>
+  <div class="msg" id="msg"></div>
+</div>
+
+<script>
+var tools = [
+  {
+    id: 'execute_command',
+    name: 'Terminal',
+    icon: '&#9881;',
+    desc: 'Execute shell commands in sandboxed environment',
+    category: 'system',
+    dangerous: true
+  },
+  {
+    id: 'execute_workflow',
+    name: 'Workflow',
+    icon: '&#9881;',
+    desc: 'Run multi-step command sequences with conditions',
+    category: 'system',
+    dangerous: true
+  },
+  {
+    id: 'save_memory',
+    name: 'Memory Save',
+    icon: '&#128218;',
+    desc: 'Store important information for later retrieval',
+    category: 'memory',
+    dangerous: false
+  },
+  {
+    id: 'search_memories',
+    name: 'Memory Search',
+    icon: '&#128269;',
+    desc: 'Search through stored memories',
+    category: 'memory',
+    dangerous: false
+  },
+  {
+    id: 'list_memories',
+    name: 'Memory List',
+    icon: '&#128196;',
+    desc: 'List all stored memories or filter by category',
+    category: 'memory',
+    dangerous: false
+  },
+  {
+    id: 'delete_memory',
+    name: 'Memory Delete',
+    icon: '&#128465;',
+    desc: 'Delete a specific memory entry',
+    category: 'memory',
+    dangerous: false
+  },
+  {
+    id: 'update_memory',
+    name: 'Memory Update',
+    icon: '&#9998;',
+    desc: 'Update an existing memory',
+    category: 'memory',
+    dangerous: false
+  },
+  {
+    id: 'schedule_cron',
+    name: 'Cron Schedule',
+    icon: '&#9201;',
+    desc: 'Schedule recurring commands',
+    category: 'automation',
+    dangerous: false
+  },
+  {
+    id: 'list_cron',
+    name: 'Cron List',
+    icon: '&#128196;',
+    desc: 'List scheduled cron jobs',
+    category: 'automation',
+    dangerous: false
+  },
+  {
+    id: 'remove_cron',
+    name: 'Cron Remove',
+    icon: '&#128465;',
+    desc: 'Remove a scheduled cron job',
+    category: 'automation',
+    dangerous: false
+  },
+  {
+    id: 'web_search',
+    name: 'Web Search',
+    icon: '&#127760;',
+    desc: 'Search the web for current information',
+    category: 'web',
+    dangerous: false
+  },
+  {
+    id: 'scrape_url',
+    name: 'Web Scrape',
+    icon: '&#128279;',
+    desc: 'Scrape and extract content from web pages',
+    category: 'web',
+    dangerous: false
+  },
+  {
+    id: 'spawn_subagent',
+    name: 'Subagent',
+    icon: '&#128101;',
+    desc: 'Spawn parallel subagents for complex tasks',
+    category: 'advanced',
+    dangerous: false
+  },
+  {
+    id: 'send_voice_message',
+    name: 'Voice Response',
+    icon: '&#128264;',
+    desc: 'Send voice message responses (requires Piper)',
+    category: 'communication',
+    dangerous: false
+  }
+];
+
+var enabledTools = {};
+
+async function loadTools() {
+  try {
+    var res = await fetch('/api/tools');
+    if (res.status === 401) { window.location.href = '/'; return; }
+    enabledTools = await res.json();
+    render();
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+function render() {
+  var grid = document.getElementById('tool-grid');
+  grid.innerHTML = tools.map(function(t) {
+    var isEnabled = enabledTools[t.id] !== false;
+    var cardClass = isEnabled ? 'tool-card' : 'tool-card disabled';
+    var toggleClass = isEnabled ? 'toggle-switch active' : 'toggle-switch';
+    
+    return '<div class="' + cardClass + '" id="tool-' + t.id + '">' +
+      '<div class="tool-header">' +
+        '<div class="tool-name">' +
+          '<div class="tool-icon">' + t.icon + '</div>' +
+          t.name +
+        '</div>' +
+        '<div class="' + toggleClass + '" onclick="toggleTool(\'' + t.id + '\')"></div>' +
+      '</div>' +
+      '<div class="tool-desc">' + t.desc + '</div>' +
+      '<div class="tool-meta">' +
+        '<span>Category: ' + t.category + '</span>' +
+        (t.dangerous ? '<span style="color:#f56565;">⚠ Dangerous</span>' : '') +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+
+function toggleTool(id) {
+  enabledTools[id] = enabledTools[id] === false ? true : false;
+  render();
+}
+
+function showMsg(text, ok) {
+  var el = document.getElementById('msg');
+  el.textContent = text;
+  el.className = 'msg ' + (ok ? 'msg-ok' : 'msg-err');
+  setTimeout(function() { el.textContent = ''; el.className = 'msg'; }, 3000);
+}
+
+async function saveTools() {
+  try {
+    var res = await fetch('/api/tools', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(enabledTools)
+    });
+    if (res.status === 401) { window.location.href = '/'; return; }
+    var data = await res.json();
+    if (data.ok) {
+      showMsg('Tool settings saved', true);
+    } else {
+      showMsg(data.error || 'Save failed', false);
+    }
+  } catch (e) {
+    showMsg('Network error', false);
+  }
+}
+
+function logout() {
+  fetch('/logout', { method: 'POST' }).then(function() {
+    window.location.href = '/';
+  });
+}
+
+loadTools();
+</script>
+</body>
+</html>

@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{BOT_NAME}} — Settings</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0a0a0f;
+    color: #e0e0e0;
+    min-height: 100vh;
+    padding: 2rem;
+  }
+  
+  .container {
+    max-width: 800px;
+    margin: 0 auto;
+  }
+  
+  h1 {
+    font-size: 1.6rem;
+    font-weight: 600;
+    margin-bottom: 0.3rem;
+    color: #fff;
+  }
+  
+  .subtitle {
+    font-size: 0.85rem;
+    color: #666;
+    margin-bottom: 2rem;
+  }
+  
+  .section {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+  
+  .section-title {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 1rem;
+    color: #63b3ed;
+  }
+  
+  .form-group {
+    margin-bottom: 1rem;
+  }
+  
+  .form-group label {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 500;
+    margin-bottom: 0.4rem;
+    color: #999;
+  }
+  
+  .form-group input[type="text"],
+  .form-group input[type="password"] {
+    width: 100%;
+    padding: 0.65rem 0.9rem;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    color: #e0e0e0;
+    font-size: 0.9rem;
+    font-family: monospace;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  
+  .form-group input:focus {
+    border-color: rgba(99, 179, 237, 0.5);
+  }
+  
+  .form-group input::placeholder {
+    color: #444;
+  }
+  
+  .form-hint {
+    font-size: 0.75rem;
+    color: #555;
+    margin-top: 0.3rem;
+  }
+  
+  .btn {
+    padding: 0.65rem 1.5rem;
+    background: rgba(99, 179, 237, 0.15);
+    border: 1px solid rgba(99, 179, 237, 0.3);
+    border-radius: 8px;
+    color: #63b3ed;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-right: 0.5rem;
+  }
+  
+  .btn:hover {
+    background: rgba(99, 179, 237, 0.25);
+  }
+  
+  .btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  
+  .btn-danger {
+    background: rgba(245, 101, 101, 0.15);
+    border-color: rgba(245, 101, 101, 0.3);
+    color: #f56565;
+  }
+  
+  .btn-danger:hover {
+    background: rgba(245, 101, 101, 0.25);
+  }
+  
+  .msg {
+    font-size: 0.85rem;
+    margin-top: 1rem;
+    min-height: 1.2em;
+    transition: opacity 0.3s;
+  }
+  
+  .msg-ok { color: #48bb78; }
+  .msg-err { color: #f56565; }
+  
+  .nav {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 2rem;
+  }
+  
+  .nav a {
+    font-size: 0.85rem;
+    color: #555;
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+  
+  .nav a:hover { color: #999; }
+  .nav a.active { color: #63b3ed; }
+  
+  .logout-btn {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    padding: 0.4rem 0.8rem;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 6px;
+    color: #666;
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  
+  .logout-btn:hover {
+    background: rgba(255,255,255,0.08);
+    color: #999;
+  }
+  
+  .status-badge {
+    font-size: 0.7rem;
+    font-weight: 500;
+    padding: 0.2rem 0.6rem;
+    border-radius: 20px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    display: inline-block;
+    margin-left: 0.5rem;
+  }
+  
+  .badge-set {
+    background: rgba(72, 187, 120, 0.15);
+    color: #48bb78;
+    border: 1px solid rgba(72, 187, 120, 0.3);
+  }
+  
+  .badge-unset {
+    background: rgba(245, 101, 101, 0.15);
+    color: #f56565;
+    border: 1px solid rgba(245, 101, 101, 0.3);
+  }
+</style>
+</head>
+<body>
+<button class="logout-btn" onclick="logout()">Sign Out</button>
+<div class="container">
+  <div class="nav">
+    <a href="/dashboard">&larr; Dashboard</a>
+    <a href="/keys">API Keys</a>
+    <a href="/tools">Tools</a>
+    <a href="/settings" class="active">Settings</a>
+  </div>
+  
+  <h1>Settings</h1>
+  <p class="subtitle">Configure bot behavior and environment</p>
+  
+  <div class="section">
+    <div class="section-title">Bot Configuration</div>
+    
+    <div class="form-group">
+      <label>Bot Name</label>
+      <input type="text" id="bot-name" placeholder="Clai-TALOS">
+      <div class="form-hint">Display name shown in dashboard and messages</div>
+    </div>
+    
+    <div class="form-group">
+      <label>Telegram Bot Token</label>
+      <input type="password" id="telegram-token" placeholder="123456789:ABC...">
+      <div class="form-hint">From @BotFather - restart required if changed</div>
+    </div>
+    
+    <div class="form-group">
+      <label>Web Dashboard Port</label>
+      <input type="text" id="web-port" placeholder="8080">
+      <div class="form-hint">Port for web dashboard (default: 8080)</div>
+    </div>
+  </div>
+  
+  <div class="section">
+    <div class="section-title">API Keys</div>
+    
+    <div class="form-group">
+      <label>ZhipuAI API Key <span id="zhipuai-status"></span></label>
+      <input type="password" id="zhipuai-key" placeholder="Get from https://open.bigmodel.cn/">
+    </div>
+    
+    <div class="form-group">
+      <label>Gemini API Key <span id="gemini-status"></span></label>
+      <input type="password" id="gemini-key" placeholder="Get from https://aistudio.google.com/">
+    </div>
+    
+    <div class="form-group">
+      <label>OpenAI API Key <span id="openai-status"></span></label>
+      <input type="password" id="openai-key" placeholder="For voice transcription">
+    </div>
+    
+    <div class="form-group">
+      <label>Firecrawl API Key <span id="firecrawl-status"></span></label>
+      <input type="password" id="firecrawl-key" placeholder="For web scraping">
+    </div>
+  </div>
+  
+  <div class="section">
+    <div class="section-title">Voice Settings</div>
+    
+    <div class="form-group">
+      <label>Piper Voice Model</label>
+      <input type="text" id="piper-voice" placeholder="en_US-lessac-medium">
+      <div class="form-hint">Voice model for TTS (default: en_US-lessac-medium)</div>
+    </div>
+  </div>
+  
+  <button class="btn" onclick="saveSettings()">Save Settings</button>
+  <button class="btn" onclick="hotReload()">Hot Reload</button>
+  <button class="btn btn-danger" onclick="restartBot()">Restart Bot</button>
+  
+  <div class="msg" id="msg"></div>
+</div>
+
+<script>
+async function loadSettings() {
+  try {
+    var res = await fetch('/api/settings');
+    if (res.status === 401) { window.location.href = '/'; return; }
+    var data = await res.json();
+    
+    document.getElementById('bot-name').value = data.BOT_NAME || '';
+    document.getElementById('telegram-token').value = data.TELEGRAM_BOT_TOKEN || '';
+    document.getElementById('web-port').value = data.WEB_PORT || '8080';
+    document.getElementById('zhipuai-key').value = data.ZHIPUAI_API_KEY || '';
+    document.getElementById('gemini-key').value = data.GEMINI_API_KEY || '';
+    document.getElementById('openai-key').value = data.OPENAI_API_KEY || '';
+    document.getElementById('firecrawl-key').value = data.FIRECRAWL_API_KEY || '';
+    document.getElementById('piper-voice').value = data.PIPER_VOICE || 'en_US-lessac-medium';
+    
+    updateStatus('zhipuai', data.ZHIPUAI_API_KEY);
+    updateStatus('gemini', data.GEMINI_API_KEY);
+    updateStatus('openai', data.OPENAI_API_KEY);
+    updateStatus('firecrawl', data.FIRECRAWL_API_KEY);
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+function updateStatus(key, value) {
+  var el = document.getElementById(key + '-status');
+  if (value) {
+    el.innerHTML = '<span class="status-badge badge-set">Set</span>';
+  } else {
+    el.innerHTML = '<span class="status-badge badge-unset">Not Set</span>';
+  }
+}
+
+function showMsg(text, ok) {
+  var el = document.getElementById('msg');
+  el.textContent = text;
+  el.className = 'msg ' + (ok ? 'msg-ok' : 'msg-err');
+  setTimeout(function() { el.textContent = ''; el.className = 'msg'; }, 4000);
+}
+
+async function saveSettings() {
+  var payload = {
+    BOT_NAME: document.getElementById('bot-name').value.trim(),
+    TELEGRAM_BOT_TOKEN: document.getElementById('telegram-token').value.trim(),
+    WEB_PORT: document.getElementById('web-port').value.trim() || '8080',
+    ZHIPUAI_API_KEY: document.getElementById('zhipuai-key').value.trim(),
+    GEMINI_API_KEY: document.getElementById('gemini-key').value.trim(),
+    OPENAI_API_KEY: document.getElementById('openai-key').value.trim(),
+    FIRECRAWL_API_KEY: document.getElementById('firecrawl-key').value.trim(),
+    PIPER_VOICE: document.getElementById('piper-voice').value.trim() || 'en_US-lessac-medium'
+  };
+  
+  try {
+    var res = await fetch('/api/settings', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    if (res.status === 401) { window.location.href = '/'; return; }
+    var data = await res.json();
+    if (data.ok) {
+      showMsg('Settings saved successfully', true);
+      updateStatus('zhipuai', payload.ZHIPUAI_API_KEY);
+      updateStatus('gemini', payload.GEMINI_API_KEY);
+      updateStatus('openai', payload.OPENAI_API_KEY);
+      updateStatus('firecrawl', payload.FIRECRAWL_API_KEY);
+    } else {
+      showMsg(data.error || 'Save failed', false);
+    }
+  } catch (e) {
+    showMsg('Network error', false);
+  }
+}
+
+async function hotReload() {
+  try {
+    var res = await fetch('/api/reload', { method: 'POST' });
+    if (res.status === 401) { window.location.href = '/'; return; }
+    var data = await res.json();
+    if (data.ok) {
+      showMsg('Configuration reloaded', true);
+    } else {
+      showMsg(data.error || 'Reload failed', false);
+    }
+  } catch (e) {
+    showMsg('Network error', false);
+  }
+}
+
+async function restartBot() {
+  if (!confirm('This will restart the bot. Continue?')) return;
+  
+  try {
+    var res = await fetch('/api/restart', { method: 'POST' });
+    if (res.status === 401) { window.location.href = '/'; return; }
+    var data = await res.json();
+    if (data.ok) {
+      showMsg('Bot restarting...', true);
+      setTimeout(function() { window.location.reload(); }, 2000);
+    } else {
+      showMsg(data.error || 'Restart failed', false);
+    }
+  } catch (e) {
+    showMsg('Network error', false);
+  }
+}
+
+function logout() {
+  fetch('/logout', { method: 'POST' }).then(function() {
+    window.location.href = '/';
+  });
+}
+
+loadSettings();
+</script>
+</body>
+</html>

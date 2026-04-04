@@ -1,0 +1,9 @@
+python-telegram-bot
+python-dotenv
+aiohttp
+bcrypt
+zhipuai
+httpx
+docker
+croniter
+google-generativeai

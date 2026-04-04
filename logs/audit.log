@@ -1,0 +1,220 @@
+2026-04-03 18:52:47,509 [INFO] {"timestamp": "2026-04-03T22:52:47Z", "command": "ls -la", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 18:52:47,513 [INFO] {"timestamp": "2026-04-03T22:52:47Z", "command": "ls /nonexistent", "status": "success", "sandbox_mode": "native", "exit_code": 1}
+2026-04-03 18:52:47,513 [INFO] {"timestamp": "2026-04-03T22:52:47Z", "command": "rm -rf /tmp/test", "status": "confirmation_required", "sandbox_mode": "native"}
+2026-04-03 18:52:47,514 [INFO] {"timestamp": "2026-04-03T22:52:47Z", "command": "echo test", "status": "rate_limited", "sandbox_mode": "native", "exit_code": null, "error": "Rate limit exceeded. Too many commands."}
+2026-04-03 18:52:47,514 [INFO] {"timestamp": "2026-04-03T22:52:47Z", "command": "echo test", "status": "rate_limited", "sandbox_mode": "native", "exit_code": null, "error": "Rate limit exceeded. Too many commands."}
+2026-04-03 18:52:47,514 [INFO] {"timestamp": "2026-04-03T22:52:47Z", "command": "echo test", "status": "rate_limited", "sandbox_mode": "native", "exit_code": null, "error": "Rate limit exceeded. Too many commands."}
+2026-04-03 18:52:47,517 [INFO] {"timestamp": "2026-04-03T22:52:47Z", "command": "echo 'Step 1'", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 18:52:47,520 [INFO] {"timestamp": "2026-04-03T22:52:47Z", "command": "echo 'Step 2'", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 18:52:47,523 [INFO] {"timestamp": "2026-04-03T22:52:47Z", "command": "ls /nonexistent", "status": "success", "sandbox_mode": "native", "exit_code": 1}
+2026-04-03 18:54:31,127 [INFO] {"timestamp": "2026-04-03T22:54:31Z", "command": "echo 'Hello from TALOS terminal agent!'", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 18:54:31,136 [INFO] {"timestamp": "2026-04-03T22:54:31Z", "command": "df -h", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 18:54:31,140 [INFO] {"timestamp": "2026-04-03T22:54:31Z", "command": "pwd", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 18:54:31,143 [INFO] {"timestamp": "2026-04-03T22:54:31Z", "command": "echo 'Step 1: Check'", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 18:54:31,146 [INFO] {"timestamp": "2026-04-03T22:54:31Z", "command": "echo 'Step 2: Process'", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 18:54:31,149 [INFO] {"timestamp": "2026-04-03T22:54:31Z", "command": "echo 'Step 3: Complete'", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 18:59:37,060 [INFO] {"timestamp": "2026-04-03T22:59:37Z", "command": "echo 'Hello from TALOS terminal agent!'", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 18:59:37,065 [INFO] {"timestamp": "2026-04-03T22:59:37Z", "command": "df -h", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 18:59:37,068 [INFO] {"timestamp": "2026-04-03T22:59:37Z", "command": "pwd", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 18:59:37,071 [INFO] {"timestamp": "2026-04-03T22:59:37Z", "command": "echo 'Step 1: Check'", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 18:59:37,074 [INFO] {"timestamp": "2026-04-03T22:59:37Z", "command": "echo 'Step 2: Process'", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 18:59:37,077 [INFO] {"timestamp": "2026-04-03T22:59:37Z", "command": "echo 'Step 3: Complete'", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 19:00:52,965 [INFO] {"timestamp": "2026-04-03T23:00:52Z", "command": "echo 'Hello from TALOS terminal agent!'", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 19:00:52,970 [INFO] {"timestamp": "2026-04-03T23:00:52Z", "command": "df -h", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 19:00:52,973 [INFO] {"timestamp": "2026-04-03T23:00:52Z", "command": "pwd", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 19:00:52,977 [INFO] {"timestamp": "2026-04-03T23:00:52Z", "command": "echo 'Step 1: Check'", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 19:00:52,980 [INFO] {"timestamp": "2026-04-03T23:00:52Z", "command": "echo 'Step 2: Process'", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 19:00:52,983 [INFO] {"timestamp": "2026-04-03T23:00:52Z", "command": "echo 'Step 3: Complete'", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 19:26:01,464 [INFO] {"timestamp": "2026-04-03T23:26:01Z", "command": "open -a \"Google Chrome\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 20:05:51,663 [INFO] {"timestamp": "2026-04-04T00:05:51Z", "command": "sw_vers", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 20:05:51,675 [INFO] {"timestamp": "2026-04-04T00:05:51Z", "command": "sysctl -n machdep.cpu.brand_string && sysctl -n hw.ncpu", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 20:05:52,184 [INFO] {"timestamp": "2026-04-04T00:05:52Z", "command": "vm_stat | head -10 && top -l 1 | grep PhysMem", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 20:05:52,974 [INFO] {"timestamp": "2026-04-04T00:05:52Z", "command": "ps aux | grep -i chrome | grep -v grep", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 20:05:54,722 [INFO] {"timestamp": "2026-04-04T00:05:54Z", "command": "df -h /", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 20:06:39,729 [INFO] {"timestamp": "2026-04-04T00:06:39Z", "command": "sw_vers", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 20:06:40,191 [INFO] {"timestamp": "2026-04-04T00:06:40Z", "command": "vm_stat | head -10 && echo \"---\" && top -l 1 | head -5", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 20:06:40,197 [INFO] {"timestamp": "2026-04-04T00:06:40Z", "command": "df -h /", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 20:06:40,202 [INFO] {"timestamp": "2026-04-04T00:06:40Z", "command": "ps aux --sort=-%mem | head -15", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 20:06:44,037 [INFO] {"timestamp": "2026-04-04T00:06:44Z", "command": "ps aux -m | head -15", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 20:07:06,388 [INFO] {"timestamp": "2026-04-04T00:07:06Z", "command": "ps aux | grep -i \"Google Chrome\" | grep -v grep", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 20:14:53,154 [INFO] {"timestamp": "2026-04-04T00:14:53Z", "command": "curl -s \"https://news.google.com/rss/search?q=Donald+Trump&hl=en-US&gl=US&ceid=US:en\" | head -200", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 20:43:12,308 [INFO] {"timestamp": "2026-04-04T00:43:12Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 20:43:42,330 [INFO] {"timestamp": "2026-04-04T00:43:42Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 20:44:12,353 [INFO] {"timestamp": "2026-04-04T00:44:12Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 20:44:42,373 [INFO] {"timestamp": "2026-04-04T00:44:42Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 20:45:12,397 [INFO] {"timestamp": "2026-04-04T00:45:12Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 20:45:42,416 [INFO] {"timestamp": "2026-04-04T00:45:42Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 20:46:12,430 [INFO] {"timestamp": "2026-04-04T00:46:12Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 20:46:42,443 [INFO] {"timestamp": "2026-04-04T00:46:42Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 20:47:12,461 [INFO] {"timestamp": "2026-04-04T00:47:12Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 20:47:42,482 [INFO] {"timestamp": "2026-04-04T00:47:42Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 20:48:12,504 [INFO] {"timestamp": "2026-04-04T00:48:12Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 20:48:42,522 [INFO] {"timestamp": "2026-04-04T00:48:42Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 20:49:12,545 [INFO] {"timestamp": "2026-04-04T00:49:12Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 20:49:42,562 [INFO] {"timestamp": "2026-04-04T00:49:42Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 20:50:12,583 [INFO] {"timestamp": "2026-04-04T00:50:12Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 20:50:42,600 [INFO] {"timestamp": "2026-04-04T00:50:42Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 20:51:12,627 [INFO] {"timestamp": "2026-04-04T00:51:12Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 20:51:42,645 [INFO] {"timestamp": "2026-04-04T00:51:42Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 20:52:12,668 [INFO] {"timestamp": "2026-04-04T00:52:12Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 20:52:42,683 [INFO] {"timestamp": "2026-04-04T00:52:42Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 20:53:12,938 [INFO] {"timestamp": "2026-04-04T00:53:12Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 20:53:42,960 [INFO] {"timestamp": "2026-04-04T00:53:42Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 20:54:12,984 [INFO] {"timestamp": "2026-04-04T00:54:12Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 20:54:43,004 [INFO] {"timestamp": "2026-04-04T00:54:43Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 20:55:13,027 [INFO] {"timestamp": "2026-04-04T00:55:13Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 20:55:43,047 [INFO] {"timestamp": "2026-04-04T00:55:43Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 20:56:13,071 [INFO] {"timestamp": "2026-04-04T00:56:13Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 20:56:43,092 [INFO] {"timestamp": "2026-04-04T00:56:43Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 20:57:13,117 [INFO] {"timestamp": "2026-04-04T00:57:13Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 20:57:43,134 [INFO] {"timestamp": "2026-04-04T00:57:43Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 20:58:13,160 [INFO] {"timestamp": "2026-04-04T00:58:13Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 20:58:43,178 [INFO] {"timestamp": "2026-04-04T00:58:43Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 20:59:13,218 [INFO] {"timestamp": "2026-04-04T00:59:13Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 20:59:43,238 [INFO] {"timestamp": "2026-04-04T00:59:43Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:00:13,255 [INFO] {"timestamp": "2026-04-04T01:00:13Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:00:43,270 [INFO] {"timestamp": "2026-04-04T01:00:43Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:01:13,293 [INFO] {"timestamp": "2026-04-04T01:01:13Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:01:43,314 [INFO] {"timestamp": "2026-04-04T01:01:43Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:02:13,336 [INFO] {"timestamp": "2026-04-04T01:02:13Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:02:43,356 [INFO] {"timestamp": "2026-04-04T01:02:43Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:03:13,374 [INFO] {"timestamp": "2026-04-04T01:03:13Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:03:43,390 [INFO] {"timestamp": "2026-04-04T01:03:43Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:04:13,417 [INFO] {"timestamp": "2026-04-04T01:04:13Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:04:43,436 [INFO] {"timestamp": "2026-04-04T01:04:43Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:05:13,461 [INFO] {"timestamp": "2026-04-04T01:05:13Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:05:43,480 [INFO] {"timestamp": "2026-04-04T01:05:43Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:06:13,503 [INFO] {"timestamp": "2026-04-04T01:06:13Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:06:43,522 [INFO] {"timestamp": "2026-04-04T01:06:43Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:07:13,544 [INFO] {"timestamp": "2026-04-04T01:07:13Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:07:43,564 [INFO] {"timestamp": "2026-04-04T01:07:43Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:08:13,583 [INFO] {"timestamp": "2026-04-04T01:08:13Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:08:43,599 [INFO] {"timestamp": "2026-04-04T01:08:43Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:09:13,621 [INFO] {"timestamp": "2026-04-04T01:09:13Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:09:43,641 [INFO] {"timestamp": "2026-04-04T01:09:43Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:10:13,667 [INFO] {"timestamp": "2026-04-04T01:10:13Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:10:43,688 [INFO] {"timestamp": "2026-04-04T01:10:43Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:11:13,710 [INFO] {"timestamp": "2026-04-04T01:11:13Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:11:43,736 [INFO] {"timestamp": "2026-04-04T01:11:43Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:12:13,765 [INFO] {"timestamp": "2026-04-04T01:12:13Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:12:43,786 [INFO] {"timestamp": "2026-04-04T01:12:43Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:13:13,808 [INFO] {"timestamp": "2026-04-04T01:13:13Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:13:43,829 [INFO] {"timestamp": "2026-04-04T01:13:43Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:14:13,854 [INFO] {"timestamp": "2026-04-04T01:14:13Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:14:43,873 [INFO] {"timestamp": "2026-04-04T01:14:43Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:15:13,897 [INFO] {"timestamp": "2026-04-04T01:15:13Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:15:43,925 [INFO] {"timestamp": "2026-04-04T01:15:43Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:16:13,943 [INFO] {"timestamp": "2026-04-04T01:16:13Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:16:43,959 [INFO] {"timestamp": "2026-04-04T01:16:43Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:17:13,983 [INFO] {"timestamp": "2026-04-04T01:17:13Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:17:44,002 [INFO] {"timestamp": "2026-04-04T01:17:44Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:18:14,021 [INFO] {"timestamp": "2026-04-04T01:18:14Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:18:44,038 [INFO] {"timestamp": "2026-04-04T01:18:44Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:19:14,065 [INFO] {"timestamp": "2026-04-04T01:19:14Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:19:44,083 [INFO] {"timestamp": "2026-04-04T01:19:44Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:20:14,108 [INFO] {"timestamp": "2026-04-04T01:20:14Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:20:44,123 [INFO] {"timestamp": "2026-04-04T01:20:44Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:21:14,138 [INFO] {"timestamp": "2026-04-04T01:21:14Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:21:44,155 [INFO] {"timestamp": "2026-04-04T01:21:44Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:22:14,174 [INFO] {"timestamp": "2026-04-04T01:22:14Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:22:44,190 [INFO] {"timestamp": "2026-04-04T01:22:44Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:23:14,215 [INFO] {"timestamp": "2026-04-04T01:23:14Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:23:44,230 [INFO] {"timestamp": "2026-04-04T01:23:44Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:24:14,254 [INFO] {"timestamp": "2026-04-04T01:24:14Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:24:44,274 [INFO] {"timestamp": "2026-04-04T01:24:44Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:25:14,293 [INFO] {"timestamp": "2026-04-04T01:25:14Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:25:44,309 [INFO] {"timestamp": "2026-04-04T01:25:44Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:26:14,329 [INFO] {"timestamp": "2026-04-04T01:26:14Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:26:44,346 [INFO] {"timestamp": "2026-04-04T01:26:44Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:27:14,370 [INFO] {"timestamp": "2026-04-04T01:27:14Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:27:44,387 [INFO] {"timestamp": "2026-04-04T01:27:44Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:28:14,406 [INFO] {"timestamp": "2026-04-04T01:28:14Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:28:44,426 [INFO] {"timestamp": "2026-04-04T01:28:44Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:29:14,447 [INFO] {"timestamp": "2026-04-04T01:29:14Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:29:44,467 [INFO] {"timestamp": "2026-04-04T01:29:44Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:30:14,486 [INFO] {"timestamp": "2026-04-04T01:30:14Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:30:44,503 [INFO] {"timestamp": "2026-04-04T01:30:44Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:31:14,525 [INFO] {"timestamp": "2026-04-04T01:31:14Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:31:44,544 [INFO] {"timestamp": "2026-04-04T01:31:44Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:32:14,567 [INFO] {"timestamp": "2026-04-04T01:32:14Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:32:44,581 [INFO] {"timestamp": "2026-04-04T01:32:44Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:33:14,603 [INFO] {"timestamp": "2026-04-04T01:33:14Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:33:44,623 [INFO] {"timestamp": "2026-04-04T01:33:44Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:34:14,644 [INFO] {"timestamp": "2026-04-04T01:34:14Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:34:44,664 [INFO] {"timestamp": "2026-04-04T01:34:44Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:35:14,678 [INFO] {"timestamp": "2026-04-04T01:35:14Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:35:44,687 [INFO] {"timestamp": "2026-04-04T01:35:44Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:36:14,723 [INFO] {"timestamp": "2026-04-04T01:36:14Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:36:44,740 [INFO] {"timestamp": "2026-04-04T01:36:44Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:37:14,761 [INFO] {"timestamp": "2026-04-04T01:37:14Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:37:44,779 [INFO] {"timestamp": "2026-04-04T01:37:44Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:38:14,800 [INFO] {"timestamp": "2026-04-04T01:38:14Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:38:44,819 [INFO] {"timestamp": "2026-04-04T01:38:44Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:39:14,839 [INFO] {"timestamp": "2026-04-04T01:39:14Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:39:44,855 [INFO] {"timestamp": "2026-04-04T01:39:44Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:40:14,872 [INFO] {"timestamp": "2026-04-04T01:40:14Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:40:44,888 [INFO] {"timestamp": "2026-04-04T01:40:44Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:41:14,906 [INFO] {"timestamp": "2026-04-04T01:41:14Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:41:44,924 [INFO] {"timestamp": "2026-04-04T01:41:44Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:42:14,945 [INFO] {"timestamp": "2026-04-04T01:42:14Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:42:44,959 [INFO] {"timestamp": "2026-04-04T01:42:44Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:43:14,975 [INFO] {"timestamp": "2026-04-04T01:43:14Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:43:44,991 [INFO] {"timestamp": "2026-04-04T01:43:44Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:44:15,012 [INFO] {"timestamp": "2026-04-04T01:44:15Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:44:45,030 [INFO] {"timestamp": "2026-04-04T01:44:45Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:45:15,046 [INFO] {"timestamp": "2026-04-04T01:45:15Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:45:45,061 [INFO] {"timestamp": "2026-04-04T01:45:45Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:46:15,078 [INFO] {"timestamp": "2026-04-04T01:46:15Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:46:45,094 [INFO] {"timestamp": "2026-04-04T01:46:45Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:47:15,110 [INFO] {"timestamp": "2026-04-04T01:47:15Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:47:45,124 [INFO] {"timestamp": "2026-04-04T01:47:45Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:48:15,142 [INFO] {"timestamp": "2026-04-04T01:48:15Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:48:45,155 [INFO] {"timestamp": "2026-04-04T01:48:45Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:49:15,171 [INFO] {"timestamp": "2026-04-04T01:49:15Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:49:45,185 [INFO] {"timestamp": "2026-04-04T01:49:45Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 21:50:15,206 [INFO] {"timestamp": "2026-04-04T01:50:15Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 21:50:45,222 [INFO] {"timestamp": "2026-04-04T01:50:45Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 22:01:45,355 [INFO] {"timestamp": "2026-04-04T02:01:45Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 22:02:15,375 [INFO] {"timestamp": "2026-04-04T02:02:15Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 22:02:45,400 [INFO] {"timestamp": "2026-04-04T02:02:45Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 22:03:15,417 [INFO] {"timestamp": "2026-04-04T02:03:15Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 22:03:45,436 [INFO] {"timestamp": "2026-04-04T02:03:45Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 22:04:15,460 [INFO] {"timestamp": "2026-04-04T02:04:15Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 22:04:45,478 [INFO] {"timestamp": "2026-04-04T02:04:45Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 22:05:15,501 [INFO] {"timestamp": "2026-04-04T02:05:15Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 22:05:45,518 [INFO] {"timestamp": "2026-04-04T02:05:45Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 22:06:15,540 [INFO] {"timestamp": "2026-04-04T02:06:15Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 22:06:45,557 [INFO] {"timestamp": "2026-04-04T02:06:45Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 22:07:31,525 [INFO] {"timestamp": "2026-04-04T02:07:31Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 22:08:01,548 [INFO] {"timestamp": "2026-04-04T02:08:01Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 22:08:31,570 [INFO] {"timestamp": "2026-04-04T02:08:31Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 22:09:01,590 [INFO] {"timestamp": "2026-04-04T02:09:01Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 22:09:31,608 [INFO] {"timestamp": "2026-04-04T02:09:31Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 22:10:01,630 [INFO] {"timestamp": "2026-04-04T02:10:01Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 22:10:31,646 [INFO] {"timestamp": "2026-04-04T02:10:31Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 22:11:01,661 [INFO] {"timestamp": "2026-04-04T02:11:01Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 22:11:31,680 [INFO] {"timestamp": "2026-04-04T02:11:31Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 22:12:01,702 [INFO] {"timestamp": "2026-04-04T02:12:01Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 22:12:31,721 [INFO] {"timestamp": "2026-04-04T02:12:31Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 22:13:01,743 [INFO] {"timestamp": "2026-04-04T02:13:01Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 22:13:31,759 [INFO] {"timestamp": "2026-04-04T02:13:31Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 22:14:01,781 [INFO] {"timestamp": "2026-04-04T02:14:01Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 22:14:31,802 [INFO] {"timestamp": "2026-04-04T02:14:31Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 22:15:01,824 [INFO] {"timestamp": "2026-04-04T02:15:01Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 22:15:53,230 [INFO] {"timestamp": "2026-04-04T02:15:53Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 22:16:23,253 [INFO] {"timestamp": "2026-04-04T02:16:23Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 22:16:53,273 [INFO] {"timestamp": "2026-04-04T02:16:53Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 22:17:23,289 [INFO] {"timestamp": "2026-04-04T02:17:23Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 22:17:53,305 [INFO] {"timestamp": "2026-04-04T02:17:53Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 22:18:23,324 [INFO] {"timestamp": "2026-04-04T02:18:23Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 22:18:53,341 [INFO] {"timestamp": "2026-04-04T02:18:53Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 22:19:23,365 [INFO] {"timestamp": "2026-04-04T02:19:23Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 22:19:53,385 [INFO] {"timestamp": "2026-04-04T02:19:53Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 22:20:23,406 [INFO] {"timestamp": "2026-04-04T02:20:23Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 22:20:53,426 [INFO] {"timestamp": "2026-04-04T02:20:53Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 22:21:23,447 [INFO] {"timestamp": "2026-04-04T02:21:23Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 22:21:53,464 [INFO] {"timestamp": "2026-04-04T02:21:53Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 22:22:23,485 [INFO] {"timestamp": "2026-04-04T02:22:23Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 22:22:53,503 [INFO] {"timestamp": "2026-04-04T02:22:53Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}
+2026-04-03 22:23:23,518 [INFO] {"timestamp": "2026-04-04T02:23:23Z", "command": "echo \"checking in\"", "status": "success", "sandbox_mode": "native", "exit_code": 0}
+2026-04-03 22:23:53,533 [INFO] {"timestamp": "2026-04-04T02:23:53Z", "command": "sleep 30; echo \"checking in\"", "status": "timeout", "sandbox_mode": "native", "exit_code": -1, "error": "Command timed out"}

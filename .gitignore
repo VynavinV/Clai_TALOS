@@ -1,0 +1,8 @@
+venv/
+.env
+.credentials
+.security.log
+__pycache__/
+talos.db
+talos.db-wal
+talos.db-shm

@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{BOT_NAME}} — API Keys</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0a0a0f;
+    color: #e0e0e0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .container {
+    text-align: center;
+    padding: 2rem;
+    max-width: 500px;
+    width: 100%;
+  }
+
+  h1 {
+    font-size: 1.4rem;
+    font-weight: 600;
+    margin-bottom: 0.3rem;
+    color: #fff;
+  }
+
+  .subtitle {
+    font-size: 0.85rem;
+    color: #666;
+    margin-bottom: 2rem;
+  }
+
+  .key-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    width: 100%;
+    margin-bottom: 1.5rem;
+  }
+
+  .key-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 1rem 1.2rem;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 10px;
+    text-align: left;
+  }
+
+  .key-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .key-label {
+    font-size: 0.9rem;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .key-label .icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.8rem;
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .badge-set {
+    font-size: 0.7rem;
+    font-weight: 500;
+    padding: 0.2rem 0.6rem;
+    border-radius: 20px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    background: rgba(72, 187, 120, 0.15);
+    color: #48bb78;
+    border: 1px solid rgba(72, 187, 120, 0.3);
+  }
+
+  .badge-unset {
+    font-size: 0.7rem;
+    font-weight: 500;
+    padding: 0.2rem 0.6rem;
+    border-radius: 20px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    background: rgba(245, 101, 101, 0.15);
+    color: #f56565;
+    border: 1px solid rgba(245, 101, 101, 0.3);
+  }
+
+  .key-input-row {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .key-input-row input {
+    flex: 1;
+    padding: 0.55rem 0.8rem;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    color: #e0e0e0;
+    font-size: 0.85rem;
+    font-family: monospace;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+
+  .key-input-row input:focus {
+    border-color: rgba(99, 179, 237, 0.5);
+  }
+
+  .key-input-row input::placeholder {
+    color: #444;
+  }
+
+  .btn {
+    padding: 0.55rem 1.2rem;
+    background: rgba(99, 179, 237, 0.15);
+    border: 1px solid rgba(99, 179, 237, 0.3);
+    border-radius: 8px;
+    color: #63b3ed;
+    font-size: 0.8rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+
+  .btn:hover {
+    background: rgba(99, 179, 237, 0.25);
+  }
+
+  .btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .btn-wide {
+    width: 100%;
+    padding: 0.75rem;
+    font-size: 0.9rem;
+  }
+
+  .msg {
+    font-size: 0.8rem;
+    margin-top: 0.5rem;
+    min-height: 1.2em;
+    transition: opacity 0.3s;
+  }
+
+  .msg-ok { color: #48bb78; }
+  .msg-err { color: #f56565; }
+
+  .nav-link {
+    display: inline-block;
+    margin-top: 2rem;
+    font-size: 0.75rem;
+    color: #555;
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+
+  .nav-link:hover { color: #999; }
+
+  .logout-btn {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    padding: 0.4rem 0.8rem;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 6px;
+    color: #666;
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .logout-btn:hover {
+    background: rgba(255,255,255,0.08);
+    color: #999;
+  }
+
+  .footer {
+    margin-top: 1.5rem;
+    font-size: 0.7rem;
+    color: #333;
+    letter-spacing: 0.1em;
+  }
+</style>
+</head>
+<body>
+<button class="logout-btn" onclick="logout()">Sign Out</button>
+<div class="container">
+  <h1>API Keys</h1>
+  <p class="subtitle">Manage service API keys</p>
+  <div class="key-list" id="key-list"></div>
+  <button class="btn btn-wide" id="save-btn" onclick="saveAll()">Save All</button>
+  <div class="msg" id="msg"></div>
+  <a href="/dashboard" class="nav-link">&larr; Back to Dashboard</a>
+  <div class="footer">{{BOT_NAME}}</div>
+</div>
+<script>
+var keys = [];
+
+async function loadKeys() {
+  try {
+    var res = await fetch('/api/keys');
+    if (res.status === 401) { window.location.href = '/'; return; }
+    keys = await res.json();
+    render();
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+function render() {
+  var list = document.getElementById('key-list');
+  list.innerHTML = keys.map(function(k) {
+    var badge = k.is_set
+      ? '<span class="badge-set">Set</span>'
+      : '<span class="badge-unset">Not set</span>';
+    var placeholder = k.is_set ? '••••••••••••••••' : 'Enter API key...';
+    return '<div class="key-item">' +
+      '<div class="key-header">' +
+        '<div class="key-label"><div class="icon">' + k.icon + '</div>' + k.label + '</div>' +
+        badge +
+      '</div>' +
+      '<div class="key-input-row">' +
+        '<input type="password" id="key-' + k.env_key + '" placeholder="' + placeholder + '" autocomplete="off">' +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+
+function showMsg(text, ok) {
+  var el = document.getElementById('msg');
+  el.textContent = text;
+  el.className = 'msg ' + (ok ? 'msg-ok' : 'msg-err');
+  setTimeout(function() { el.textContent = ''; el.className = 'msg'; }, 3000);
+}
+
+async function saveAll() {
+  var btn = document.getElementById('save-btn');
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+
+  var payload = {};
+  keys.forEach(function(k) {
+    var val = document.getElementById('key-' + k.env_key).value;
+    if (val.trim()) {
+      payload[k.env_key] = val.trim();
+    }
+  });
+
+  try {
+    var res = await fetch('/api/keys', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    if (res.status === 401) { window.location.href = '/'; return; }
+    var data = await res.json();
+    if (data.ok) {
+      showMsg('Keys saved successfully', true);
+      keys = data.keys;
+      render();
+    } else {
+      showMsg(data.error || 'Save failed', false);
+    }
+  } catch (e) {
+    showMsg('Network error', false);
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Save All';
+}
+
+function logout() {
+  fetch('/logout', { method: 'POST' }).then(function() {
+    window.location.href = '/';
+  });
+}
+
+loadKeys();
+</script>
+</body>
+</html>

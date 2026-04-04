@@ -1,0 +1,18 @@
+{
+  "sandbox_mode": "native",
+  "require_confirmation": true,
+  "audit_logging": true,
+  "max_commands_per_minute": 10,
+  "default_timeout": 30,
+  "dangerous_commands": [
+    "rm",
+    "dd",
+    "mkfs",
+    "shutdown",
+    "reboot",
+    "halt",
+    "poweroff",
+    "init",
+    "systemctl"
+  ]
+}
