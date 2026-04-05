@@ -1,13 +1,6 @@
 locall gemma support
 PA system
-dream system to consolidate memories - /dream command
 In depth screen and browser control + logins 
-in depth insights to what agents and stuff are doing on dashboard
-improve settings UI
-ollama
-openrouter
-google test user
-headless settings
 
 Generate Images
 Lyria 3 music

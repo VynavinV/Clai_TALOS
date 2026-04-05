@@ -258,10 +258,275 @@
 
   .board {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 280px;
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 280px);
     gap: 1rem;
     align-items: start;
   }
+
+  .board-main {
+    display: grid;
+    gap: 1rem;
+    align-content: start;
+    min-width: 0;
+  }
+
+  .system-panel {
+    height: fit-content;
+  }
+
+  .agents-web {
+    position: relative;
+    min-height: clamp(210px, 30vh, 320px);
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(143, 217, 255, 0.16);
+    background:
+      radial-gradient(circle at 22% 50%, rgba(86, 206, 255, 0.14), transparent 45%),
+      radial-gradient(circle at 82% 18%, rgba(85, 240, 203, 0.12), transparent 48%),
+      linear-gradient(165deg, rgba(10, 18, 32, 0.78), rgba(8, 14, 24, 0.72));
+    overflow: hidden;
+    isolation: isolate;
+  }
+
+  .agents-web::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(143, 217, 255, 0.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(143, 217, 255, 0.06) 1px, transparent 1px);
+    background-size: 34px 34px;
+    opacity: 0.35;
+    z-index: 0;
+  }
+
+  .agents-web-links {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+    pointer-events: none;
+  }
+
+  .agents-web-links line {
+    stroke: rgba(143, 217, 255, 0.2);
+    stroke-width: 1.3;
+    stroke-linecap: round;
+  }
+
+  .agents-web-links line.active {
+    stroke: rgba(86, 206, 255, 0.5);
+    filter: drop-shadow(0 0 4px rgba(86, 206, 255, 0.44));
+  }
+
+  .agents-web-stage {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    pointer-events: none;
+  }
+
+  .agent-node {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    width: clamp(118px, 15vw, 170px);
+    min-height: 76px;
+    padding: 0.6rem 0.62rem;
+    border-radius: 12px;
+    border: 1px solid rgba(143, 217, 255, 0.24);
+    background: linear-gradient(155deg, rgba(17, 29, 46, 0.92), rgba(11, 18, 31, 0.82));
+    box-shadow: 0 10px 22px rgba(3, 10, 20, 0.38);
+    overflow: hidden;
+    backdrop-filter: blur(2px);
+  }
+
+  .agent-node::before {
+    content: '';
+    position: absolute;
+    width: 54px;
+    height: 54px;
+    top: -22px;
+    left: -18px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(86, 206, 255, 0.36), transparent 72%);
+    opacity: 0.45;
+    pointer-events: none;
+  }
+
+  .agent-node::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    opacity: 0;
+  }
+
+  .agent-node.active::after {
+    opacity: 1;
+    animation: shimmer 2s ease-in-out infinite;
+  }
+
+  @keyframes shimmer {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+  }
+
+  .agent-node.subagent {
+    z-index: 3;
+  }
+
+  .agent-node.orchestrator {
+    width: clamp(150px, 20vw, 210px);
+    min-height: 92px;
+    border-color: rgba(86, 206, 255, 0.52);
+    background: linear-gradient(150deg, rgba(86, 206, 255, 0.2), rgba(13, 23, 38, 0.9));
+    box-shadow: 0 14px 28px rgba(6, 16, 30, 0.48);
+    z-index: 4;
+  }
+
+  .agent-node.is-idle {
+    opacity: 0.84;
+  }
+
+  .agent-node-head {
+    display: flex;
+    align-items: center;
+    gap: 0.42rem;
+    min-width: 0;
+    margin-bottom: 0.24rem;
+  }
+
+  .agent-node-icon {
+    width: 21px;
+    height: 21px;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #f6fbff;
+    background: linear-gradient(135deg, rgba(139, 92, 246, 0.94), rgba(177, 151, 255, 0.92));
+    box-shadow: 0 0 10px rgba(139, 92, 246, 0.34), inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+    flex-shrink: 0;
+    line-height: 1;
+  }
+
+  .agent-node.orchestrator .agent-node-icon {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.95), rgba(86, 206, 255, 0.94));
+    box-shadow: 0 0 10px rgba(86, 206, 255, 0.34), inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+  }
+
+  .agent-node-name {
+    font-size: 0.74rem;
+    font-weight: 600;
+    color: var(--text-0);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .agent-node-status {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.61rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.055em;
+    color: #9ec2d8;
+  }
+
+  .agent-node-task {
+    margin-top: 0.26rem;
+    font-size: 0.66rem;
+    color: var(--text-2);
+    line-height: 1.24;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .agent-node-task strong {
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  .agent-node.more-node {
+    width: 104px;
+    min-height: 44px;
+    padding: 0.35rem 0.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--text-1);
+    border-style: dashed;
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .live-dot-sm {
+    display: inline-block;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    margin-right: 0.3rem;
+    vertical-align: middle;
+  }
+
+  .live-dot-sm.on {
+    background: var(--ok);
+    box-shadow: 0 0 6px rgba(66,223,173,0.6);
+    animation: pulse-dot-sm 1.4s ease-in-out infinite;
+  }
+
+  .live-dot-sm.off { background: var(--text-2); }
+
+  @keyframes pulse-dot-sm {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.8); }
+  }
+
+  .agents-empty {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.7rem;
+    color: var(--text-2);
+    font-size: 0.78rem;
+    z-index: 5;
+    pointer-events: none;
+  }
+
+  .agents-empty .sleeping-icon {
+    font-size: 1.1rem;
+    opacity: 0.4;
+  }
+
+  .view-activity-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.7rem;
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    margin-top: 0;
+    transition: color 0.2s;
+  }
+
+  .view-activity-link:hover { color: #a0e0ff; }
+  .view-activity-link .arrow { transition: transform 0.2s; }
+  .view-activity-link:hover .arrow { transform: translateX(3px); }
 
   .panel {
     background: linear-gradient(165deg, var(--surface-1), var(--surface-0));
@@ -333,6 +598,7 @@
   .side-stack {
     display: grid;
     gap: 0.85rem;
+    align-content: start;
   }
 
   .telemetry {
@@ -459,6 +725,10 @@
     .quick-actions {
       align-content: start;
     }
+
+    .agents-web {
+      min-height: 240px;
+    }
   }
 
   @media (max-width: 768px) {
@@ -490,6 +760,18 @@
     .panel {
       padding: 0.88rem;
       border-radius: 16px;
+    }
+
+    .agents-web {
+      min-height: 210px;
+    }
+
+    .agent-node {
+      width: min(134px, 42vw);
+    }
+
+    .agent-node.orchestrator {
+      width: min(168px, 50vw);
     }
 
     .side-stack {
@@ -542,26 +824,43 @@
   </div>
 
   <div class="board">
-    <section class="panel">
+    <div class="board-main">
+      <section class="panel">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 0.7rem;">
+          <h2 class="panel-title" style="margin-bottom:0;">Live Agents</h2>
+          <a href="/activity" class="view-activity-link">Full activity monitor <span class="arrow">&rarr;</span></a>
+        </div>
+        <div class="agents-web" id="agents-web">
+          <svg class="agents-web-links" id="agents-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg>
+          <div class="agents-web-stage" id="agents-strip"></div>
+          <div class="agents-empty" id="agents-empty">
+            <span class="sleeping-icon">&#128564;</span>
+            <span>No active agents right now</span>
+          </div>
+        </div>
+      </section>
+
+      <aside class="side-stack">
+        <section class="telemetry">
+          <div class="telemetry-label">Time Running</div>
+          <div class="uptime-value" id="uptime">--:--:--</div>
+          <p class="telemetry-note">This updates automatically every few seconds.</p>
+        </section>
+
+        <section class="panel quick-actions">
+          <h2 class="panel-title">Common Tasks</h2>
+          <a href="/static/chat.html" class="quick-btn">&#9993; Open Chat</a>
+          <a href="/keys" class="quick-btn">&#9919; Keys & Connections</a>
+          <a href="/settings" class="quick-btn">&#9881; Settings & Preferences</a>
+          <button class="quick-btn" onclick="hotReload()">&#8635; Refresh Assistant</button>
+        </section>
+      </aside>
+    </div>
+
+    <section class="panel system-panel">
       <h2 class="panel-title">System Check</h2>
       <div class="status-grid" id="status-grid"></div>
     </section>
-
-    <aside class="side-stack">
-      <section class="telemetry">
-        <div class="telemetry-label">Time Running</div>
-        <div class="uptime-value" id="uptime">--:--:--</div>
-        <p class="telemetry-note">This updates automatically every few seconds.</p>
-      </section>
-
-      <section class="panel quick-actions">
-        <h2 class="panel-title">Common Tasks</h2>
-        <a href="/static/chat.html" class="quick-btn">&#9993; Open Chat</a>
-        <a href="/keys" class="quick-btn">&#9919; Keys & Connections</a>
-        <a href="/settings" class="quick-btn">&#9881; Settings & Preferences</a>
-        <button class="quick-btn" onclick="hotReload()">&#8635; Refresh Assistant</button>
-      </section>
-    </aside>
   </div>
 </main>
 
@@ -644,6 +943,381 @@ function toggleSidebar() {
 
 poll();
 setInterval(poll, 5000);
+
+(function() {
+  var events = [];
+  var MAX = 200;
+  var es = null;
+  var reconnectTimer = null;
+  var resizeTimer = null;
+  var SVG_NS = 'http://www.w3.org/2000/svg';
+  var graph = document.getElementById('agents-web');
+  var strip = document.getElementById('agents-strip');
+  var links = document.getElementById('agents-links');
+  var empty = document.getElementById('agents-empty');
+
+  function formatDuration(s) {
+    if (s < 1) return 'just now';
+    if (s < 60) return Math.round(s) + 's ago';
+    if (s < 3600) return Math.floor(s / 60) + 'm ago';
+    return Math.floor(s / 3600) + 'h ago';
+  }
+
+  function truncate(s, n) {
+    return (!s || s.length <= n) ? (s || '') : s.slice(0, n) + '...';
+  }
+
+  function esc(s) {
+    var d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  function clamp(v, lo, hi) {
+    return Math.max(lo, Math.min(hi, v));
+  }
+
+  function prettyAgentName(id) {
+    if (!id) return 'Unknown';
+    if (id === 'orchestrator') return 'Orchestrator';
+    return id.replace(/^sub-/, '').replace(/-/g, ' ');
+  }
+
+  function getNodeMetrics(w) {
+    var compact = w < 560;
+    return {
+      rootW: compact ? Math.min(168, w * 0.5) : clamp(w * 0.2, 150, 210),
+      rootH: compact ? 92 : 94,
+      childW: compact ? Math.min(134, w * 0.42) : clamp(w * 0.15, 118, 170),
+      childH: compact ? 84 : 82,
+      gap: compact ? 12 : 14,
+    };
+  }
+
+  function keepInsideBounds(pos, bounds) {
+    pos.x = clamp(pos.x, bounds.minX, bounds.maxX);
+    pos.y = clamp(pos.y, bounds.minY, bounds.maxY);
+  }
+
+  function buildCompactGridTargets(count, root, bounds, metrics) {
+    var positions = [];
+    var cols = 2;
+    var startY = clamp(root.y + (metrics.rootH / 2) + (metrics.childH / 2) + 12, bounds.minY, bounds.maxY);
+    var rowGap = metrics.childH + 12;
+    var colGap = metrics.childW + 12;
+
+    for (var i = 0; i < count; i++) {
+      var row = Math.floor(i / cols);
+      var col = i % cols;
+      var x = (cols === 1)
+        ? root.x
+        : root.x + ((col === 0 ? -1 : 1) * (colGap / 2));
+      var y = startY + (row * rowGap);
+      positions.push({ x: x, y: y });
+      keepInsideBounds(positions[positions.length - 1], bounds);
+    }
+
+    return positions;
+  }
+
+  function buildRadialTargets(count, root, bounds, metrics) {
+    var ringCaps = [4, 6, 8, 10];
+    var positions = [];
+    var assigned = 0;
+    var ring = 0;
+
+    while (assigned < count) {
+      var capacity = ringCaps[ring] || 12;
+      var take = Math.min(capacity, count - assigned);
+      var rx = (metrics.rootW / 2) + (metrics.childW / 2) + 30 + (ring * (metrics.childW * 0.58));
+      var ry = (metrics.rootH / 2) + (metrics.childH / 2) + 24 + (ring * (metrics.childH * 0.82));
+      var offset = ring % 2 ? (Math.PI / Math.max(2, take)) : 0;
+
+      for (var i = 0; i < take; i++) {
+        var angle = ((Math.PI * 2 * i) / take) + offset;
+        var pos = {
+          x: root.x + (Math.cos(angle) * rx),
+          y: root.y + (Math.sin(angle) * ry)
+        };
+        keepInsideBounds(pos, bounds);
+        positions.push(pos);
+      }
+
+      assigned += take;
+      ring += 1;
+    }
+
+    return positions;
+  }
+
+  function resolveCollisions(positions, targets, root, bounds, metrics) {
+    if (!positions.length) return positions;
+
+    for (var step = 0; step < 90; step++) {
+      for (var i = 0; i < positions.length; i++) {
+        var p = positions[i];
+        var t = targets[i] || p;
+
+        p.x += (t.x - p.x) * 0.07;
+        p.y += (t.y - p.y) * 0.07;
+
+        var dxr = p.x - root.x;
+        var dyr = p.y - root.y;
+        var overlapRootX = (metrics.rootW / 2 + metrics.childW / 2 + metrics.gap) - Math.abs(dxr);
+        var overlapRootY = (metrics.rootH / 2 + metrics.childH / 2 + metrics.gap) - Math.abs(dyr);
+
+        if (overlapRootX > 0 && overlapRootY > 0) {
+          if (overlapRootX < overlapRootY) {
+            p.x += (dxr >= 0 ? 1 : -1) * overlapRootX * 0.62;
+          } else {
+            p.y += (dyr >= 0 ? 1 : -1) * overlapRootY * 0.62;
+          }
+        }
+
+        keepInsideBounds(p, bounds);
+      }
+
+      for (var a = 0; a < positions.length; a++) {
+        for (var b = a + 1; b < positions.length; b++) {
+          var pa = positions[a];
+          var pb = positions[b];
+          var dx = pa.x - pb.x;
+          var dy = pa.y - pb.y;
+
+          var overlapX = (metrics.childW + metrics.gap) - Math.abs(dx);
+          var overlapY = (metrics.childH + metrics.gap) - Math.abs(dy);
+
+          if (overlapX > 0 && overlapY > 0) {
+            if (overlapX < overlapY) {
+              var sx = (dx === 0 ? (a % 2 === 0 ? 1 : -1) : (dx > 0 ? 1 : -1));
+              var pushX = overlapX * 0.5;
+              pa.x += sx * pushX;
+              pb.x -= sx * pushX;
+            } else {
+              var sy = (dy === 0 ? (a % 2 === 0 ? 1 : -1) : (dy > 0 ? 1 : -1));
+              var pushY = overlapY * 0.5;
+              pa.y += sy * pushY;
+              pb.y -= sy * pushY;
+            }
+            keepInsideBounds(pa, bounds);
+            keepInsideBounds(pb, bounds);
+          }
+        }
+      }
+    }
+
+    return positions;
+  }
+
+  function buildNodeLayout(count, w, h) {
+    var metrics = getNodeMetrics(w);
+    var padX = clamp(Math.round(w * 0.09), 32, 76);
+    var padY = clamp(Math.round(h * 0.12), 22, 56);
+
+    var root = {
+      x: w / 2,
+      y: clamp(h * 0.5, padY + (metrics.rootH / 2), h - padY - (metrics.rootH / 2))
+    };
+
+    var bounds = {
+      minX: padX + (metrics.childW / 2),
+      maxX: w - padX - (metrics.childW / 2),
+      minY: padY + (metrics.childH / 2),
+      maxY: h - padY - (metrics.childH / 2)
+    };
+
+    if (count <= 0) {
+      return { root: root, positions: [] };
+    }
+
+    var narrow = w < 500 || h < 230;
+    var targets = narrow
+      ? buildCompactGridTargets(count, root, bounds, metrics)
+      : buildRadialTargets(count, root, bounds, metrics);
+    var positions = targets.map(function(p) { return { x: p.x, y: p.y }; });
+
+    resolveCollisions(positions, targets, root, bounds, metrics);
+    return { root: root, positions: positions };
+  }
+
+  function addLink(x1, y1, x2, y2, isActive) {
+    var line = document.createElementNS(SVG_NS, 'line');
+    line.setAttribute('x1', x1.toFixed(1));
+    line.setAttribute('y1', y1.toFixed(1));
+    line.setAttribute('x2', x2.toFixed(1));
+    line.setAttribute('y2', y2.toFixed(1));
+    if (isActive) line.setAttribute('class', 'active');
+    links.appendChild(line);
+  }
+
+  function nodeHTML(agentId, x, y, isRoot, age, evt) {
+    var isActive = age < 30;
+    var nodeCls = 'agent-node ' + (isRoot ? 'orchestrator' : 'subagent') + (isActive ? ' active' : ' is-idle');
+    var icon = isRoot ? '&#129302;' : '&#128126;';
+    var statusWord = isActive ? 'Working' : 'Idle';
+    var name = isRoot ? 'Orchestrator' : prettyAgentName(agentId);
+    var label = truncate((evt && evt.label) || 'Thinking', 30);
+    var detail = truncate((evt && evt.detail) || 'Waiting for next task', 62);
+
+    return '<div class="' + nodeCls + '" style="left:' + x.toFixed(1) + 'px;top:' + y.toFixed(1) + 'px;">'
+      + '<div class="agent-node-head">'
+      + '<span class="agent-node-icon" aria-hidden="true">' + icon + '</span>'
+      + '<span class="agent-node-name">' + esc(name) + '</span>'
+      + '</div>'
+      + '<div class="agent-node-status"><span class="live-dot-sm ' + (isActive ? 'on' : 'off') + '"></span>' + statusWord + ' · ' + formatDuration(age) + '</div>'
+      + '<div class="agent-node-task"><strong>' + esc(label) + '</strong> ' + esc(detail) + '</div>'
+      + '</div>';
+  }
+
+  function snapshotAgents(now) {
+    var agents = {};
+    var parentByChild = {};
+
+    for (var i = 0; i < events.length; i++) {
+      var e = events[i];
+      if (!e || !e.agent || !e.ts) continue;
+
+      var age = now - e.ts;
+      if (age > 300 && !agents[e.agent]) continue;
+
+      if (!agents[e.agent] || e.ts > agents[e.agent].last.ts) {
+        agents[e.agent] = { id: e.agent, last: e };
+      }
+
+      var extra = e.extra || {};
+      if (extra.parent_agent && e.agent !== extra.parent_agent) {
+        parentByChild[e.agent] = String(extra.parent_agent);
+      }
+      if (e.type === 'spawn') {
+        var sid = extra.subagent_id ? String(extra.subagent_id) : '';
+        if (sid) {
+          parentByChild[sid] = e.agent;
+        }
+      }
+    }
+
+    return { agents: agents, parentByChild: parentByChild };
+  }
+
+  function renderAgents() {
+    if (!graph || !strip || !links || !empty) return;
+
+    var now = Date.now() / 1000;
+    var snapshot = snapshotAgents(now);
+    var agents = snapshot.agents;
+    var parentByChild = snapshot.parentByChild;
+    var ids = Object.keys(agents);
+
+    if (ids.length === 0) {
+      strip.innerHTML = '';
+      links.innerHTML = '';
+      empty.style.display = 'flex';
+      return;
+    }
+
+    var rootId = agents.orchestrator ? 'orchestrator' : ids[0];
+    var children = ids.filter(function(id) {
+      if (id === rootId) return false;
+      var parent = parentByChild[id];
+      if (!parent && id.indexOf('sub-') === 0) parent = rootId;
+      if (parent === rootId) return true;
+      return id.indexOf('sub-') === 0;
+    });
+
+    children.sort(function(a, b) {
+      return agents[b].last.ts - agents[a].last.ts;
+    });
+
+    children = children.slice(0, 10);
+
+    var rect = graph.getBoundingClientRect();
+    var w = Math.max(280, Math.round(rect.width || graph.clientWidth || 280));
+    var h = Math.max(170, Math.round(rect.height || graph.clientHeight || 170));
+    var layout = buildNodeLayout(children.length, w, h);
+    var rootPos = layout.root;
+
+    links.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+    links.innerHTML = '';
+
+    var root = agents[rootId] || { id: rootId, last: { ts: now } };
+    var rootAge = now - (root.last.ts || now);
+    var html = [nodeHTML(rootId, rootPos.x, rootPos.y, true, rootAge, root.last)];
+
+    var positions = layout.positions;
+    for (var i = 0; i < children.length; i++) {
+      var childId = children[i];
+      var child = agents[childId];
+      var childAge = now - (child.last.ts || now);
+      var pos = positions[i];
+
+      addLink(rootPos.x, rootPos.y, pos.x, pos.y, childAge < 30 || rootAge < 30);
+      html.push(nodeHTML(childId, pos.x, pos.y, false, childAge, child.last));
+    }
+
+    strip.innerHTML = html.join('');
+    empty.style.display = 'none';
+  }
+
+  async function loadActivityHistory() {
+    try {
+      var res = await fetch('/api/activity/history');
+      if (res.status === 401) {
+        window.location.href = '/';
+        return;
+      }
+      var data = await res.json();
+      if (Array.isArray(data)) {
+        events = data.slice(-MAX);
+      }
+      renderAgents();
+    } catch (err) {
+      renderAgents();
+    }
+  }
+
+  function connect() {
+    if (document.hidden) return;
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    if (es) { es.close(); es = null; }
+    es = new EventSource('/api/activity/stream');
+    es.onmessage = function(e) {
+      try {
+        var evt = JSON.parse(e.data);
+        events.push(evt);
+        if (events.length > MAX) events = events.slice(-MAX);
+        renderAgents();
+      } catch(err) {}
+    };
+    es.onerror = function() {
+      es.close();
+      es = null;
+      reconnectTimer = setTimeout(connect, 3000);
+    };
+  }
+
+  loadActivityHistory().then(connect);
+
+  window.addEventListener('resize', function() {
+    if (resizeTimer) clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(renderAgents, 120);
+  });
+
+  document.addEventListener('visibilitychange', function() {
+    if (document.hidden) {
+      if (es) { es.close(); es = null; }
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+    } else {
+      connect();
+      renderAgents();
+    }
+  });
+})();
 </script>
 </body>
 </html>

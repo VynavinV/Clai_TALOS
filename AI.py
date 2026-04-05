@@ -1315,28 +1315,36 @@ async def _execute_tool_call(
     send_func: SendFunc | None = None,
     allow_subagent: bool = True,
     _agent_id: str = "orchestrator",
+    _parent_agent_id: str | None = None,
 ) -> str:
     global _tools_guide_cache
     _t = activity_tracker.get_tracker()
     _tool_t0 = time.monotonic()
+
+    def _with_activity_meta(extra: dict | None = None) -> dict:
+        payload = dict(extra or {})
+        if _parent_agent_id:
+            payload.setdefault("parent_agent", _parent_agent_id)
+        return payload
+
     try:
         if tool_name == "execute_command":
             command = str(tool_args.get("command", "")).strip()
-            await _t.emit("command", _agent_id, "Command", f"Running: {command[:120]}", {"command": command})
+            await _t.emit("command", _agent_id, "Command", f"Running: {command[:120]}", _with_activity_meta({"command": command}))
         elif tool_name == "spawn_subagent":
             pass
         else:
-            await _t.emit("tool", _agent_id, "Tool call", f"Calling {tool_name}", {"tool": tool_name, "tool_args": {k: str(v)[:100] for k, v in tool_args.items() if isinstance(v, (str, int, float, bool))}})
+            await _t.emit("tool", _agent_id, "Tool call", f"Calling {tool_name}", _with_activity_meta({"tool": tool_name, "tool_args": {k: str(v)[:100] for k, v in tool_args.items() if isinstance(v, (str, int, float, bool))}}))
 
         if tool_name == "execute_command":
             command = str(tool_args.get("command", "")).strip()
             _tool_detail = f"Running: {command[:120]}"
-            await _t.emit("command", _agent_id, "Command", _tool_detail, {"command": command})
+            await _t.emit("command", _agent_id, "Command", _tool_detail, _with_activity_meta({"command": command}))
         elif tool_name == "spawn_subagent":
             pass
         else:
             _tool_detail = f"Calling {tool_name}"
-            await _t.emit("tool", _agent_id, "Tool call", _tool_detail, {"tool": tool_name, "tool_args": {k: str(v)[:100] for k, v in tool_args.items() if isinstance(v, (str, int, float, bool))}})
+            await _t.emit("tool", _agent_id, "Tool call", _tool_detail, _with_activity_meta({"tool": tool_name, "tool_args": {k: str(v)[:100] for k, v in tool_args.items() if isinstance(v, (str, int, float, bool))}}))
 
         if tool_name == "execute_command":
             timeout = tool_args.get("timeout", 30)
@@ -1821,16 +1829,42 @@ async def _execute_tool_call(
             if not task:
                 return json.dumps({"error": "No task provided"})
             subagent_id = f"sub-{role}-{id(task) % 10000}"
-            await _t.emit("spawn", _agent_id, "Spawning subagent", f"{role}: {task[:100]}", {"role": role, "task": task})
+            await _t.emit(
+                "spawn",
+                _agent_id,
+                "Spawning subagent",
+                f"{role}: {task[:100]}",
+                _with_activity_meta({"role": role, "task": task, "subagent_id": subagent_id, "parent_agent": _agent_id}),
+            )
             wall_timeout = max(30, min(int(_MAX_SUBAGENT_WALL_TIMEOUT_S), 900))
             try:
                 result = await asyncio.wait_for(
-                    _run_subagent(user_id, role, task, ctx, _build_subagent_send_func(send_func), _agent_id=subagent_id),
+                    _run_subagent(
+                        user_id,
+                        role,
+                        task,
+                        ctx,
+                        _build_subagent_send_func(send_func),
+                        _agent_id=subagent_id,
+                        _parent_agent_id=_agent_id,
+                    ),
                     timeout=wall_timeout,
                 )
-                await _t.emit("done", subagent_id, "Subagent finished", f"{role}: {task[:80]}", {"duration_ms": round((time.monotonic() - _tool_t0) * 1000)})
+                await _t.emit(
+                    "done",
+                    subagent_id,
+                    "Subagent finished",
+                    f"{role}: {task[:80]}",
+                    _with_activity_meta({"duration_ms": round((time.monotonic() - _tool_t0) * 1000), "role": role, "subagent_id": subagent_id, "parent_agent": _agent_id}),
+                )
             except asyncio.TimeoutError:
-                await _t.emit("error", subagent_id, "Subagent timed out", f"{role}: {task[:80]} after {wall_timeout}s")
+                await _t.emit(
+                    "error",
+                    subagent_id,
+                    "Subagent timed out",
+                    f"{role}: {task[:80]} after {wall_timeout}s",
+                    _with_activity_meta({"role": role, "subagent_id": subagent_id, "timeout_s": wall_timeout, "parent_agent": _agent_id}),
+                )
                 if send_func:
                     try:
                         await _send_via_send_func(
@@ -1899,7 +1933,7 @@ async def _execute_tool_call(
     except Exception as e:
         logger.exception(f"Tool call error: {tool_name}")
         _tool_elapsed = (time.monotonic() - _tool_t0) * 1000
-        await _t.emit("error", _agent_id, f"Tool error: {tool_name}", str(e)[:200], {"duration_ms": round(_tool_elapsed), "tool": tool_name})
+        await _t.emit("error", _agent_id, f"Tool error: {tool_name}", str(e)[:200], _with_activity_meta({"duration_ms": round(_tool_elapsed), "tool": tool_name}))
         return json.dumps({"error": str(e)})
 
 
@@ -1959,6 +1993,7 @@ async def _run_agent(
     interrupt_event: asyncio.Event | None = None,
     interrupt_queue: asyncio.Queue | None = None,
     _agent_id: str = "orchestrator",
+    _parent_agent_id: str | None = None,
 ) -> str:
     messages = []
     if system:
@@ -1972,6 +2007,12 @@ async def _run_agent(
         tools = _get_all_tools(include_subagent=allow_subagent, include_telegram=send_func is not None)
 
     model_id = _MODELS.get(model.lower(), model)
+
+    def _with_activity_meta(extra: dict | None = None) -> dict:
+        payload = dict(extra or {})
+        if _parent_agent_id:
+            payload.setdefault("parent_agent", _parent_agent_id)
+        return payload
 
     def _drain_interrupts() -> list[str]:
         if not interrupt_event or not interrupt_queue:
@@ -2009,7 +2050,7 @@ async def _run_agent(
                 messages.append(msg)
 
         _t = activity_tracker.get_tracker()
-        await _t.emit("thinking", _agent_id, "Thinking", f"Round {_ + 1}/{max_rounds} — calling model {model_id}")
+        await _t.emit("thinking", _agent_id, "Thinking", f"Round {_ + 1}/{max_rounds} — calling model {model_id}", _with_activity_meta())
 
         t0 = time.monotonic()
         response = await model_router.call_model(model_id, messages, tools)
@@ -2027,7 +2068,7 @@ async def _run_agent(
                 logger.warning(f"Model emitted {len(text_tools)} tool call(s) as text, intercepted and routing to execution")
                 messages.append({"role": "assistant", "content": content_text})
             else:
-                await _t.emit("done", _agent_id, "Responded", f"Final answer in {elapsed:.0f}ms", {"duration_ms": round(elapsed)})
+                await _t.emit("done", _agent_id, "Responded", f"Final answer in {elapsed:.0f}ms", _with_activity_meta({"duration_ms": round(elapsed)}))
                 interrupt_texts = _drain_interrupts()
                 if interrupt_texts:
                     msg = _build_interruption_message(interrupt_texts)
@@ -2044,7 +2085,7 @@ async def _run_agent(
         
         if tool_calls:
             names = [tc["name"] for tc in tool_calls]
-            await _t.emit("model", _agent_id, "Model decided", f"{len(tool_calls)} tool(s): {', '.join(names)}", {"duration_ms": round(elapsed), "model": model_id})
+            await _t.emit("model", _agent_id, "Model decided", f"{len(tool_calls)} tool(s): {', '.join(names)}", _with_activity_meta({"duration_ms": round(elapsed), "model": model_id}))
         
         subagent_calls = [tc for tc in tool_calls if tc["name"] == "spawn_subagent"]
         other_calls = [tc for tc in tool_calls if tc["name"] != "spawn_subagent"]
@@ -2058,6 +2099,7 @@ async def _run_agent(
                 send_func=send_func,
                 allow_subagent=allow_subagent,
                 _agent_id=_agent_id,
+                _parent_agent_id=_parent_agent_id,
             )
         
         if subagent_calls:
@@ -2068,6 +2110,7 @@ async def _run_agent(
                     send_func=send_func,
                     allow_subagent=allow_subagent,
                     _agent_id=_agent_id,
+                    _parent_agent_id=_parent_agent_id,
                 )
                 return tc["id"], r
 
@@ -2125,6 +2168,7 @@ async def _run_subagent(
     context: str = "",
     send_func: SendFunc | None = None,
     _agent_id: str = "subagent",
+    _parent_agent_id: str | None = None,
 ) -> str:
     model = db.get_model(user_id)
     system = _build_subagent_system(user_id, role, task, context)
@@ -2142,6 +2186,7 @@ async def _run_subagent(
         max_rounds=_MAX_SUBAGENT_TOOL_ROUNDS,
         max_calls_per_round=_MAX_SUBAGENT_TOOL_CALLS_PER_ROUND,
         _agent_id=_agent_id,
+        _parent_agent_id=_parent_agent_id,
     )
 
 

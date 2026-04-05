@@ -388,7 +388,10 @@
       <strong>One-time setup (about 2 minutes):</strong>
       <ol>
         <li>Open <a href="https://console.cloud.google.com/apis/credentials" target="_blank">Google Cloud Console</a></li>
-        <li>Create a project (or choose one), then select <strong>"Create Credentials" → "OAuth client ID"</strong></li>
+        <li>Create a project (or choose one), then open <strong>"OAuth consent screen"</strong></li>
+        <li>Set <strong>Audience = External</strong>, complete the required app info, and save</li>
+        <li>In <strong>Audience</strong>, find <strong>Test users</strong> -> click <strong>Add users</strong> -> add your own Google email address (and any other account you will sign in with)</li>
+        <li>Go back to <strong>Credentials</strong>, then select <strong>"Create Credentials" -> "OAuth client ID"</strong></li>
         <li>Choose <strong>"Web application"</strong> and give it a name like "Clai-TALOS"</li>
         <li>Under <strong>"Authorized redirect URIs"</strong>, add: <code id="google-redirect-uri-placeholder"></code></li>
         <li>Click <strong>Create</strong>, then paste the <strong>Client ID</strong> and <strong>Client Secret</strong> below</li>

@@ -2,6 +2,7 @@ import os
 import json
 import logging
 import asyncio
+import time
 from typing import Any
 from dotenv import load_dotenv
 
@@ -778,6 +779,8 @@ def _pick_preferred(preferences: list[str], candidates: list[str], fallback: str
     return candidates[0]
 
 
+_MODEL_CALL_TIMEOUT_S = int(os.getenv("MODEL_CALL_TIMEOUT_S", "120"))
+
 async def call_model(model: str, messages: list[dict], tools: list[dict] | None) -> dict:
     provider, model_id = resolve_model(model)
     caller = _CALLERS.get(provider)
@@ -788,7 +791,11 @@ async def call_model(model: str, messages: list[dict], tools: list[dict] | None)
         env_key = cfg.get("env_key", "API_KEY")
         return {"content": f"Model \"{model}\" requires provider \"{provider}\", but {env_key} is not set. Add your API key in Settings to use this model.", "tool_calls": [], "message": None}
     try:
-        return await caller(model_id, messages, tools)
+        timeout = max(30, min(_MODEL_CALL_TIMEOUT_S, 600))
+        return await asyncio.wait_for(caller(model_id, messages, tools), timeout=timeout)
+    except asyncio.TimeoutError:
+        logger.error(f"{provider} call timed out after {timeout}s for model {model_id}")
+        return {"content": f"Model call to {provider}/{model_id} timed out after {timeout}s. The API may be overloaded.", "tool_calls": [], "message": None}
     except Exception as e:
         logger.exception(f"{provider} call failed for model {model_id}")
         return {"content": f"Error communicating with {provider}: {e}", "tool_calls": [], "message": None}
