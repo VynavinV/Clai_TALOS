@@ -74,7 +74,7 @@ def reload_clients():
 
 
 def list_models() -> list[str]:
-    return model_router.list_provider_models()
+    return model_router.list_models_with_provider()
 
 
 def _load_tools_guide() -> str:
@@ -1384,11 +1384,13 @@ async def _execute_tool_call(
             available = set(model_router.list_provider_models())
             image_available = set(model_router.list_image_models())
             if main_model:
-                if main_model not in available:
+                bare = main_model.split("/", 1)[-1] if "/" in main_model else main_model
+                if bare not in available and main_model not in available:
                     return json.dumps({"error": f"Unknown main model: {main_model}"}, indent=2)
                 db.set_model(user_id, main_model)
             if image_model:
-                if image_model not in image_available:
+                bare = image_model.split("/", 1)[-1] if "/" in image_model else image_model
+                if bare not in image_available and image_model not in image_available:
                     return json.dumps({"error": f"Unknown image model: {image_model}"}, indent=2)
                 db.set_image_model(user_id, image_model)
             return json.dumps(

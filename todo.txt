@@ -4,9 +4,7 @@ dream system to consolidate memories - /dream command
 In depth screen and browser control + logins 
 Cerebras fast mode
 in depth insights to what agents and stuff are doing on dashboard
-Any OpenAI endpoints (Nvidia NIM , etc)
-Add documentation for how to make tools.
-
+ 
 Generate Images
 Lyria 3 music
 notebooklm? 

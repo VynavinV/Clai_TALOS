@@ -551,109 +551,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     uid = update.effective_user.id
     chat = update.message.chat
 
-async def _typing_loop(chat, interval: float = 4.0):
-    while True:
-        try:
-            await chat.send_action(ChatAction.TYPING)
-        except RetryAfter as e:
-            wait_seconds = float(getattr(e, "retry_after", interval)) + 0.25
-            await asyncio.sleep(min(wait_seconds, 15))
-            continue
-        except (TimedOut, NetworkError):
-            await asyncio.sleep(min(max(interval, 1.0), 8.0))
-            continue
-        except Exception:
-            # Keep trying during this request; task cancellation handles shutdown.
-            await asyncio.sleep(min(max(interval, 1.0), 8.0))
-            continue
-        await asyncio.sleep(interval)
-
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    text = update.message.text or ""
-
-    if await _ensure_onboarding(update, context, text):
-        return
-
-    chat = update.message.chat
-    uid = update.effective_user.id
-    send_func = _make_send_func(chat)
-
-    await _enqueue_message(uid, text, chat, send_func)
-
-
-def _get_whisper_model():
-    global _whisper_model
-    if _whisper_model is None:
-        try:
-            import whisper
-            _whisper_model = whisper.load_model("base")
-            logger.info("Loaded local Whisper model (base)")
-        except Exception as e:
-            logger.error(f"Failed to load Whisper model: {e}")
-            return None
-    return _whisper_model
-
-
-async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    voice = update.message.voice
-    if not voice:
-        return
-
-    uid = update.effective_user.id
-    chat = update.message.chat
-
-    if not db.has_user_profile(uid):
-        context.user_data[_ONBOARDING_STEP_KEY] = "name"
-        await update.message.reply_text("Please complete onboarding first. What's your name?")
-        return
-
-    model = _get_whisper_model()
-    if model is None:
-        await update.message.reply_text("Voice transcription not available. Install whisper: pip install openai-whisper")
-        return
-
-    try:
-        await chat.send_action(ChatAction.TYPING)
-
-        with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as tmp:
-            tmp_path = tmp.name
-
-        try:
-            file = await voice.get_file()
-            await file.download_to_drive(tmp_path)
-            logger.info(f"Downloaded voice message: {voice.file_id} ({voice.duration}s)")
-
-            result = model.transcribe(tmp_path, language="en")
-            text = result.get("text", "").strip()
-            logger.info(f"Transcribed: {text[:100]}...")
-
-            if not text:
-                await update.message.reply_text("Couldn't transcribe the voice message.")
-                return
-
-            await update.message.reply_text(f"Transcription: {text}")
-
-            send_func = _make_send_func(chat)
-            await _enqueue_message(uid, text, chat, send_func)
-
-        finally:
-            if os.path.exists(tmp_path):
-                os.unlink(tmp_path)
-
-    except Exception as e:
-        logger.exception("Error handling voice message")
-        await update.message.reply_text(f"Error: {e}")
-
-
-async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    photos = update.message.photo
-    if not photos:
-        return
-
-    uid = update.effective_user.id
-    chat = update.message.chat
-
     if not db.has_user_profile(uid):
         context.user_data[_ONBOARDING_STEP_KEY] = "name"
         await update.message.reply_text("Please complete onboarding first. What's your name?")
@@ -680,7 +577,11 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             b64_data = base64.b64encode(image_data).decode("utf-8")
 
             send_func = _make_send_func(chat)
-            await _enqueue_message(uid, f"[Image] {caption}", chat, send_func)
+
+            async def _runner():
+                await core.process_image_message(uid, caption, b64_data, send_func)
+
+            await _run_with_user_lock(uid, chat, _runner)
 
         finally:
             if os.path.exists(tmp_path):

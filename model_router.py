@@ -53,17 +53,34 @@ _PROVIDERS = {
         "patterns": ["glm", "charglm"],
         "env_key": "ZHIPUAI_API_KEY",
     },
+    "nvidia": {
+        "models": {
+            "glm47": "z-ai/glm4.7",
+        },
+        "patterns": ["nvidia"],
+        "env_key": "NVIDIA_API_KEY",
+    },
 }
 
 _openai_client = None
 _anthropic_client = None
 _gemini_client = None
 _zhipu_client = None
+_nvidia_client = None
+
+_NVIDIA_BASE_URL = os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
 
 _CLIENT_BASE_URL = os.getenv("CLIENT_BASE_URL", "https://api.z.ai/api/coding/paas/v4")
 
 
 def resolve_model(model: str) -> tuple[str, str]:
+    if "/" in model and not model.startswith("http"):
+        provider_hint, model_id = model.split("/", 1)
+        provider_hint = provider_hint.lower().strip()
+        for provider_name in _PROVIDERS:
+            if provider_name == provider_hint:
+                return provider_name, model_id
+
     model_lower = model.lower().strip()
     for provider_name, provider_cfg in _PROVIDERS.items():
         if model_lower in provider_cfg["models"]:
@@ -82,14 +99,16 @@ def get_all_model_aliases() -> dict[str, str]:
 
 
 def reload_clients():
-    global _openai_client, _anthropic_client, _gemini_client, _zhipu_client
-    global _CLIENT_BASE_URL
+    global _openai_client, _anthropic_client, _gemini_client, _zhipu_client, _nvidia_client
+    global _CLIENT_BASE_URL, _NVIDIA_BASE_URL
     _openai_client = None
     _anthropic_client = None
     _gemini_client = None
     _zhipu_client = None
+    _nvidia_client = None
     load_dotenv(override=True)
     _CLIENT_BASE_URL = os.getenv("CLIENT_BASE_URL", "https://api.z.ai/api/coding/paas/v4")
+    _NVIDIA_BASE_URL = os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
 
 
 def _get_openai_client():
@@ -142,6 +161,17 @@ def _get_zhipu_client():
             raise RuntimeError("ZHIPUAI_API_KEY not set")
         _zhipu_client = ZhipuAI(api_key=api_key, base_url=_CLIENT_BASE_URL)
     return _zhipu_client
+
+
+def _get_nvidia_client():
+    global _nvidia_client
+    if _nvidia_client is None:
+        from openai import AsyncOpenAI
+        api_key = os.getenv("NVIDIA_API_KEY")
+        if not api_key:
+            raise RuntimeError("NVIDIA_API_KEY not set")
+        _nvidia_client = AsyncOpenAI(api_key=api_key, base_url=_NVIDIA_BASE_URL)
+    return _nvidia_client
 
 
 def _safe_json_loads(raw, default=None):
@@ -383,11 +413,52 @@ async def call_zhipu(model_id: str, messages: list[dict], tools: list[dict] | No
     }
 
 
+async def call_nvidia(model_id: str, messages: list[dict], tools: list[dict] | None) -> dict:
+    client = _get_nvidia_client()
+    kwargs: dict[str, Any] = {
+        "model": model_id,
+        "messages": messages,
+        "temperature": 1,
+        "top_p": 1,
+        "max_tokens": 16384,
+    }
+    if tools:
+        kwargs["tools"] = _tools_to_openai(tools)
+        kwargs["tool_choice"] = "auto"
+
+    response = await client.chat.completions.create(**kwargs)
+    choice = response.choices[0]
+    reply_text = choice.message.content or ""
+
+    tool_calls = []
+    if choice.message.tool_calls:
+        for tc in choice.message.tool_calls:
+            tool_calls.append({
+                "id": tc.id,
+                "name": tc.function.name,
+                "arguments": _safe_json_loads(tc.function.arguments, {}),
+            })
+
+    return {
+        "content": reply_text,
+        "tool_calls": tool_calls,
+        "message": {
+            "role": "assistant",
+            "content": reply_text,
+            "tool_calls": [
+                {"id": tc["id"], "type": "function", "function": {"name": tc["name"], "arguments": json.dumps(tc["arguments"])}}
+                for tc in tool_calls
+            ] if tool_calls else None,
+        }
+    }
+
+
 _CALLERS = {
     "openai": call_openai,
     "anthropic": call_anthropic,
     "gemini": call_gemini,
     "zhipu": call_zhipu,
+    "nvidia": call_nvidia,
 }
 
 
@@ -558,12 +629,31 @@ def _fetch_zhipu_models(api_key: str) -> list[str]:
     return models if models else list(_PROVIDERS["zhipu"]["models"].values())
 
 
+def _fetch_nvidia_models(api_key: str) -> list[str]:
+    import httpx
+    models = []
+    try:
+        r = httpx.get(
+            f"{_NVIDIA_BASE_URL}/models",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=10,
+        )
+        r.raise_for_status()
+        for m in r.json().get("data", []):
+            mid = m["id"]
+            models.append(mid)
+    except Exception:
+        pass
+    return models if models else list(_PROVIDERS["nvidia"]["models"].values())
+
+
 def fetch_provider_models(provider: str, api_key: str) -> dict:
     fetchers = {
         "gemini": _fetch_gemini_models,
         "openai": _fetch_openai_models,
         "anthropic": _fetch_anthropic_models,
         "zhipu": _fetch_zhipu_models,
+        "nvidia": _fetch_nvidia_models,
     }
     fetcher = fetchers.get(provider)
     if not fetcher:
@@ -643,7 +733,79 @@ def list_provider_models() -> list[str]:
             if m not in models:
                 models.append(m)
 
+    if os.getenv("NVIDIA_API_KEY"):
+        try:
+            r = httpx.get(
+                f"{_NVIDIA_BASE_URL}/models",
+                headers={"Authorization": f"Bearer {os.getenv('NVIDIA_API_KEY')}"},
+                timeout=10,
+            )
+            r.raise_for_status()
+            for m in r.json().get("data", []):
+                mid = m["id"]
+                if mid not in models:
+                    models.append(mid)
+        except Exception:
+            pass
+
     return models if models else list(get_all_model_aliases().values())
+
+
+def list_models_with_provider() -> list[str]:
+    result = []
+    seen = set()
+
+    api_key = os.getenv("ZHIPUAI_API_KEY", "")
+    if api_key:
+        try:
+            import httpx
+            r = httpx.get(f"{_CLIENT_BASE_URL}/models", headers={"Authorization": f"Bearer {api_key}"}, timeout=10)
+            r.raise_for_status()
+            for m in r.json().get("data", []):
+                mid = m["id"]
+                tagged = "zhipu/" + mid
+                if tagged not in seen:
+                    seen.add(tagged)
+                    result.append(tagged)
+        except Exception:
+            pass
+
+    if os.getenv("GEMINI_API_KEY"):
+        for m in _PROVIDERS["gemini"]["models"].values():
+            tagged = "gemini/" + m
+            if tagged not in seen:
+                seen.add(tagged)
+                result.append(tagged)
+
+    if os.getenv("OPENAI_API_KEY"):
+        for m in _PROVIDERS["openai"]["models"].values():
+            tagged = "openai/" + m
+            if tagged not in seen:
+                seen.add(tagged)
+                result.append(tagged)
+
+    if os.getenv("ANTHROPIC_API_KEY"):
+        for m in _PROVIDERS["anthropic"]["models"].values():
+            tagged = "anthropic/" + m
+            if tagged not in seen:
+                seen.add(tagged)
+                result.append(tagged)
+
+    if os.getenv("NVIDIA_API_KEY"):
+        try:
+            import httpx
+            r = httpx.get(f"{_NVIDIA_BASE_URL}/models", headers={"Authorization": f"Bearer {os.getenv('NVIDIA_API_KEY')}"}, timeout=10)
+            r.raise_for_status()
+            for m in r.json().get("data", []):
+                mid = m["id"]
+                tagged = "nvidia/" + mid
+                if tagged not in seen:
+                    seen.add(tagged)
+                    result.append(tagged)
+        except Exception:
+            pass
+
+    return result if result else [p + "/" + m for p, m in get_all_model_aliases().items()]
 
 
 def list_image_models() -> list[str]:

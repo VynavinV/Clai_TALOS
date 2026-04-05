@@ -432,6 +432,13 @@ var PROVIDERS = {
     vision: [],
     env_key: 'ZHIPUAI_API_KEY',
     url: 'https://open.bigmodel.cn/'
+  },
+  nvidia: {
+    name: 'NVIDIA',
+    models: [],
+    vision: [],
+    env_key: 'NVIDIA_API_KEY',
+    url: 'https://build.nvidia.com/'
   }
 };
 
@@ -717,7 +724,7 @@ async function saveModel() {
   var payload = {
     provider: selectedProvider,
     api_key: apiKey,
-    main_model: mainModel,
+    main_model: selectedProvider + '/' + mainModel,
     image_model: imageModel
   };
 
@@ -729,6 +736,7 @@ async function saveModel() {
     if (!visionKey) { err.textContent = 'Vision model is from ' + PROVIDERS[visionProvider].name + ' — you must provide its API key.'; return; }
     payload.vision_provider = visionProvider;
     payload.vision_api_key = visionKey;
+    payload.image_model = visionProvider + '/' + imageModel;
   }
 
   try {

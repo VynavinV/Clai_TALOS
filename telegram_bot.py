@@ -49,6 +49,7 @@ MANAGED_KEYS = [
     {"env_key": "GEMINI_API_KEY", "label": "Gemini", "icon": "&#128269;"},
     {"env_key": "OPENAI_API_KEY", "label": "OpenAI", "icon": "&#129302;"},
     {"env_key": "ANTHROPIC_API_KEY", "label": "Anthropic", "icon": "&#129302;"},
+    {"env_key": "NVIDIA_API_KEY", "label": "NVIDIA", "icon": "&#9889;"},
 ]
 
 SESSION_COOKIE = "talos_session"
@@ -849,6 +850,7 @@ async def handle_api_onboarding_model(request):
         "anthropic": "ANTHROPIC_API_KEY",
         "gemini": "GEMINI_API_KEY",
         "zhipu": "ZHIPUAI_API_KEY",
+        "nvidia": "NVIDIA_API_KEY",
     }
 
     env_key = env_key_map.get(provider)
@@ -1121,6 +1123,7 @@ async def handle_api_keys_post(request):
         for k, v in env_vars.items():
             f.write(f"{k}={v}\n")
 
+    load_dotenv(override=True)
     AI.reload_clients()
     import websearch
     websearch.reload_client()
@@ -1264,6 +1267,7 @@ async def handle_api_settings_get(request):
         "GEMINI_API_KEY": env_vars.get("GEMINI_API_KEY", ""),
         "OPENAI_API_KEY": env_vars.get("OPENAI_API_KEY", ""),
         "ANTHROPIC_API_KEY": env_vars.get("ANTHROPIC_API_KEY", ""),
+        "NVIDIA_API_KEY": env_vars.get("NVIDIA_API_KEY", ""),
         "GOOGLE_API_KEY": env_vars.get("GOOGLE_API_KEY", ""),
         "GOOGLE_OAUTH_CLIENT_ID": env_vars.get("GOOGLE_OAUTH_CLIENT_ID", ""),
         "GOOGLE_OAUTH_CLIENT_SECRET": env_vars.get("GOOGLE_OAUTH_CLIENT_SECRET", ""),
@@ -1275,6 +1279,7 @@ async def handle_api_settings_get(request):
         "HIMALAYA_DEFAULT_ACCOUNT": env_vars.get("HIMALAYA_DEFAULT_ACCOUNT", ""),
         "PIPER_VOICE": env_vars.get("PIPER_VOICE", "en_US-lessac-medium"),
         "CLIENT_BASE_URL": env_vars.get("CLIENT_BASE_URL", "https://api.z.ai/api/coding/paas/v4"),
+        "NVIDIA_BASE_URL": env_vars.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
         "MAX_TOOL_ROUNDS": env_vars.get("MAX_TOOL_ROUNDS", "5"),
         "MAX_TOOL_CALLS_PER_ROUND": env_vars.get("MAX_TOOL_CALLS_PER_ROUND", "20"),
         "MAX_COMMAND_TIMEOUT": env_vars.get("MAX_COMMAND_TIMEOUT", "120"),
@@ -1340,11 +1345,11 @@ async def handle_api_settings_post(request):
 
     _TEXT_KEYS = [
         "BOT_NAME", "TELEGRAM_BOT_TOKEN", "WEB_PORT",
-        "ZHIPUAI_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
+        "ZHIPUAI_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "NVIDIA_API_KEY",
         "GOOGLE_API_KEY", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET",
         "GOOGLE_OAUTH_REDIRECT_URI", "GOOGLE_APPS_SCRIPT_URL", "GOOGLE_OAUTH_SCOPES",
         "HIMALAYA_BIN", "HIMALAYA_CONFIG", "HIMALAYA_DEFAULT_ACCOUNT",
-        "PIPER_VOICE", "CLIENT_BASE_URL",
+        "PIPER_VOICE", "CLIENT_BASE_URL", "NVIDIA_BASE_URL",
     ]
 
     _MODEL_KEYS = ["MAIN_MODEL", "IMAGE_MODEL"]

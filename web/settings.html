@@ -34,6 +34,24 @@
   .badge-set { font-size: 0.65rem; padding: 0.1rem 0.45rem; border-radius: 20px; background: rgba(72,187,120,0.15); color: #48bb78; border: 1px solid rgba(72,187,120,0.3); text-transform: uppercase; margin-left: 0.4rem; }
   .badge-unset { font-size: 0.65rem; padding: 0.1rem 0.45rem; border-radius: 20px; background: rgba(245,101,101,0.15); color: #f56565; border: 1px solid rgba(245,101,101,0.3); text-transform: uppercase; margin-left: 0.4rem; }
 
+  .provider-tabs { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 1rem; }
+  .provider-tab { padding: 0.45rem 0.9rem; border-radius: 8px; font-size: 0.8rem; font-weight: 500; cursor: pointer; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); color: #888; transition: all 0.15s; }
+  .provider-tab:hover { background: rgba(255,255,255,0.06); color: #bbb; }
+  .provider-tab.active { background: rgba(99,179,237,0.12); border-color: rgba(99,179,237,0.35); color: #63b3ed; }
+  .provider-tab .tab-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 0.4rem; vertical-align: middle; }
+  .provider-tab .tab-dot.on { background: #48bb78; }
+  .provider-tab .tab-dot.off { background: #f56565; }
+  .provider-panel { display: none; }
+  .provider-panel.active { display: block; }
+  .provider-desc { font-size: 0.75rem; color: #666; margin-bottom: 0.8rem; }
+  .model-select-wrap { position: relative; }
+  .model-select-wrap select { padding-right: 2rem; }
+  .model-select-wrap .model-provider-tag { position: absolute; right: 0.8rem; top: 50%; transform: translateY(-50%); font-size: 0.6rem; color: #555; text-transform: uppercase; letter-spacing: 0.05em; pointer-events: none; }
+  .vision-section { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid rgba(255,255,255,0.06); }
+  .active-model-bar { display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem 0.9rem; background: rgba(72,187,120,0.08); border: 1px solid rgba(72,187,120,0.2); border-radius: 8px; margin-bottom: 1rem; font-size: 0.82rem; }
+  .active-model-bar .label { color: #888; }
+  .active-model-bar .value { color: #48bb78; font-weight: 600; font-family: monospace; }
+
   .btn { padding: 0.6rem 1.3rem; background: rgba(99,179,237,0.15); border: 1px solid rgba(99,179,237,0.3); border-radius: 8px; color: #63b3ed; font-size: 0.82rem; font-weight: 500; cursor: pointer; transition: all 0.2s; margin-right: 0.5rem; }
   .btn:hover { background: rgba(99,179,237,0.25); }
   .btn:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -102,18 +120,30 @@
 
   <div class="section">
     <div class="section-title">AI Configuration</div>
-    <div class="form-group">
-      <label>Main Model</label>
-      <select id="main-model"></select>
+    <div class="active-model-bar">
+      <span class="label">Active model:</span>
+      <span class="value" id="active-model-display">loading...</span>
     </div>
-    <div class="form-group">
-      <label>Image Model</label>
-      <select id="image-model"></select>
+    <div class="provider-tabs" id="provider-tabs"></div>
+
+    <div id="provider-panels"></div>
+
+    <div class="vision-section">
+      <div class="form-group">
+        <label>Image Model <span class="form-hint" style="display:inline;margin-left:0.3rem;">(for photos — can be a different provider)</span></label>
+        <div class="model-select-wrap">
+          <select id="image-model"></select>
+        </div>
+      </div>
     </div>
-    <div class="form-group">
-      <label>Client Base URL</label>
+
+    <div class="form-group" style="margin-top:1rem;">
+      <label>ZhipuAI Base URL</label>
       <input type="text" id="client-base-url" placeholder="https://api.z.ai/api/coding/paas/v4">
-      <div class="form-hint">ZhipuAI API base URL</div>
+    </div>
+    <div class="form-group">
+      <label>NVIDIA Base URL</label>
+      <input type="text" id="nvidia-base-url" placeholder="https://integrate.api.nvidia.com/v1">
     </div>
   </div>
 
@@ -174,6 +204,132 @@
 var googlePollTimer = null;
 var contextUsageTimer = null;
 
+var PROVIDERS = [
+  { id: 'zhipu', name: 'ZhipuAI', env_key: 'ZHIPUAI_API_KEY', url: 'https://open.bigmodel.cn/', desc: 'GLM series models' },
+  { id: 'openai', name: 'OpenAI', env_key: 'OPENAI_API_KEY', url: 'https://platform.openai.com/api-keys', desc: 'GPT, o3, o4 models' },
+  { id: 'anthropic', name: 'Anthropic', env_key: 'ANTHROPIC_API_KEY', url: 'https://console.anthropic.com/settings/keys', desc: 'Claude models' },
+  { id: 'gemini', name: 'Gemini', env_key: 'GEMINI_API_KEY', url: 'https://aistudio.google.com/app/apikey', desc: 'Gemini models (also used for web search)' },
+  { id: 'nvidia', name: 'NVIDIA', env_key: 'NVIDIA_API_KEY', url: 'https://build.nvidia.com/', desc: 'NVIDIA NIM hosted models' },
+];
+
+var _providerModels = {};
+var _providerKeys = {};
+var _activeProvider = '';
+var _fetchTimer = null;
+
+function _prov(id) { return PROVIDERS.find(function(p) { return p.id === id; }); }
+
+function renderProviderTabs() {
+  var html = '';
+  PROVIDERS.forEach(function(p) {
+    var hasKey = !!_providerKeys[p.env_key];
+    var isActive = p.id === _activeProvider;
+    html += '<div class="provider-tab' + (isActive ? ' active' : '') + '" onclick="switchProvider(\'' + p.id + '\')">'
+      + '<span class="tab-dot ' + (hasKey ? 'on' : 'off') + '"></span>'
+      + p.name + '</div>';
+  });
+  document.getElementById('provider-tabs').innerHTML = html;
+}
+
+function _selectedModelId() {
+  if (!_currentMainModel) return '';
+  if (_currentMainModel.indexOf('/') !== -1) return _currentMainModel.split('/').slice(1).join('/');
+  return _currentMainModel;
+}
+
+function _selectedProvider() {
+  if (!_currentMainModel) return _activeProvider;
+  if (_currentMainModel.indexOf('/') !== -1) return _currentMainModel.split('/')[0];
+  return _activeProvider;
+}
+
+function renderProviderPanels() {
+  var selModelId = _selectedModelId();
+  var selProvider = _selectedProvider();
+  var html = '';
+  PROVIDERS.forEach(function(p) {
+    var isActive = p.id === _activeProvider;
+    var hasKey = !!_providerKeys[p.env_key];
+    var models = _providerModels[p.id] || [];
+    html += '<div class="provider-panel' + (isActive ? ' active' : '') + '" id="panel-' + p.id + '">'
+      + '<div class="provider-desc">' + p.desc + '</div>'
+      + '<div class="form-group">'
+      + '<label>' + p.name + ' API Key <span id="key-badge-' + p.id + '">' + (hasKey ? '<span class="badge-set">Set</span>' : '<span class="badge-unset">Not Set</span>') + '</span></label>'
+      + '<input type="password" id="key-' + p.id + '" placeholder="' + (hasKey ? 'Leave blank to keep current key' : 'Paste your ' + p.name + ' API key') + '" autocomplete="off" oninput="onKeyInput(\'' + p.id + '\')">'
+      + '<div class="form-hint"><a href="' + p.url + '" target="_blank">Get your ' + p.name + ' key</a></div>'
+      + '</div>'
+      + '<div class="form-group">'
+      + '<label>Main Model</label>'
+      + '<div class="model-select-wrap">'
+      + '<select id="model-' + p.id + '" onchange="onModelChange(\'' + p.id + '\')">'
+      + (models.length > 0 ? models.map(function(m) { return '<option value="' + m + '"' + (p.id === selProvider && m === selModelId ? ' selected' : '') + '>' + m + '</option>'; }).join('') : '<option value="">Enter API key to load models</option>')
+      + '</select>'
+      + '</div>'
+      + '</div>'
+      + '</div>';
+  });
+  document.getElementById('provider-panels').innerHTML = html;
+  updateActiveModelDisplay();
+}
+
+function updateActiveModelDisplay() {
+  var el = document.getElementById('active-model-display');
+  if (!el) return;
+  if (_currentMainModel) {
+    el.textContent = _currentMainModel;
+  } else {
+    el.textContent = 'auto (first available)';
+  }
+}
+
+function switchProvider(id) {
+  _activeProvider = id;
+  renderProviderTabs();
+  renderProviderPanels();
+}
+
+function onKeyInput(providerId) {
+  if (_fetchTimer) clearTimeout(_fetchTimer);
+  var input = document.getElementById('key-' + providerId);
+  var apiKey = input.value.trim();
+  if (!apiKey) return;
+  var sel = document.getElementById('model-' + providerId);
+  sel.innerHTML = '<option value="">Loading models...</option>';
+  _fetchTimer = setTimeout(function() {
+    fetchModelsForProvider(providerId, apiKey);
+  }, 600);
+}
+
+async function fetchModelsForProvider(providerId, apiKey) {
+  var sel = document.getElementById('model-' + providerId);
+  var prevVal = sel ? sel.value : '';
+  try {
+    var res = await fetch('/api/models/fetch', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ provider: providerId, api_key: apiKey })
+    });
+    var data = await res.json();
+    if (data.models && data.models.length > 0) {
+      _providerModels[providerId] = data.models;
+    }
+  } catch (e) {}
+
+  var models = _providerModels[providerId] || [];
+  if (models.length === 0) {
+    sel.innerHTML = '<option value="">No models found</option>';
+    return;
+  }
+  sel.innerHTML = models.map(function(m) { return '<option value="' + m + '"' + (m === prevVal ? ' selected' : '') + '>' + m + '</option>'; }).join('');
+}
+
+function onModelChange(providerId) {
+  var sel = document.getElementById('model-' + providerId);
+  _currentMainModel = providerId + '/' + sel.value;
+}
+
+var _currentMainModel = '';
+
 async function loadSettings() {
   try {
     var res = await fetch('/api/settings');
@@ -192,6 +348,7 @@ async function loadSettings() {
     document.getElementById('himalaya-config').value = d.HIMALAYA_CONFIG || '';
     document.getElementById('himalaya-default-account').value = d.HIMALAYA_DEFAULT_ACCOUNT || '';
     document.getElementById('client-base-url').value = d.CLIENT_BASE_URL || '';
+    document.getElementById('nvidia-base-url').value = d.NVIDIA_BASE_URL || '';
     document.getElementById('max-tool-rounds').value = d.MAX_TOOL_ROUNDS || '5';
     document.getElementById('max-tool-calls-per-round').value = d.MAX_TOOL_CALLS_PER_ROUND || '20';
     document.getElementById('max-command-timeout').value = d.MAX_COMMAND_TIMEOUT || '120';
@@ -199,7 +356,40 @@ async function loadSettings() {
     document.getElementById('max-subagent-tool-rounds').value = d.MAX_SUBAGENT_TOOL_ROUNDS || '5';
     document.getElementById('max-subagent-tool-calls-per-round').value = d.MAX_SUBAGENT_TOOL_CALLS_PER_ROUND || '15';
     document.getElementById('max-context-chars').value = d.MAX_CONTEXT_CHARS || '120000';
-    await loadModelOptions(d);
+
+    _providerKeys = {
+      ZHIPUAI_API_KEY: d.ZHIPUAI_API_KEY || '',
+      OPENAI_API_KEY: d.OPENAI_API_KEY || '',
+      ANTHROPIC_API_KEY: d.ANTHROPIC_API_KEY || '',
+      GEMINI_API_KEY: d.GEMINI_API_KEY || '',
+      NVIDIA_API_KEY: d.NVIDIA_API_KEY || '',
+    };
+
+    _currentMainModel = d.MAIN_MODEL || '';
+
+    var mainProvider = '';
+    var mainModelId = _currentMainModel;
+    if (_currentMainModel && _currentMainModel.indexOf('/') !== -1) {
+      var parts = _currentMainModel.split('/');
+      mainProvider = parts[0];
+      mainModelId = parts.slice(1).join('/');
+    } else if (_currentMainModel) {
+      for (var i = 0; i < PROVIDERS.length; i++) {
+        var p = PROVIDERS[i];
+        if (_providerKeys[p.env_key]) {
+          mainProvider = p.id;
+          break;
+        }
+      }
+    }
+
+    _activeProvider = mainProvider || 'zhipu';
+
+    await loadAllProviderModels();
+    renderProviderTabs();
+    renderProviderPanels();
+
+    await loadImageModels(d);
     updateStatus('google-api', d.GOOGLE_API_KEY);
     await loadGoogleStatus();
     await loadContextUsage();
@@ -207,18 +397,31 @@ async function loadSettings() {
   } catch (e) {}
 }
 
-async function loadModelOptions(d) {
+async function loadAllProviderModels() {
+  var promises = PROVIDERS.map(function(p) {
+    var key = _providerKeys[p.env_key];
+    if (!key) return Promise.resolve();
+    return fetch('/api/models/fetch', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ provider: p.id, api_key: key })
+    }).then(function(res) { return res.json(); }).then(function(data) {
+      if (data.models && data.models.length > 0) {
+        _providerModels[p.id] = data.models;
+      }
+    }).catch(function() {});
+  });
+  await Promise.all(promises);
+}
+
+async function loadImageModels(d) {
   try {
     var res = await fetch('/api/models');
     if (res.status === 401) return;
     var models = await res.json();
-    var ms = document.getElementById('main-model');
     var is = document.getElementById('image-model');
-    ms.innerHTML = '<option value="">Auto</option>';
-    is.innerHTML = '<option value="">Auto</option>';
-    (models.main_models || []).forEach(function(m) { ms.innerHTML += '<option value="' + m + '">' + m + '</option>'; });
+    is.innerHTML = '<option value="">Same as main model</option>';
     (models.image_models || []).forEach(function(m) { is.innerHTML += '<option value="' + m + '">' + m + '</option>'; });
-    if (d.MAIN_MODEL) ms.value = d.MAIN_MODEL;
     if (d.IMAGE_MODEL) is.value = d.IMAGE_MODEL;
   } catch (e) {}
 }
@@ -281,6 +484,11 @@ function startContextUsagePolling() {
 }
 
 async function saveSettings() {
+  var mainModel = _currentMainModel;
+  var activeProv = _prov(_activeProvider);
+  var activeKeyInput = document.getElementById('key-' + _activeProvider);
+  var activeKeyVal = activeKeyInput ? activeKeyInput.value.trim() : '';
+
   var p = {
     BOT_NAME: document.getElementById('bot-name').value.trim(),
     TELEGRAM_BOT_TOKEN: document.getElementById('telegram-token').value.trim(),
@@ -295,7 +503,8 @@ async function saveSettings() {
     HIMALAYA_CONFIG: document.getElementById('himalaya-config').value.trim(),
     HIMALAYA_DEFAULT_ACCOUNT: document.getElementById('himalaya-default-account').value.trim(),
     CLIENT_BASE_URL: document.getElementById('client-base-url').value.trim(),
-    MAIN_MODEL: document.getElementById('main-model').value.trim(),
+    NVIDIA_BASE_URL: document.getElementById('nvidia-base-url').value.trim(),
+    MAIN_MODEL: mainModel,
     IMAGE_MODEL: document.getElementById('image-model').value.trim(),
     MAX_TOOL_ROUNDS: document.getElementById('max-tool-rounds').value.trim(),
     MAX_TOOL_CALLS_PER_ROUND: document.getElementById('max-tool-calls-per-round').value.trim(),
@@ -305,11 +514,27 @@ async function saveSettings() {
     MAX_SUBAGENT_TOOL_CALLS_PER_ROUND: document.getElementById('max-subagent-tool-calls-per-round').value.trim(),
     MAX_CONTEXT_CHARS: document.getElementById('max-context-chars').value.trim()
   };
+
+  if (activeProv && activeKeyVal) {
+    p[activeProv.env_key] = activeKeyVal;
+  }
+
   try {
     var res = await fetch('/api/settings', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(p) });
     if (res.status === 401) { window.location.href = '/'; return; }
     var d = await res.json();
-    if (d.ok) { showMsg('Saved', true); updateStatus('google-api', p.GOOGLE_API_KEY); await loadGoogleStatus(); await loadContextUsage(); }
+    if (d.ok) {
+      showMsg('Saved', true);
+      if (activeKeyVal && activeProv) {
+        _providerKeys[activeProv.env_key] = activeKeyVal;
+      }
+      renderProviderTabs();
+      renderProviderPanels();
+      updateActiveModelDisplay();
+      updateStatus('google-api', p.GOOGLE_API_KEY);
+      await loadGoogleStatus();
+      await loadContextUsage();
+    }
     else showMsg(d.error || 'Failed', false);
   } catch (e) { showMsg('Network error', false); }
 }
