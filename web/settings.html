@@ -178,6 +178,16 @@
     <div class="form-group"><label>Program Name</label><input type="text" id="himalaya-bin" placeholder="himalaya"></div>
     <div class="form-group"><label>Config File Path</label><input type="text" id="himalaya-config" placeholder="Optional"></div>
     <div class="form-group"><label>Default Email Account</label><input type="text" id="himalaya-default-account" placeholder="Optional"></div>
+    <button class="btn" id="reconfigure-email-btn" onclick="toggleEmailReconfigure()">Reconfigure Gmail</button>
+    <div id="email-reconfigure-area" style="display:none; margin-top:1rem;">
+      <div class="form-hint" style="margin-bottom:0.8rem;">
+        Re-run the Gmail setup. You need a <a href="https://myaccount.google.com/apppasswords" target="_blank">Google App Password</a>.
+      </div>
+      <div class="form-group"><label>Gmail Address</label><input type="email" id="reconfig-email-address" placeholder="you@gmail.com" autocomplete="email"></div>
+      <div class="form-group"><label>App Password</label><input type="password" id="reconfig-email-password" placeholder="xxxx xxxx xxxx xxxx" autocomplete="off"></div>
+      <div class="status-line" id="reconfig-email-status"></div>
+      <button class="btn" id="reconfig-email-submit-btn" onclick="reconfigureEmail()">Install and Connect</button>
+    </div>
   </div>
 
   <div class="section">
@@ -712,6 +722,50 @@ async function hotReload() {
 async function restartBot() {
   if (!confirm('Restart the assistant now?')) return;
   try { var res = await fetch('/api/restart', { method: 'POST' }); var d = await res.json(); if (d.ok) { showMsg('Restarting assistant...', true); setTimeout(function() { location.reload(); }, 2000); } else showMsg(d.error || 'Could not restart the assistant.', false); } catch (e) { showMsg('Connection problem. Please try again.', false); }
+}
+
+function toggleEmailReconfigure() {
+  var area = document.getElementById('email-reconfigure-area');
+  area.style.display = area.style.display === 'none' ? 'block' : 'none';
+}
+
+async function reconfigureEmail() {
+  var email = document.getElementById('reconfig-email-address').value.trim();
+  var password = document.getElementById('reconfig-email-password').value.trim();
+  var status = document.getElementById('reconfig-email-status');
+  var btn = document.getElementById('reconfig-email-submit-btn');
+  status.textContent = '';
+  status.style.color = '';
+
+  if (!email) { status.style.color = '#f56565'; status.textContent = 'Please enter your Gmail address.'; return; }
+  if (!email.endsWith('@gmail.com')) { status.style.color = '#f56565'; status.textContent = 'Only Gmail addresses are supported.'; return; }
+  if (!password) { status.style.color = '#f56565'; status.textContent = 'Please enter your app password.'; return; }
+
+  btn.disabled = true;
+  status.style.color = '#63b3ed';
+  status.textContent = 'Configuring email...';
+
+  try {
+    var res = await fetch('/api/onboarding/email', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ email: email, app_password: password })
+    });
+    var d = await res.json();
+    if (d.ok) {
+      status.style.color = '#48bb78';
+      status.textContent = 'Email configured: ' + email;
+      document.getElementById('reconfig-email-password').value = '';
+      await loadSettings();
+    } else {
+      status.style.color = '#f56565';
+      status.textContent = d.error || 'Could not configure email.';
+    }
+  } catch (e) {
+    status.style.color = '#f56565';
+    status.textContent = 'Connection problem. Please try again.';
+  }
+  btn.disabled = false;
 }
 
 function logout() { fetch('/logout', { method: 'POST' }).then(function() { window.location.href = '/'; }); }

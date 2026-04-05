@@ -138,6 +138,22 @@ On startup they:
 start.bat
 ```
 
+### Headless / SSH
+
+For servers or remote machines without a browser, use `--headless`:
+
+```bash
+./start.sh --headless
+```
+
+Two setup modes are offered when no configuration exists:
+
+1. **Tailscale + browser** — Ensures Tailscale is connected, starts Funnel to expose the dashboard publicly, creates a dashboard account from the terminal, and prints the URL to open on any device. The web onboarding wizard handles the rest.
+
+2. **Terminal setup** — Walks through the full setup in the terminal: Telegram bot token, AI provider and API key, model selection, optional Gemini key for web search, and optional dashboard account. Writes everything directly to `.env`.
+
+If configuration already exists, `--headless` skips straight to starting the bot.
+
 ## First Boot and Onboarding
 
 Unlike older versions, first run is now onboarding-first through the dashboard.
