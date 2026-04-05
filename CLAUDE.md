@@ -88,6 +88,12 @@ Zero config, single file, works everywhere.
 ### Why No Plugin System?
 Plugins add complexity. If you want a new tool, write a function.
 
+### Why OpenRouter?
+One API key, 200+ models. Same OpenAI-compatible interface we already use for NVIDIA and Cerebras. No new abstraction needed — just another provider with a different base URL.
+
+### Why Ollama?
+Local models, no API key, no cloud dependency. Uses the same OpenAI-compatible API. Type a model name, it gets pulled. If Ollama isn't running, you get a clear error — no silent fallback.
+
 
 ## The Anti-Pattern List
 

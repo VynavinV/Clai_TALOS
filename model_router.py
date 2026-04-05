@@ -68,6 +68,25 @@ _PROVIDERS = {
         "patterns": ["cerebras", "llama"],
         "env_key": "CEREBRAS_API_KEY",
     },
+    "openrouter": {
+        "models": {
+            "claude4sonnet": "anthropic/claude-sonnet-4-20250514",
+            "claude35sonnet": "anthropic/claude-3.5-sonnet-20241022",
+            "gpt4o": "openai/gpt-4o",
+            "gpt41": "openai/gpt-4.1",
+            "gemini25pro": "google/gemini-2.5-pro-preview",
+            "llama4": "meta-llama/llama-4-maverick",
+            "deepseekr1": "deepseek/deepseek-r1",
+            "qwen3": "qwen/qwen3-235b-a22b",
+        },
+        "patterns": ["anthropic/", "openai/", "google/", "meta-llama/", "deepseek/", "qwen/", "mistralai/"],
+        "env_key": "OPENROUTER_API_KEY",
+    },
+    "ollama": {
+        "models": {},
+        "patterns": ["ollama"],
+        "env_key": "OLLAMA_MODEL",
+    },
 }
 
 _openai_client = None
@@ -76,9 +95,13 @@ _gemini_client = None
 _zhipu_client = None
 _nvidia_client = None
 _cerebras_client = None
+_openrouter_client = None
+_ollama_client = None
 
 _NVIDIA_BASE_URL = os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
 _CEREBRAS_BASE_URL = os.getenv("CEREBRAS_BASE_URL", "https://api.cerebras.ai/v1")
+_OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+_OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
 
 _CLIENT_BASE_URL = os.getenv("CLIENT_BASE_URL", "https://api.z.ai/api/coding/paas/v4")
 
@@ -109,18 +132,22 @@ def get_all_model_aliases() -> dict[str, str]:
 
 
 def reload_clients():
-    global _openai_client, _anthropic_client, _gemini_client, _zhipu_client, _nvidia_client, _cerebras_client
-    global _CLIENT_BASE_URL, _NVIDIA_BASE_URL, _CEREBRAS_BASE_URL
+    global _openai_client, _anthropic_client, _gemini_client, _zhipu_client, _nvidia_client, _cerebras_client, _openrouter_client, _ollama_client
+    global _CLIENT_BASE_URL, _NVIDIA_BASE_URL, _CEREBRAS_BASE_URL, _OPENROUTER_BASE_URL, _OLLAMA_BASE_URL
     _openai_client = None
     _anthropic_client = None
     _gemini_client = None
     _zhipu_client = None
     _nvidia_client = None
     _cerebras_client = None
+    _openrouter_client = None
+    _ollama_client = None
     load_dotenv(override=True)
     _CLIENT_BASE_URL = os.getenv("CLIENT_BASE_URL", "https://api.z.ai/api/coding/paas/v4")
     _NVIDIA_BASE_URL = os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
     _CEREBRAS_BASE_URL = os.getenv("CEREBRAS_BASE_URL", "https://api.cerebras.ai/v1")
+    _OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+    _OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
 
 
 def _get_openai_client():
@@ -195,6 +222,29 @@ def _get_cerebras_client():
             raise RuntimeError("CEREBRAS_API_KEY not set")
         _cerebras_client = AsyncOpenAI(api_key=api_key, base_url=_CEREBRAS_BASE_URL)
     return _cerebras_client
+
+
+def _get_openrouter_client():
+    global _openrouter_client
+    if _openrouter_client is None:
+        from openai import AsyncOpenAI
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        if not api_key:
+            raise RuntimeError("OPENROUTER_API_KEY not set")
+        _openrouter_client = AsyncOpenAI(
+            api_key=api_key,
+            base_url=_OPENROUTER_BASE_URL,
+            default_headers={"HTTP-Referer": "https://github.com/clai-talos", "X-Title": "Clai-TALOS"},
+        )
+    return _openrouter_client
+
+
+def _get_ollama_client():
+    global _ollama_client
+    if _ollama_client is None:
+        from openai import AsyncOpenAI
+        _ollama_client = AsyncOpenAI(api_key="ollama", base_url=_OLLAMA_BASE_URL)
+    return _ollama_client
 
 
 def _safe_json_loads(raw, default=None):
@@ -570,6 +620,80 @@ async def call_cerebras(model_id: str, messages: list[dict], tools: list[dict] |
     }
 
 
+async def call_openrouter(model_id: str, messages: list[dict], tools: list[dict] | None) -> dict:
+    client = _get_openrouter_client()
+    kwargs: dict[str, Any] = {
+        "model": model_id,
+        "messages": messages,
+    }
+    if tools:
+        kwargs["tools"] = _tools_to_openai(tools)
+        kwargs["tool_choice"] = "auto"
+
+    response = await client.chat.completions.create(**kwargs)
+    choice = response.choices[0]
+    reply_text = choice.message.content or ""
+
+    tool_calls = []
+    if choice.message.tool_calls:
+        for tc in choice.message.tool_calls:
+            tool_calls.append({
+                "id": tc.id,
+                "name": tc.function.name,
+                "arguments": _safe_json_loads(tc.function.arguments, {}),
+            })
+
+    return {
+        "content": reply_text,
+        "tool_calls": tool_calls,
+        "message": {
+            "role": "assistant",
+            "content": reply_text,
+            "tool_calls": [
+                {"id": tc["id"], "type": "function", "function": {"name": tc["name"], "arguments": json.dumps(tc["arguments"])}}
+                for tc in tool_calls
+            ] if tool_calls else None,
+        }
+    }
+
+
+async def call_ollama(model_id: str, messages: list[dict], tools: list[dict] | None) -> dict:
+    client = _get_ollama_client()
+    kwargs: dict[str, Any] = {
+        "model": model_id,
+        "messages": messages,
+    }
+    if tools:
+        kwargs["tools"] = _tools_to_openai(tools)
+        kwargs["tool_choice"] = "auto"
+
+    response = await client.chat.completions.create(**kwargs)
+    choice = response.choices[0]
+    reply_text = choice.message.content or ""
+
+    tool_calls = []
+    if choice.message.tool_calls:
+        for tc in choice.message.tool_calls:
+            tool_calls.append({
+                "id": tc.id,
+                "name": tc.function.name,
+                "arguments": _safe_json_loads(tc.function.arguments, {}),
+            })
+
+    return {
+        "content": reply_text,
+        "tool_calls": tool_calls,
+        "message": {
+            "role": "assistant",
+            "content": reply_text,
+            "tool_calls": [
+                {"id": tc["id"], "type": "function", "function": {"name": tc["name"], "arguments": json.dumps(tc["arguments"])}}
+                for tc in tool_calls
+            ] if tool_calls else None,
+        }
+    }
+
+
 _CALLERS = {
     "openai": call_openai,
     "anthropic": call_anthropic,
@@ -577,6 +701,8 @@ _CALLERS = {
     "zhipu": call_zhipu,
     "nvidia": call_nvidia,
     "cerebras": call_cerebras,
+    "openrouter": call_openrouter,
+    "ollama": call_ollama,
 }
 
 
@@ -622,6 +748,8 @@ def _is_image_model(model_id: str) -> bool:
 
 
 def _provider_enabled(provider: str) -> bool:
+    if provider == "ollama":
+        return bool(os.getenv("OLLAMA_MODEL", "").strip())
     cfg = _PROVIDERS.get(provider, {})
     env_key = cfg.get("env_key")
     if not env_key:
@@ -787,6 +915,43 @@ def _fetch_cerebras_models(api_key: str) -> list[str]:
     return models if models else list(_PROVIDERS["cerebras"]["models"].values())
 
 
+def _fetch_openrouter_models(api_key: str) -> list[str]:
+    import httpx
+    models = []
+    try:
+        r = httpx.get(
+            f"{_OPENROUTER_BASE_URL}/models",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=10,
+        )
+        r.raise_for_status()
+        for m in r.json().get("data", []):
+            mid = m.get("id", "")
+            if mid:
+                models.append(mid)
+    except Exception:
+        pass
+    return models if models else list(_PROVIDERS["openrouter"]["models"].values())
+
+
+def _fetch_ollama_models(api_key: str) -> list[str]:
+    import httpx
+    models = []
+    try:
+        r = httpx.get(
+            "http://localhost:11434/api/tags",
+            timeout=5,
+        )
+        r.raise_for_status()
+        for m in r.json().get("models", []):
+            name = m.get("name", "").replace(":latest", "")
+            if name:
+                models.append(name)
+    except Exception:
+        pass
+    return models
+
+
 def fetch_provider_models(provider: str, api_key: str) -> dict:
     fetchers = {
         "gemini": _fetch_gemini_models,
@@ -795,6 +960,8 @@ def fetch_provider_models(provider: str, api_key: str) -> dict:
         "zhipu": _fetch_zhipu_models,
         "nvidia": _fetch_nvidia_models,
         "cerebras": _fetch_cerebras_models,
+        "openrouter": _fetch_openrouter_models,
+        "ollama": _fetch_ollama_models,
     }
     fetcher = fetchers.get(provider)
     if not fetcher:
@@ -904,6 +1071,26 @@ def list_provider_models() -> list[str]:
         except Exception:
             pass
 
+    if os.getenv("OPENROUTER_API_KEY"):
+        try:
+            r = httpx.get(
+                f"{_OPENROUTER_BASE_URL}/models",
+                headers={"Authorization": f"Bearer {os.getenv('OPENROUTER_API_KEY')}"},
+                timeout=10,
+            )
+            r.raise_for_status()
+            for m in r.json().get("data", []):
+                mid = m.get("id", "")
+                if mid and mid not in models:
+                    models.append(mid)
+        except Exception:
+            pass
+
+    ollama_model = os.getenv("OLLAMA_MODEL", "").strip()
+    if ollama_model:
+        if ollama_model not in models:
+            models.append(ollama_model)
+
     return models if models else list(get_all_model_aliases().values())
 
 
@@ -974,6 +1161,28 @@ def list_models_with_provider() -> list[str]:
                     result.append(tagged)
         except Exception:
             pass
+
+    if os.getenv("OPENROUTER_API_KEY"):
+        try:
+            import httpx
+            r = httpx.get(f"{_OPENROUTER_BASE_URL}/models", headers={"Authorization": f"Bearer {os.getenv('OPENROUTER_API_KEY')}"}, timeout=10)
+            r.raise_for_status()
+            for m in r.json().get("data", []):
+                mid = m.get("id", "")
+                if mid:
+                    tagged = "openrouter/" + mid
+                    if tagged not in seen:
+                        seen.add(tagged)
+                        result.append(tagged)
+        except Exception:
+            pass
+
+    ollama_model = os.getenv("OLLAMA_MODEL", "").strip()
+    if ollama_model:
+        tagged = "ollama/" + ollama_model
+        if tagged not in seen:
+            seen.add(tagged)
+            result.append(tagged)
 
     return result if result else [p + "/" + m for p, m in get_all_model_aliases().items()]
 

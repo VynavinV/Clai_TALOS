@@ -1,16 +1,13 @@
-locall gemma supporthttps://file+.vscode-resource.vscode-cdn.net/Users/vynavin/.vscode/extensions/ttoowa.in-your-face-incredible-1.1.0/assets/incredible0.png
+locall gemma support
 PA system
 dream system to consolidate memories - /dream command
 In depth screen and browser control + logins 
 in depth insights to what agents and stuff are doing on dashboard
-allow himalaya setup in settings after onboarding
-allow google setup in settings after onboarding
 improve settings UI
-CLI MODE ONBOARDING TO ALLOW SSH SETUP!!
-upload .env
 ollama
 openrouter
 google test user
+headless settings
 
 Generate Images
 Lyria 3 music

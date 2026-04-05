@@ -27,6 +27,7 @@ import gateway
 import model_router
 import core
 import google_integration
+import activity_tracker
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 VENV_DIR = os.path.join(SCRIPT_DIR, "venv")
@@ -52,6 +53,7 @@ MANAGED_KEYS = [
     {"env_key": "ANTHROPIC_API_KEY", "label": "Anthropic", "icon": "&#129302;"},
     {"env_key": "NVIDIA_API_KEY", "label": "NVIDIA", "icon": "&#9889;"},
     {"env_key": "CEREBRAS_API_KEY", "label": "Cerebras", "icon": "&#9889;"},
+    {"env_key": "OPENROUTER_API_KEY", "label": "OpenRouter", "icon": "&#128279;"},
 ]
 
 SESSION_COOKIE = "talos_session"
@@ -383,7 +385,6 @@ def validate_csrf(token):
     if time.time() - csrf_tokens[token] > CSRF_MAX_AGE:
         del csrf_tokens[token]
         return False
-    del csrf_tokens[token]
     return True
 
 
@@ -783,10 +784,7 @@ async def handle_onboarding(request):
     token = request.cookies.get(SESSION_COOKIE)
     if not validate_session(token):
         return web.HTTPFound("/")
-    return web.Response(
-        text=render_template("onboarding.html", BOT_NAME=BOT_NAME),
-        content_type="text/html",
-    )
+    return _serve_auth_page(request, "onboarding.html")
 
 
 @require_auth
@@ -874,6 +872,7 @@ async def handle_api_onboarding_model(request):
         "zhipu": "ZHIPUAI_API_KEY",
         "nvidia": "NVIDIA_API_KEY",
         "cerebras": "CEREBRAS_API_KEY",
+        "openrouter": "OPENROUTER_API_KEY",
     }
 
     env_key = env_key_map.get(provider)
@@ -1143,20 +1142,82 @@ async def handle_api_onboarding_google(request):
     return web.json_response({"ok": True})
 
 
+def _serve_auth_page(request, template_name: str):
+    """Serve an authenticated HTML page with a fresh CSRF token."""
+    csrf = generate_csrf()
+    response = web.Response(
+        text=render_template(template_name, BOT_NAME=BOT_NAME, CSRF_TOKEN=csrf),
+        content_type="text/html",
+    )
+    response.set_cookie(
+        CSRF_COOKIE, csrf, max_age=CSRF_MAX_AGE,
+        httponly=True, secure=_is_secure(request), samesite="Strict", path="/",
+    )
+    return response
+
+
 async def handle_dashboard(request):
     token = request.cookies.get(SESSION_COOKIE)
     if not validate_session(token):
         return web.HTTPFound("/")
     if needs_onboarding():
         return web.HTTPFound("/onboarding")
-    return web.Response(text=render_template("dashboard.html", BOT_NAME=BOT_NAME), content_type="text/html")
+    return _serve_auth_page(request, "dashboard.html")
+
+
+async def handle_activity(request):
+    token = request.cookies.get(SESSION_COOKIE)
+    if not validate_session(token):
+        return web.HTTPFound("/")
+    if needs_onboarding():
+        return web.HTTPFound("/onboarding")
+    return _serve_auth_page(request, "activity.html")
+
+
+async def handle_api_activity_history(request):
+    token = request.cookies.get(SESSION_COOKIE)
+    if not validate_session(token):
+        return web.json_response({"error": "unauthorized"}, status=401)
+    tracker = activity_tracker.get_tracker()
+    return web.json_response(tracker.get_recent(200))
+
+
+async def handle_api_activity_stream(request):
+    token = request.cookies.get(SESSION_COOKIE)
+    if not validate_session(token):
+        return web.Response(status=401, text="unauthorized")
+    resp = web.StreamResponse(
+        status=200,
+        headers={
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+    await resp.prepare(request)
+    tracker = activity_tracker.get_tracker()
+    queue = await tracker.subscribe()
+    try:
+        while True:
+            try:
+                evt = await asyncio.wait_for(queue.get(), timeout=30)
+                data = json.dumps(evt, separators=(",", ":"))
+                await resp.write(f"data: {data}\n\n".encode())
+            except asyncio.TimeoutError:
+                await resp.write(b": ping\n\n")
+    except (asyncio.CancelledError, ConnectionResetError):
+        pass
+    finally:
+        await tracker.unsubscribe(queue)
+    return resp
 
 
 async def handle_keys(request):
     token = request.cookies.get(SESSION_COOKIE)
     if not validate_session(token):
         return web.HTTPFound("/")
-    return web.Response(text=render_template("keys.html", BOT_NAME=BOT_NAME), content_type="text/html")
+    return _serve_auth_page(request, "keys.html")
 
 
 def _read_env_keys():
@@ -1186,7 +1247,10 @@ async def handle_api_keys_post(request):
     for mk in MANAGED_KEYS:
         ek = mk["env_key"]
         if ek in body and body[ek].strip():
-            env_vars[ek] = body[ek].strip()
+            val = body[ek].strip()
+            if "****" in val and len(val) < 20:
+                continue
+            env_vars[ek] = val
 
     with open(ENV_FILE, "w") as f:
         for k, v in env_vars.items():
@@ -1311,23 +1375,23 @@ async def handle_status(request):
 
 @require_auth
 async def handle_settings(request):
-    return web.Response(text=render_template("settings.html", BOT_NAME=BOT_NAME), content_type="text/html")
+    return _serve_auth_page(request, "settings.html")
 
 
 @require_auth
 async def handle_tools(request):
-    return web.Response(text=render_template("tools.html", BOT_NAME=BOT_NAME), content_type="text/html")
+    return _serve_auth_page(request, "tools.html")
 
 
 @require_auth
 async def handle_projects_page(request):
-    return web.Response(text=render_template("projects.html", BOT_NAME=BOT_NAME), content_type="text/html")
+    return _serve_auth_page(request, "projects.html")
 
 
 _SECRET_KEYS = frozenset({
     "TELEGRAM_BOT_TOKEN", "ZHIPUAI_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY",
-    "ANTHROPIC_API_KEY", "NVIDIA_API_KEY", "CEREBRAS_API_KEY", "GOOGLE_API_KEY",
-    "GOOGLE_OAUTH_CLIENT_SECRET",
+    "ANTHROPIC_API_KEY", "NVIDIA_API_KEY", "CEREBRAS_API_KEY", "OPENROUTER_API_KEY",
+    "GOOGLE_API_KEY", "GOOGLE_OAUTH_CLIENT_SECRET",
 })
 
 
@@ -1359,6 +1423,9 @@ async def handle_api_settings_get(request):
         "CLIENT_BASE_URL": env_vars.get("CLIENT_BASE_URL", "https://api.z.ai/api/coding/paas/v4"),
         "NVIDIA_BASE_URL": env_vars.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
         "CEREBRAS_BASE_URL": env_vars.get("CEREBRAS_BASE_URL", "https://api.cerebras.ai/v1"),
+        "OPENROUTER_BASE_URL": env_vars.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
+        "OLLAMA_BASE_URL": env_vars.get("OLLAMA_BASE_URL", "http://localhost:11434/v1"),
+        "OLLAMA_MODEL": env_vars.get("OLLAMA_MODEL", ""),
         "MAX_TOOL_ROUNDS": env_vars.get("MAX_TOOL_ROUNDS", "5"),
         "MAX_TOOL_CALLS_PER_ROUND": env_vars.get("MAX_TOOL_CALLS_PER_ROUND", "20"),
         "MAX_COMMAND_TIMEOUT": env_vars.get("MAX_COMMAND_TIMEOUT", "120"),
@@ -1424,12 +1491,15 @@ async def handle_api_settings_post(request):
 
     _TEXT_KEYS = [
         "BOT_NAME", "TELEGRAM_BOT_TOKEN", "WEB_PORT",
-        "ZHIPUAI_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "NVIDIA_API_KEY", "CEREBRAS_API_KEY",
+        "ZHIPUAI_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "NVIDIA_API_KEY", "CEREBRAS_API_KEY", "OPENROUTER_API_KEY",
         "GOOGLE_API_KEY", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET",
         "GOOGLE_OAUTH_REDIRECT_URI", "GOOGLE_APPS_SCRIPT_URL", "GOOGLE_OAUTH_SCOPES",
         "HIMALAYA_BIN", "HIMALAYA_CONFIG", "HIMALAYA_DEFAULT_ACCOUNT",
-        "PIPER_VOICE", "CLIENT_BASE_URL", "NVIDIA_BASE_URL", "CEREBRAS_BASE_URL",
+        "PIPER_VOICE", "CLIENT_BASE_URL", "NVIDIA_BASE_URL", "CEREBRAS_BASE_URL", "OPENROUTER_BASE_URL", "OLLAMA_BASE_URL", "OLLAMA_MODEL",
     ]
+
+    def _is_masked(val: str) -> bool:
+        return "****" in val and len(val) < 20
 
     _MODEL_KEYS = ["MAIN_MODEL", "IMAGE_MODEL", "FAST_MODEL"]
 
@@ -1440,6 +1510,13 @@ async def handle_api_settings_post(request):
                 env_vars[key] = value
             elif key in env_vars:
                 del env_vars[key]
+
+    for key in _TEXT_KEYS:
+        if key in body and body[key].strip():
+            if key in _SECRET_KEYS and _is_masked(body[key].strip()):
+                continue
+            env_vars[key] = body[key].strip()
+
     _INT_KEYS = [
         ("MAX_TOOL_ROUNDS", 1, 50),
         ("MAX_TOOL_CALLS_PER_ROUND", 1, 100),
@@ -1449,10 +1526,6 @@ async def handle_api_settings_post(request):
         ("MAX_SUBAGENT_TOOL_CALLS_PER_ROUND", 1, 100),
         ("MAX_CONTEXT_CHARS", 10000, 1000000),
     ]
-
-    for key in _TEXT_KEYS:
-        if key in body and body[key].strip():
-            env_vars[key] = body[key].strip()
 
     for key, lo, hi in _INT_KEYS:
         if key in body:
@@ -1518,10 +1591,71 @@ async def handle_api_models_fetch(request):
         return web.json_response({"error": "Invalid request."}, status=400)
     provider = str(body.get("provider", "")).strip()
     api_key = str(body.get("api_key", "")).strip()
-    if not provider or not api_key:
+    if not provider:
+        return web.json_response({"error": "Provider is required."}, status=400)
+    if provider != "ollama" and not api_key:
         return web.json_response({"error": "Provider and API key are required."}, status=400)
-    result = model_router.fetch_provider_models(provider, api_key)
+    result = model_router.fetch_provider_models(provider, api_key or "ollama")
     return web.json_response(result)
+
+
+@require_auth_csrf
+async def handle_api_ollama_setup(request):
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid request."}, status=400)
+
+    model_name = str(body.get("model_name", "")).strip()
+    if not model_name:
+        return web.json_response({"error": "Model name is required."}, status=400)
+
+    import shutil
+    import subprocess
+
+    ollama_bin = shutil.which("ollama")
+
+    if not ollama_bin:
+        return web.json_response({"error": "Ollama is not installed. Install it from https://ollama.com then restart."}, status=400)
+
+    try:
+        check = subprocess.run(
+            [ollama_bin, "list"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if check.returncode != 0:
+            return web.json_response({"error": "Ollama does not appear to be running. Start it first."}, status=400)
+    except Exception:
+        return web.json_response({"error": "Could not check Ollama status. Is it running?"}, status=400)
+
+    env_vars = _read_env_file()
+    env_vars["OLLAMA_MODEL"] = model_name
+
+    with open(ENV_FILE, "w") as f:
+        for k, v in env_vars.items():
+            f.write(f"{k}={v}\n")
+
+    load_dotenv(override=True)
+    model_router.reload_clients()
+
+    pull_result = subprocess.run(
+        [ollama_bin, "pull", model_name],
+        capture_output=True, text=True, timeout=300,
+    )
+
+    if pull_result.returncode != 0:
+        return web.json_response({
+            "ok": False,
+            "error": f"Model saved but pull failed: {pull_result.stderr.strip()}",
+            "stdout": pull_result.stdout,
+            "stderr": pull_result.stderr,
+        })
+
+    return web.json_response({
+        "ok": True,
+        "model": model_name,
+        "output": pull_result.stdout.strip(),
+    })
 
 
 @require_auth
@@ -1824,6 +1958,7 @@ async def main():
     web_app.router.add_post("/api/onboarding/email", handle_api_onboarding_email)
     web_app.router.add_post("/api/onboarding/google", handle_api_onboarding_google)
     web_app.router.add_get("/dashboard", handle_dashboard)
+    web_app.router.add_get("/activity", handle_activity)
     web_app.router.add_get("/keys", handle_keys)
     web_app.router.add_get("/settings", handle_settings)
     web_app.router.add_get("/tools", handle_tools)
@@ -1845,7 +1980,10 @@ async def main():
     web_app.router.add_post("/api/tools", handle_api_tools_post)
     web_app.router.add_get("/api/models", handle_api_models)
     web_app.router.add_post("/api/models/fetch", handle_api_models_fetch)
+    web_app.router.add_post("/api/ollama/setup", handle_api_ollama_setup)
     web_app.router.add_post("/api/chat", handle_api_chat)
+    web_app.router.add_get("/api/activity/history", handle_api_activity_history)
+    web_app.router.add_get("/api/activity/stream", handle_api_activity_stream)
     web_app.router.add_post("/api/reload", handle_api_reload)
     web_app.router.add_post("/api/restart", handle_api_restart)
     web_app.router.add_static("/static", STATIC_DIR)

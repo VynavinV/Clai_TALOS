@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="csrf-token" content="{{CSRF_TOKEN}}">
 <title>{{BOT_NAME}} — Settings</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -99,6 +100,7 @@
     <a href="/settings" class="nav-item active"><span class="icon">&#9881;</span> Settings</a>
     <a href="/projects" class="nav-item"><span class="icon">&#9830;</span> Projects</a>
     <a href="/static/chat.html" class="nav-item"><span class="icon">&#9993;</span> Chat</a>
+    <a href="/activity" class="nav-item"><span class="icon">&#9673;</span> Activity</a>
   </div>
   <div class="nav-bottom"><a href="#" class="nav-item" onclick="logout(); return false;"><span class="icon">&#10140;</span> Sign Out</a></div>
 </nav>
@@ -165,7 +167,12 @@
     <div class="form-group"><label>Apps Script URL</label><input type="text" id="google-apps-script-url" placeholder="https://script.google.com/macros/s/.../exec"></div>
     <div class="form-group"><label>OAuth Scopes</label><input type="text" id="google-oauth-scopes" placeholder="Leave blank to use safe defaults"></div>
     <div class="status-line" id="google-connection-status">Google account: checking status...</div>
-    <div class="form-hint" id="google-redirect-hint"></div>
+    <div class="form-hint" id="google-redirect-hint" style="margin-bottom:0.8rem;"></div>
+    <div id="google-redirect-notice" style="display:none; margin-bottom:0.8rem; padding:0.7rem 1rem; background:rgba(214,158,46,0.1); border:1px solid rgba(214,158,46,0.3); border-radius:8px; font-size:0.82rem; color:#d69e2e;">
+      <strong>Before connecting:</strong> Add the redirect URL below to your Google Cloud Console OAuth app's "Authorized redirect URIs".<br>
+      Google Cloud Console &rarr; APIs & Services &rarr; Credentials &rarr; your OAuth client &rarr; Authorized redirect URIs<br>
+      <code id="google-redirect-notice-url" style="color:#63b3ed;"></code>
+    </div>
     <div class="google-actions">
       <button class="btn" id="connect-google-btn" onclick="connectGoogle()">Connect Google Account</button>
       <button class="btn" id="test-google-btn" onclick="testGoogleConnection()">Check Connection</button>
@@ -222,6 +229,12 @@
 <script>
 var googlePollTimer = null;
 var contextUsageTimer = null;
+var _csrfToken = document.querySelector('meta[name="csrf-token"]') ? document.querySelector('meta[name="csrf-token"]').getAttribute('content') : '';
+
+function _post(url, body) {
+  body.csrf_token = _csrfToken;
+  return fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+}
 
 var PROVIDERS = [
   { id: 'zhipu', name: 'ZhipuAI', env_key: 'ZHIPUAI_API_KEY', url: 'https://open.bigmodel.cn/', desc: 'GLM models for chat and reasoning' },
@@ -230,13 +243,15 @@ var PROVIDERS = [
   { id: 'gemini', name: 'Gemini', env_key: 'GEMINI_API_KEY', url: 'https://aistudio.google.com/app/apikey', desc: 'Gemini models and optional web search' },
   { id: 'nvidia', name: 'NVIDIA', env_key: 'NVIDIA_API_KEY', url: 'https://build.nvidia.com/', desc: 'NVIDIA hosted AI models' },
   { id: 'cerebras', name: 'Cerebras', env_key: 'CEREBRAS_API_KEY', url: 'https://cloud.cerebras.ai/', desc: 'High-speed Llama inference' },
+  { id: 'openrouter', name: 'OpenRouter', env_key: 'OPENROUTER_API_KEY', url: 'https://openrouter.ai/keys', desc: 'Access 200+ models through one API' },
+  { id: 'ollama', name: 'Ollama', env_key: '', url: 'https://ollama.com', desc: 'Local models, no API key needed' },
 ];
 
 var _providerModels = {};
 var _providerKeys = {};
 var _activeProvider = '';
 var _fetchTimer = null;
-var _baseUrlValues = { zhipu: '', nvidia: '', cerebras: '' };
+var _baseUrlValues = { zhipu: '', nvidia: '', cerebras: '', openrouter: '', ollama: '' };
 
 function _saveBaseUrls() {
   var el;
@@ -246,6 +261,10 @@ function _saveBaseUrls() {
   if (el) _baseUrlValues.nvidia = el.value;
   el = document.getElementById('cerebras-base-url');
   if (el) _baseUrlValues.cerebras = el.value;
+  el = document.getElementById('openrouter-base-url');
+  if (el) _baseUrlValues.openrouter = el.value;
+  el = document.getElementById('ollama-base-url');
+  if (el) _baseUrlValues.ollama = el.value;
 }
 
 function _prov(id) { return PROVIDERS.find(function(p) { return p.id === id; }); }
@@ -253,7 +272,7 @@ function _prov(id) { return PROVIDERS.find(function(p) { return p.id === id; });
 function renderProviderTabs() {
   var html = '';
   PROVIDERS.forEach(function(p) {
-    var hasKey = !!_providerKeys[p.env_key];
+    var hasKey = p.id === 'ollama' ? !!_ollamaModel : !!_providerKeys[p.env_key];
     var isActive = p.id === _activeProvider;
     html += '<div class="provider-tab' + (isActive ? ' active' : '') + '" onclick="switchProvider(\'' + p.id + '\')">'
       + '<span class="tab-dot ' + (hasKey ? 'on' : 'off') + '"></span>'
@@ -281,6 +300,26 @@ function renderProviderPanels() {
   var html = '';
   PROVIDERS.forEach(function(p) {
     var isActive = p.id === _activeProvider;
+
+    if (p.id === 'ollama') {
+      html += '<div class="provider-panel' + (isActive ? ' active' : '') + '" id="panel-ollama">'
+        + '<div class="provider-desc">' + p.desc + '. <a href="' + p.url + '" target="_blank">Install Ollama</a> first, then type a model name.</div>'
+        + '<div class="form-group">'
+        + '<label>Model Name <span id="key-badge-ollama">' + (_ollamaModel ? '<span class="badge-set">Set</span>' : '<span class="badge-unset">Not set</span>') + '</span></label>'
+        + '<input type="text" id="key-ollama" placeholder="e.g. llama3, mistral, deepseek-r1" value="' + (_ollamaModel || '') + '" autocomplete="off">'
+        + '<div class="form-hint">Type the model name. It will be pulled automatically if not already downloaded. Browse at <a href="https://ollama.com/library" target="_blank">ollama.com/library</a>.</div>'
+        + '</div>'
+        + '<div class="form-group">'
+        + '<label>Base URL</label>'
+        + '<input type="text" id="ollama-base-url" placeholder="http://localhost:11434/v1" value="' + (_baseUrlValues.ollama || '') + '">'
+        + '<div class="form-hint">Default is http://localhost:11434/v1. Change only if Ollama runs on a different port/host.</div>'
+        + '</div>'
+        + '<div id="ollama-status" class="status-line">' + (_ollamaModel ? 'Active model: ' + _ollamaModel : '') + '</div>'
+        + '<button class="btn" onclick="setupOllama()">Install & Pull Model</button>'
+        + '</div>';
+      return;
+    }
+
     var hasKey = !!_providerKeys[p.env_key];
     var models = _providerModels[p.id] || [];
     html += '<div class="provider-panel' + (isActive ? ' active' : '') + '" id="panel-' + p.id + '">'
@@ -315,6 +354,12 @@ function renderProviderPanels() {
       html += '<div class="form-group" style="margin-top:0.5rem;">'
         + '<label>Base URL</label>'
         + '<input type="text" id="cerebras-base-url" placeholder="https://api.cerebras.ai/v1" value="' + (_baseUrlValues.cerebras || '') + '">'
+        + '</div>';
+    }
+    if (p.id === 'openrouter') {
+      html += '<div class="form-group" style="margin-top:0.5rem;">'
+        + '<label>Base URL</label>'
+        + '<input type="text" id="openrouter-base-url" placeholder="https://openrouter.ai/api/v1" value="' + (_baseUrlValues.openrouter || '') + '">'
         + '</div>';
     }
     html += '</div>';
@@ -355,11 +400,7 @@ async function fetchModelsForProvider(providerId, apiKey) {
   var sel = document.getElementById('model-' + providerId);
   var prevVal = sel ? sel.value : '';
   try {
-    var res = await fetch('/api/models/fetch', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ provider: providerId, api_key: apiKey })
-    });
+    var res = await _post('/api/models/fetch', { provider: providerId, api_key: apiKey });
     var data = await res.json();
     if (data.models && data.models.length > 0) {
       _providerModels[providerId] = data.models;
@@ -436,6 +477,7 @@ function getModelValue(selectId) {
 }
 
 var _currentMainModel = '';
+var _ollamaModel = '';
 
 async function loadSettings() {
   try {
@@ -469,9 +511,11 @@ async function loadSettings() {
       GEMINI_API_KEY: d.GEMINI_API_KEY || '',
       NVIDIA_API_KEY: d.NVIDIA_API_KEY || '',
       CEREBRAS_API_KEY: d.CEREBRAS_API_KEY || '',
+      OPENROUTER_API_KEY: d.OPENROUTER_API_KEY || '',
     };
 
     _currentMainModel = d.MAIN_MODEL || '';
+    _ollamaModel = d.OLLAMA_MODEL || '';
 
     var mainProvider = '';
     var mainModelId = _currentMainModel;
@@ -482,6 +526,10 @@ async function loadSettings() {
     } else if (_currentMainModel) {
       for (var i = 0; i < PROVIDERS.length; i++) {
         var p = PROVIDERS[i];
+        if (p.id === 'ollama' && _ollamaModel) {
+          mainProvider = 'ollama';
+          break;
+        }
         if (_providerKeys[p.env_key]) {
           mainProvider = p.id;
           break;
@@ -498,12 +546,18 @@ async function loadSettings() {
     _baseUrlValues.zhipu = d.CLIENT_BASE_URL || '';
     _baseUrlValues.nvidia = d.NVIDIA_BASE_URL || '';
     _baseUrlValues.cerebras = d.CEREBRAS_BASE_URL || '';
+    _baseUrlValues.openrouter = d.OPENROUTER_BASE_URL || '';
+    _baseUrlValues.ollama = d.OLLAMA_BASE_URL || '';
     var cbu = document.getElementById('client-base-url');
     if (cbu) cbu.value = _baseUrlValues.zhipu;
     var nbu = document.getElementById('nvidia-base-url');
     if (nbu) nbu.value = _baseUrlValues.nvidia;
     var csbu = document.getElementById('cerebras-base-url');
     if (csbu) csbu.value = _baseUrlValues.cerebras;
+    var orbu = document.getElementById('openrouter-base-url');
+    if (orbu) orbu.value = _baseUrlValues.openrouter;
+    var obu = document.getElementById('ollama-base-url');
+    if (obu) obu.value = _baseUrlValues.ollama;
 
     await loadImageModels(d);
     await loadFastModels(d);
@@ -516,14 +570,24 @@ async function loadSettings() {
 
 async function loadAllProviderModels() {
   var promises = PROVIDERS.map(function(p) {
+    if (p.id === 'ollama') {
+    return fetch('/api/models/fetch', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ provider: 'ollama', api_key: '' })
+    }).then(function(res) { return res.json(); }).then(function(data) {
+        if (data.models && data.models.length > 0) {
+          _providerModels['ollama'] = data.models;
+        }
+      }).catch(function() {});
+    }
     var key = _providerKeys[p.env_key];
     if (!key) return Promise.resolve();
     return fetch('/api/models/fetch', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ provider: p.id, api_key: key })
-    }).then(function(res) { return res.json(); }).then(function(data) {
-      if (data.models && data.models.length > 0) {
+    }).then(function(res) { return res.json(); }).then(function(data) {      if (data.models && data.models.length > 0) {
         _providerModels[p.id] = data.models;
       }
     }).catch(function() {});
@@ -618,6 +682,15 @@ async function saveSettings() {
   var activeKeyInput = document.getElementById('key-' + _activeProvider);
   var activeKeyVal = activeKeyInput ? activeKeyInput.value.trim() : '';
 
+  if (_activeProvider === 'ollama') {
+    var ollamaInput = document.getElementById('key-ollama');
+    var ollamaName = ollamaInput ? ollamaInput.value.trim() : '';
+    if (ollamaName) {
+      mainModel = 'ollama/' + ollamaName;
+      _ollamaModel = ollamaName;
+    }
+  }
+
   var p = {
     BOT_NAME: document.getElementById('bot-name').value.trim(),
     TELEGRAM_BOT_TOKEN: document.getElementById('telegram-token').value.trim(),
@@ -634,6 +707,9 @@ async function saveSettings() {
     CLIENT_BASE_URL: (document.getElementById('client-base-url') || {}).value || _baseUrlValues.zhipu || '',
     NVIDIA_BASE_URL: (document.getElementById('nvidia-base-url') || {}).value || _baseUrlValues.nvidia || '',
     CEREBRAS_BASE_URL: (document.getElementById('cerebras-base-url') || {}).value || _baseUrlValues.cerebras || '',
+    OPENROUTER_BASE_URL: (document.getElementById('openrouter-base-url') || {}).value || _baseUrlValues.openrouter || '',
+    OLLAMA_BASE_URL: (document.getElementById('ollama-base-url') || {}).value || _baseUrlValues.ollama || '',
+    OLLAMA_MODEL: (document.getElementById('key-ollama') || {}).value || _ollamaModel || '',
     MAIN_MODEL: mainModel,
     IMAGE_MODEL: getModelValue('image-model'),
     FAST_MODEL: getModelValue('fast-model'),
@@ -651,7 +727,7 @@ async function saveSettings() {
   }
 
   try {
-    var res = await fetch('/api/settings', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(p) });
+    var res = await _post('/api/settings', p);
     if (res.status === 401) { window.location.href = '/'; return; }
     var d = await res.json();
     if (d.ok) {
@@ -682,13 +758,22 @@ async function loadGoogleStatus() {
     document.getElementById('connect-google-btn').disabled = !hasClient;
     document.getElementById('test-google-btn').disabled = !connected;
     document.getElementById('disconnect-google-btn').disabled = !connected;
+
+    var notice = document.getElementById('google-redirect-notice');
+    var noticeUrl = document.getElementById('google-redirect-notice-url');
+    if (hasClient && !connected && d.redirect_uri) {
+      notice.style.display = 'block';
+      noticeUrl.textContent = d.redirect_uri;
+    } else {
+      notice.style.display = 'none';
+    }
   } catch (e) { document.getElementById('google-connection-status').textContent = 'Google status unavailable right now'; }
 }
 
 async function connectGoogle() {
   document.getElementById('connect-google-btn').disabled = true;
   try {
-    var res = await fetch('/api/google/connect', { method: 'POST' });
+    var res = await _post('/api/google/connect', {});
     var d = await res.json();
     if (d.ok && d.auth_url) {
       var w = window.open(d.auth_url, '_blank', 'noopener');
@@ -704,7 +789,7 @@ async function connectGoogle() {
 
 async function testGoogleConnection() {
   try {
-    var res = await fetch('/api/google/test', { method: 'POST' });
+    var res = await _post('/api/google/test', {});
     var d = await res.json();
     showMsg(d.ok ? (d.warning || 'Connection check passed.') : (d.error || 'Connection check failed.'), d.ok && !d.warning);
   } catch (e) { showMsg('Connection problem. Please try again.', false); }
@@ -712,16 +797,16 @@ async function testGoogleConnection() {
 
 async function disconnectGoogle() {
   if (!confirm('Disconnect your Google account from this assistant?')) return;
-  try { var res = await fetch('/api/google/disconnect', { method: 'POST' }); var d = await res.json(); showMsg(d.ok ? 'Google account disconnected.' : (d.error || 'Could not disconnect Google account.'), d.ok); await loadGoogleStatus(); } catch (e) { showMsg('Connection problem. Please try again.', false); }
+  try { var res = await _post('/api/google/disconnect', {}); var d = await res.json(); showMsg(d.ok ? 'Google account disconnected.' : (d.error || 'Could not disconnect Google account.'), d.ok); await loadGoogleStatus(); } catch (e) { showMsg('Connection problem. Please try again.', false); }
 }
 
 async function hotReload() {
-  try { var res = await fetch('/api/reload', { method: 'POST' }); var d = await res.json(); showMsg(d.ok ? 'Changes applied.' : (d.error || 'Could not apply changes.'), d.ok); } catch (e) { showMsg('Connection problem. Please try again.', false); }
+  try { var res = await _post('/api/reload', {}); var d = await res.json(); showMsg(d.ok ? 'Changes applied.' : (d.error || 'Could not apply changes.'), d.ok); } catch (e) { showMsg('Connection problem. Please try again.', false); }
 }
 
 async function restartBot() {
   if (!confirm('Restart the assistant now?')) return;
-  try { var res = await fetch('/api/restart', { method: 'POST' }); var d = await res.json(); if (d.ok) { showMsg('Restarting assistant...', true); setTimeout(function() { location.reload(); }, 2000); } else showMsg(d.error || 'Could not restart the assistant.', false); } catch (e) { showMsg('Connection problem. Please try again.', false); }
+  try { var res = await _post('/api/restart', {}); var d = await res.json(); if (d.ok) { showMsg('Restarting assistant...', true); setTimeout(function() { location.reload(); }, 2000); } else showMsg(d.error || 'Could not restart the assistant.', false); } catch (e) { showMsg('Connection problem. Please try again.', false); }
 }
 
 function toggleEmailReconfigure() {
@@ -746,11 +831,7 @@ async function reconfigureEmail() {
   status.textContent = 'Configuring email...';
 
   try {
-    var res = await fetch('/api/onboarding/email', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ email: email, app_password: password })
-    });
+    var res = await _post('/api/onboarding/email', { email: email, app_password: password });
     var d = await res.json();
     if (d.ok) {
       status.style.color = '#48bb78';
@@ -766,6 +847,33 @@ async function reconfigureEmail() {
     status.textContent = 'Connection problem. Please try again.';
   }
   btn.disabled = false;
+}
+
+async function setupOllama() {
+  var modelName = (document.getElementById('key-ollama') || {}).value || '';
+  var statusEl = document.getElementById('ollama-status');
+  if (!modelName.trim()) { statusEl.textContent = 'Please enter a model name.'; statusEl.style.color = '#f56565'; return; }
+  statusEl.textContent = 'Pulling model ' + modelName.trim() + '... This may take a few minutes on first download.';
+  statusEl.style.color = '#63b3ed';
+  try {
+    var res = await _post('/api/ollama/setup', { model_name: modelName.trim() });
+    var d = await res.json();
+    if (d.ok) {
+      _ollamaModel = modelName.trim();
+      _currentMainModel = 'ollama/' + _ollamaModel;
+      statusEl.textContent = 'Model ' + d.model + ' is ready.';
+      statusEl.style.color = '#48bb78';
+      renderProviderTabs();
+      updateActiveModelDisplay();
+      showMsg('Ollama model set: ' + d.model, true);
+    } else {
+      statusEl.textContent = d.error || 'Could not set up Ollama model.';
+      statusEl.style.color = '#f56565';
+    }
+  } catch (e) {
+    statusEl.textContent = 'Connection problem. Please try again.';
+    statusEl.style.color = '#f56565';
+  }
 }
 
 function logout() { fetch('/logout', { method: 'POST' }).then(function() { window.location.href = '/'; }); }

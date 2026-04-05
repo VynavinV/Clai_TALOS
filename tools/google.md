@@ -19,7 +19,7 @@ Parameters:
 ### Supported Actions
 
 **Calendar:**
-- `calendar.list_events` — List upcoming events. Payload: `{time_min, time_max, max_results, calendar_id}`
+- `calendar.list_events` — List upcoming events. Payload: `{time_min, time_max, max_results, calendar_id}`. `time_min` defaults to now (UTC). `time_max` defaults to none (all future). Use ISO 8601 format: `"2026-04-06T00:00:00Z"`. For "next week", set `time_min` to next Monday and `time_max` to next Sunday.
 - `calendar.create_event` — Create an event. Payload: `{calendar_id, event: {summary, start: {dateTime}, end: {dateTime}, ...}}`
 - `calendar.list_calendars` — List all calendars.
 

@@ -486,7 +486,8 @@ async def _direct_api_fallback(action: str, payload: dict | None = None) -> dict
     payload = payload or {}
 
     if action == "calendar.list_events":
-        time_min = payload.get("time_min", "")
+        now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        time_min = payload.get("time_min", now_iso)
         time_max = payload.get("time_max", "")
         max_results = payload.get("max_results", 10)
         calendar_id = payload.get("calendar_id", "primary")

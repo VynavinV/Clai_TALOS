@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="csrf-token" content="{{CSRF_TOKEN}}">
 <title>{{BOT_NAME}} — Home</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Sora:wght@400;500;600;700&display=swap');
@@ -518,6 +519,7 @@
     <a href="/settings" class="nav-item"><span class="icon">&#9881;</span> Settings</a>
     <a href="/projects" class="nav-item"><span class="icon">&#9830;</span> Projects</a>
     <a href="/static/chat.html" class="nav-item"><span class="icon">&#9993;</span> Chat</a>
+    <a href="/activity" class="nav-item"><span class="icon">&#9673;</span> Activity</a>
   </div>
   <div class="nav-bottom">
     <a href="#" class="nav-item" onclick="logout(); return false;"><span class="icon">&#10140;</span> Sign Out</a>
@@ -626,7 +628,8 @@ async function poll() {
 
 async function hotReload() {
   try {
-    await fetch('/api/reload', { method: 'POST' });
+    var _csrfToken = document.querySelector('meta[name="csrf-token"]') ? document.querySelector('meta[name="csrf-token"]').getAttribute('content') : '';
+    await fetch('/api/reload', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ csrf_token: _csrfToken }) });
   } catch (e) {}
 }
 

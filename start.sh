@@ -389,8 +389,10 @@ headless_terminal_setup() {
   echo -e "  ${DIM}4) ZhipuAI       (glm-5, glm-4v)${RESET}"
   echo -e "  ${DIM}5) NVIDIA        (glm4.7)${RESET}"
   echo -e "  ${DIM}6) Cerebras      (llama4-scout, llama-3.3-70b)${RESET}"
+  echo -e "  ${DIM}7) OpenRouter    (200+ models via one key)${RESET}"
+  echo -e "  ${DIM}8) Ollama        (local models, no key needed)${RESET}"
   echo ""
-  prompt PROVIDER_NUM "Provider [1-6]" "2"
+  prompt PROVIDER_NUM "Provider [1-8]" "2"
 
   local provider="" env_key="" default_model=""
   case "$PROVIDER_NUM" in
@@ -400,21 +402,34 @@ headless_terminal_setup() {
     4) provider="zhipu";     env_key="ZHIPUAI_API_KEY";   default_model="zhipu/glm-5" ;;
     5) provider="nvidia";    env_key="NVIDIA_API_KEY";    default_model="nvidia/z-ai/glm4.7" ;;
     6) provider="cerebras";  env_key="CEREBRAS_API_KEY";  default_model="cerebras/llama4-scout-17b-16e-instruct" ;;
+    7) provider="openrouter";env_key="OPENROUTER_API_KEY"; default_model="openrouter/anthropic/claude-sonnet-4-20250514" ;;
+    8) provider="ollama";    env_key="";                   default_model="" ;;
     *) fail "Invalid choice. Defaulting to Anthropic."; provider="anthropic"; env_key="ANTHROPIC_API_KEY"; default_model="anthropic/claude-sonnet-4-20250514" ;;
   esac
 
-  echo ""
-  prompt_secret API_KEY "${provider^} API Key"
-  while [[ -z "$API_KEY" ]]; do
-    warn "API key is required."
+  if [[ "$provider" == "ollama" ]]; then
+    echo ""
+    echo -e "${DIM}Ollama runs models locally. Make sure Ollama is installed and running.${RESET}"
+    echo -e "${DIM}Install from: https://ollama.com${RESET}"
+    echo ""
+    prompt OLLAMA_MODEL "Model name (e.g. llama3, mistral, deepseek-r1)" "llama3"
+    env_set "OLLAMA_MODEL" "$OLLAMA_MODEL"
+    env_set "MAIN_MODEL" "ollama/${OLLAMA_MODEL}"
+    ok "Ollama configured: ${OLLAMA_MODEL}"
+  else
+    echo ""
     prompt_secret API_KEY "${provider^} API Key"
-  done
-  env_set "$env_key" "$API_KEY"
+    while [[ -z "$API_KEY" ]]; do
+      warn "API key is required."
+      prompt_secret API_KEY "${provider^} API Key"
+    done
+    env_set "$env_key" "$API_KEY"
 
-  echo ""
-  prompt MAIN_MODEL "Main model" "$default_model"
-  env_set "MAIN_MODEL" "$MAIN_MODEL"
-  ok "AI provider configured: ${provider}/${MAIN_MODEL#*/}"
+    echo ""
+    prompt MAIN_MODEL "Main model" "$default_model"
+    env_set "MAIN_MODEL" "$MAIN_MODEL"
+    ok "AI provider configured: ${provider}/${MAIN_MODEL#*/}"
+  fi
 
   # ── Optional: Gemini for web search ──
   echo ""

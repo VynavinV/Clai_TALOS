@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="csrf-token" content="{{CSRF_TOKEN}}">
 <title>{{BOT_NAME}} — API Keys</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -69,6 +70,7 @@
     <a href="/settings" class="nav-item"><span class="icon">&#9881;</span> Settings</a>
     <a href="/projects" class="nav-item"><span class="icon">&#9830;</span> Projects</a>
     <a href="/static/chat.html" class="nav-item"><span class="icon">&#9993;</span> Chat</a>
+    <a href="/activity" class="nav-item"><span class="icon">&#9673;</span> Activity</a>
   </div>
   <div class="nav-bottom"><a href="#" class="nav-item" onclick="logout(); return false;"><span class="icon">&#10140;</span> Sign Out</a></div>
 </nav>
@@ -83,6 +85,13 @@
 
 <script>
 var keys = [];
+var _csrfToken = document.querySelector('meta[name="csrf-token"]') ? document.querySelector('meta[name="csrf-token"]').getAttribute('content') : '';
+
+function _post(url, body) {
+  body.csrf_token = _csrfToken;
+  return fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+}
+
 async function loadKeys() {
   try {
     var res = await fetch('/api/keys');
@@ -109,7 +118,7 @@ async function saveAll() {
   var payload = {};
   keys.forEach(function(k) { var v = document.getElementById('key-' + k.env_key).value; if (v.trim()) payload[k.env_key] = v.trim(); });
   try {
-    var res = await fetch('/api/keys', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+    var res = await _post('/api/keys', payload);
     if (res.status === 401) { window.location.href = '/'; return; }
     var data = await res.json();
     if (data.ok) { showMsg('Saved', true); keys = data.keys; render(); }

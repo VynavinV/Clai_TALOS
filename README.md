@@ -150,7 +150,7 @@ Two setup modes are offered when no configuration exists:
 
 1. **Tailscale + browser** — Ensures Tailscale is connected, starts Funnel to expose the dashboard publicly, creates a dashboard account from the terminal, and prints the URL to open on any device. The web onboarding wizard handles the rest.
 
-2. **Terminal setup** — Walks through the full setup in the terminal: Telegram bot token, AI provider and API key, model selection, optional Gemini key for web search, and optional dashboard account. Writes everything directly to `.env`.
+2. **Terminal setup** — Walks through the full setup in the terminal: Telegram bot token, AI provider and API key (OpenAI, Anthropic, Gemini, ZhipuAI, NVIDIA, Cerebras, OpenRouter, or Ollama), model selection, optional Gemini key for web search, and optional dashboard account. Writes everything directly to `.env`.
 
 If configuration already exists, `--headless` skips straight to starting the bot.
 
@@ -173,7 +173,7 @@ If `TELEGRAM_BOT_TOKEN` is missing, authenticated users are redirected to onboar
 Onboarding endpoints support:
 
 - Telegram token + bot name
-- model provider + API key + model selection
+- model provider + API key + model selection (OpenAI, Anthropic, Gemini, ZhipuAI, NVIDIA, Cerebras, OpenRouter, or Ollama)
 - Gemini key
 - optional Gmail/Himalaya setup
 - optional Google credentials
@@ -254,6 +254,7 @@ Main pages:
 | POST | `/api/tools` | Update tool map |
 | GET | `/api/models` | List models |
 | POST | `/api/models/fetch` | Refresh provider model list |
+| POST | `/api/ollama/setup` | Install and set Ollama model |
 | POST | `/api/chat` | Web chat message endpoint |
 | POST | `/api/reload` | Hot reload env + clients |
 | POST | `/api/restart` | Process restart |
@@ -290,9 +291,24 @@ TALOS reads `.env` and supports hot reload for most runtime settings.
 | `GEMINI_API_KEY` | empty | Gemini provider key |
 | `OPENAI_API_KEY` | empty | OpenAI provider key |
 | `ANTHROPIC_API_KEY` | empty | Anthropic provider key |
+| `NVIDIA_API_KEY` | empty | NVIDIA provider key |
+| `CEREBRAS_API_KEY` | empty | Cerebras provider key |
+| `OPENROUTER_API_KEY` | empty | OpenRouter provider key |
 | `MAIN_MODEL` | auto best | Preferred text model |
 | `IMAGE_MODEL` | auto best | Preferred vision/image model |
 | `CLIENT_BASE_URL` | `https://api.z.ai/api/coding/paas/v4` | Zhipu API base URL |
+| `NVIDIA_BASE_URL` | `https://integrate.api.nvidia.com/v1` | NVIDIA API base URL |
+| `CEREBRAS_BASE_URL` | `https://api.cerebras.ai/v1` | Cerebras API base URL |
+| `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | OpenRouter API base URL |
+
+### Ollama (local models)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OLLAMA_MODEL` | empty | Ollama model name (e.g. `llama3`, `mistral`) |
+| `OLLAMA_BASE_URL` | `http://localhost:11434/v1` | Ollama API base URL |
+
+Ollama runs models locally with no API key. Install from [ollama.com](https://ollama.com), start it, then set `OLLAMA_MODEL` to any model name. The model is pulled automatically on first use. Browse available models at [ollama.com/library](https://ollama.com/library).
 
 ### Google integration
 
@@ -655,6 +671,22 @@ Actions:
 1. Install Himalaya manually.
 2. Set `HIMALAYA_BIN` and `HIMALAYA_CONFIG` in settings.
 3. Verify account with `email_execute` list actions.
+
+### Ollama model not working
+
+Likely causes:
+
+- Ollama not installed or not running
+- model name misspelled
+- wrong `OLLAMA_BASE_URL`
+
+Actions:
+
+1. Install Ollama from [ollama.com](https://ollama.com).
+2. Start Ollama (`ollama serve` or launch the app).
+3. Verify with `ollama list` in terminal.
+4. Check `OLLAMA_MODEL` and `OLLAMA_BASE_URL` in settings.
+5. Use the "Install & Set Model" button in Settings to auto-pull.
 
 ## Development Workflow
 

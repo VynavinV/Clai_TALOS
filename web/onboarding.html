@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="csrf-token" content="{{CSRF_TOKEN}}">
 <title>{{BOT_NAME}} — Welcome Setup</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -268,6 +269,24 @@
     <div class="section-label">Choose a Provider</div>
     <div class="provider-grid" id="provider-grid"></div>
 
+    <div id="ollama-setup-area" style="display:none;">
+      <div class="info-box" style="margin-bottom:1rem;">
+        Ollama runs AI models locally on your machine. No API key needed.
+        <ol>
+          <li>Install Ollama from <a href="https://ollama.com" target="_blank">ollama.com</a></li>
+          <li>Make sure Ollama is running</li>
+          <li>Type a model name below (e.g. <code>llama3</code>, <code>mistral</code>, <code>deepseek-r1</code>)</li>
+        </ol>
+        Browse all models at <a href="https://ollama.com/library" target="_blank">ollama.com/library</a>
+      </div>
+      <div class="field">
+        <label>Ollama Model Name</label>
+        <input type="text" id="ollama-model-name" placeholder="llama3" autocomplete="off">
+        <div class="hint">The model will be downloaded automatically if not already present.</div>
+      </div>
+      <div id="ollama-pull-status" style="display:none; margin-bottom:0.5rem;"></div>
+    </div>
+
     <div class="field" id="api-key-field" style="display:none;">
       <label id="api-key-label">Provider API Key</label>
       <input type="password" id="api-key-input" placeholder="Paste your provider API key" autocomplete="off" oninput="onApiKeyInput()">
@@ -417,6 +436,12 @@
 var TOTAL_STEPS = 7;
 var currentStep = 0;
 var selectedProvider = '';
+var _csrfToken = document.querySelector('meta[name="csrf-token"]') ? document.querySelector('meta[name="csrf-token"]').getAttribute('content') : '';
+
+function _post(url, body) {
+  body.csrf_token = _csrfToken;
+  return fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+}
 
 var PROVIDERS = {
   openai: {
@@ -460,6 +485,13 @@ var PROVIDERS = {
     vision: [],
     env_key: 'CEREBRAS_API_KEY',
     url: 'https://cloud.cerebras.ai/'
+  },
+  openrouter: {
+    name: 'OpenRouter',
+    models: [],
+    vision: [],
+    env_key: 'OPENROUTER_API_KEY',
+    url: 'https://openrouter.ai/keys'
   }
 };
 
@@ -496,6 +528,10 @@ function initProviderGrid() {
       + '<div class="models">Models load after you add a key</div>'
       + '</div>';
   }
+  html += '<div class="provider-card" id="prov-ollama" onclick="selectProvider(\'ollama\')">'
+    + '<div class="name">Ollama (Local)</div>'
+    + '<div class="models">Run models on your machine</div>'
+    + '</div>';
   document.getElementById('provider-grid').innerHTML = html;
 }
 
@@ -507,9 +543,22 @@ function selectProvider(key) {
   document.querySelectorAll('.provider-card').forEach(function(c) { c.classList.remove('selected'); });
   document.getElementById('prov-' + key).classList.add('selected');
 
+  var keyField = document.getElementById('api-key-field');
+  var ollamaArea = document.getElementById('ollama-setup-area');
+
+  if (key === 'ollama') {
+    keyField.style.display = 'none';
+    ollamaArea.style.display = 'block';
+    var mainSel = document.getElementById('main-model');
+    mainSel.innerHTML = '<option value="manual">Set via Ollama model name above</option>';
+    rebuildVisionDropdown();
+    return;
+  }
+
+  ollamaArea.style.display = 'none';
+
   var p = PROVIDERS[key];
 
-  var keyField = document.getElementById('api-key-field');
   keyField.style.display = 'block';
   document.getElementById('api-key-label').textContent = p.name + ' API Key';
   document.getElementById('api-key-hint').innerHTML = '<a href="' + p.url + '" target="_blank">Open ' + p.name + ' API key page</a>';
@@ -557,11 +606,7 @@ function getVisionProvider() {
 async function fetchModelsForProvider(provider, apiKey) {
   var mainSel = document.getElementById('main-model');
   try {
-    var res = await fetch('/api/models/fetch', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ provider: provider, api_key: apiKey })
-    });
+    var res = await _post('/api/models/fetch', { provider: provider, api_key: apiKey });
     var data = await res.json();
     if (data.models && data.models.length > 0) {
       PROVIDERS[provider].models = data.models;
@@ -588,11 +633,7 @@ async function fetchModelsForProvider(provider, apiKey) {
 
 async function fetchVisionModels(provider, apiKey, previouslySelected) {
   try {
-    var res = await fetch('/api/models/fetch', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ provider: provider, api_key: apiKey })
-    });
+    var res = await _post('/api/models/fetch', { provider: provider, api_key: apiKey });
     var data = await res.json();
     if (data.image_models && data.image_models.length > 0) {
       PROVIDERS[provider].vision = data.image_models;
@@ -688,11 +729,7 @@ async function saveTelegram() {
   if (!token) { err.textContent = 'Please paste your Telegram bot token.'; return; }
 
   try {
-    var res = await fetch('/api/onboarding/telegram', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ token: token, bot_name: name })
-    });
+    var res = await _post('/api/onboarding/telegram', { token: token, bot_name: name });
     var data = await res.json();
     if (data.ok) { goStep(1); }
     else { err.textContent = data.error || 'Could not save that yet. Please try again.'; }
@@ -731,6 +768,33 @@ async function saveModel() {
 
   if (!selectedProvider) { err.textContent = 'Please choose a provider.'; return; }
 
+  if (selectedProvider === 'ollama') {
+    var ollamaModel = (document.getElementById('ollama-model-name') || {}).value.trim();
+    if (!ollamaModel) { err.textContent = 'Please enter an Ollama model name.'; return; }
+
+    var statusEl = document.getElementById('ollama-pull-status');
+    statusEl.style.display = 'block';
+    statusEl.className = 'info-box';
+    statusEl.textContent = 'Setting up Ollama model: ' + ollamaModel + '...';
+
+    try {
+      var res = await _post('/api/ollama/setup', { model_name: ollamaModel });
+      var data = await res.json();
+      if (data.ok) {
+        statusEl.textContent = 'Ollama model ' + data.model + ' is ready!';
+        statusEl.style.borderColor = 'rgba(72,187,120,0.4)';
+        goStep(3);
+      } else {
+        statusEl.textContent = '';
+        err.textContent = data.error || 'Could not set up Ollama model.';
+      }
+    } catch (e) {
+      statusEl.textContent = '';
+      err.textContent = 'Connection problem. Please try again.';
+    }
+    return;
+  }
+
   var apiKey = document.getElementById('api-key-input').value.trim();
   if (!apiKey) { err.textContent = 'Please enter an API key.'; return; }
 
@@ -761,11 +825,7 @@ async function saveModel() {
   }
 
   try {
-    var res = await fetch('/api/onboarding/model', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(payload)
-    });
+    var res = await _post('/api/onboarding/model', payload);
     var data = await res.json();
     if (data.ok) {
       if (selectedProvider === 'gemini') goStep(4);
@@ -783,11 +843,7 @@ async function saveGemini() {
   if (!key) { goStep(4); return; }
 
   try {
-    var res = await fetch('/api/onboarding/gemini', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ api_key: key })
-    });
+    var res = await _post('/api/onboarding/gemini', { api_key: key });
     var data = await res.json();
     if (data.ok) goStep(4);
     else err.textContent = data.error || 'Could not save Gemini key.';
@@ -813,11 +869,7 @@ async function setupEmail() {
   btn.disabled = true;
 
   try {
-    var res = await fetch('/api/onboarding/email', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ email: email, app_password: appPassword })
-    });
+    var res = await _post('/api/onboarding/email', { email: email, app_password: appPassword });
     var data = await res.json();
     if (data.ok) {
       statusEl.className = 'info-box';
@@ -849,15 +901,11 @@ async function saveGoogle() {
   if (!apiKey && !clientId) { goStep(6); return; }
 
   try {
-    var res = await fetch('/api/onboarding/google', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
+    var res = await _post('/api/onboarding/google', {
         api_key: apiKey,
         oauth_client_id: clientId,
         oauth_client_secret: clientSecret
-      })
-    });
+      });
     var data = await res.json();
     if (data.ok) {
       if (clientId && clientSecret) {
@@ -891,10 +939,7 @@ async function connectGoogleOnboarding() {
   statusEl.textContent = 'Opening Google sign-in...';
 
   try {
-    var res = await fetch('/api/google/connect', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'}
-    });
+    var res = await _post('/api/google/connect', {});
     var data = await res.json();
     if (data.ok && data.auth_url) {
       statusEl.textContent = 'Waiting for you to approve access in the other tab...';
