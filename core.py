@@ -3,6 +3,7 @@ import asyncio
 import os
 import AI
 import db
+import model_router
 
 logger = logging.getLogger("talos.core")
 
@@ -97,12 +98,12 @@ def _format_failure_message(error: Exception) -> str:
     if "rate" in lowered or "limit" in lowered or "balance" in lowered:
         return "API rate limit or balance exhausted."
     if "api" in lowered or "auth" in lowered or "key" in lowered:
-        return f"API error: {error}"
+        return "API error: authentication or key issue."
     logger.exception("Error in process_message")
-    return f"Error: {error}"
+    return "An internal error occurred. Check logs for details."
 
 
-async def process_message(user_id: int, text: str, send_func) -> None:
+async def process_message(user_id: int, text: str, send_func, model_override: str | None = None) -> None:
     stripped = text.lower().strip().rstrip("!")
 
     if stripped == "/clear":
@@ -130,6 +131,7 @@ async def process_message(user_id: int, text: str, send_func) -> None:
             user_id=user_id,
             text=text,
             send_func=tracked_send,
+            model_override=model_override,
         )
         await _cancel_task(progress_task)
         if reply:
@@ -143,6 +145,17 @@ async def process_message(user_id: int, text: str, send_func) -> None:
 
 
 async def process_image_message(user_id: int, text: str, image_b64: str, send_func) -> None:
+    image_model = db.get_image_model(user_id)
+    provider, _ = model_router.resolve_model(image_model)
+    if not model_router._provider_enabled(provider):
+        cfg = model_router._PROVIDERS.get(provider, {})
+        env_key = cfg.get("env_key", "API_KEY")
+        await _send_with_optional_voice(
+            send_func,
+            f"Image model \"{image_model}\" requires provider \"{provider}\", but {env_key} is not set. Add your API key in Settings to use image features.",
+        )
+        return
+
     await _send_with_optional_voice(send_func, "Got it. Analyzing image...")
     
     progress_task: asyncio.Task | None = None

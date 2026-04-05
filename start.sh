@@ -27,7 +27,32 @@ ok()    { echo -e "${GREEN}[  ok ]${RESET} $1"; }
 warn()  { echo -e "${YELLOW}[ warn]${RESET} $1"; }
 fail()  { echo -e "${RED}[fail ]${RESET} $1"; }
 
-# ── Step 1: Ensure Python 3.10-3.13 ──────────────────────────────────
+# ── Step 1: Ensure sudo access ──────────────────────────────────────
+
+ensure_sudo() {
+  if [[ "$(uname)" == "Darwin" ]]; then
+    return 0
+  fi
+  if [[ "$EUID" -eq 0 ]]; then
+    return 0
+  fi
+  local sudoers_file="/etc/sudoers.d/clai-talos"
+  local current_user
+  current_user="$(whoami)"
+  if sudo -n true 2>/dev/null; then
+    ok "Sudo access available"
+    return 0
+  fi
+  info "Configuring passwordless sudo for TALOS..."
+  echo "$current_user" | sudo -S bash -c "echo '$current_user ALL=(ALL) NOPASSWD: ALL' > '$sudoers_file' && chmod 440 '$sudoers_file'" 2>/dev/null
+  if sudo -n true 2>/dev/null; then
+    ok "Sudo access configured"
+  else
+    warn "Could not configure passwordless sudo. Some features may require manual sudo."
+  fi
+}
+
+# ── Step 2: Ensure Python 3.10-3.13 ──────────────────────────────────
 
 find_python() {
   for cmd in python3.13 python3.12 python3.11 python3.10 python3; do
@@ -69,7 +94,7 @@ install_python() {
   fi
 }
 
-# ── Step 2: Ensure Tailscale ──────────────────────────────────────────
+# ── Step 3: Ensure Tailscale ──────────────────────────────────────────
 
 install_tailscale() {
   if command -v tailscale &>/dev/null; then
@@ -95,7 +120,7 @@ install_tailscale() {
   fi
 }
 
-# ── Step 3: Create venv + install deps ────────────────────────────────
+# ── Step 4: Create venv + install deps ────────────────────────────────
 
 setup_venv() {
   local py="$1"
@@ -129,13 +154,13 @@ setup_venv() {
   fi
 }
 
-# ── Step 4: Run setup (non-interactive now) ───────────────────────────
+# ── Step 5: Run setup (non-interactive now) ───────────────────────────
 
 run_setup() {
   venv/bin/python setup.py
 }
 
-# ── Step 5: Start Tailscale Funnel (best-effort) ─────────────────────
+# ── Step 6: Start Tailscale Funnel (best-effort) ─────────────────────
 
 start_funnel() {
   if ! command -v tailscale &>/dev/null; then
@@ -148,7 +173,7 @@ start_funnel() {
   fi
 }
 
-# ── Step 6: Open browser ─────────────────────────────────────────────
+# ── Step 7: Open browser ─────────────────────────────────────────────
 
 open_browser() {
   local url="http://localhost:${WEB_PORT}"
@@ -169,7 +194,10 @@ open_browser() {
 banner
 
 # Ensure dirs
-mkdir -p projects logs/web_uploads logs/browser
+mkdir -p projects logs/web_uploads logs/browser bin
+
+# Sudo access (Linux only, skips on Mac)
+ensure_sudo
 
 # Python
 PYTHON=""

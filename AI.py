@@ -81,19 +81,28 @@ def _load_tools_guide() -> str:
     global _tools_guide_cache
     if _tools_guide_cache is not None:
         return _tools_guide_cache
-    guides = []
+    lines = []
     if os.path.isdir(_TOOLS_DIR):
         for filename in sorted(os.listdir(_TOOLS_DIR)):
-            if filename.endswith(".md"):
-                filepath = os.path.join(_TOOLS_DIR, filename)
-                try:
-                    with open(filepath, "r") as f:
-                        content = f.read().strip()
-                    tool_name = filename[:-3]
-                    guides.append(f"### {tool_name}\n{content}")
-                except Exception:
-                    pass
-    _tools_guide_cache = "\n\n".join(guides) if guides else ""
+            if not filename.endswith(".md"):
+                continue
+            filepath = os.path.join(_TOOLS_DIR, filename)
+            try:
+                with open(filepath, "r") as f:
+                    first_lines = [f.readline() for _ in range(5)]
+                title = first_lines[0].strip().lstrip("# ").strip()
+                desc = ""
+                for line in first_lines[1:]:
+                    stripped = line.strip()
+                    if stripped and not stripped.startswith("#"):
+                        desc = stripped
+                        break
+                tool_name = filename[:-3]
+                lines.append(f"- {tool_name}: {desc}" if desc else f"- {tool_name}")
+            except Exception:
+                pass
+    summary = "You have access to the following tools. Use `read_tool_guide` to read the full usage guide for any tool before using it.\n\n" + "\n".join(lines) if lines else ""
+    _tools_guide_cache = summary
     return _tools_guide_cache
 
 
@@ -304,6 +313,9 @@ def _resolve_output_image_path(path: str | None, prefix: str) -> str:
     raw = str(path or "").strip()
     if raw:
         resolved = raw if os.path.isabs(raw) else os.path.join(_SCRIPT_DIR, raw)
+        resolved = os.path.realpath(resolved)
+        if not resolved.startswith(os.path.realpath(_SCRIPT_DIR) + os.sep) and resolved != os.path.realpath(_SCRIPT_DIR):
+            return _default_image_artifact_path(prefix)
         parent = os.path.dirname(resolved)
         if parent:
             os.makedirs(parent, exist_ok=True)
@@ -316,6 +328,9 @@ def _resolve_existing_image_path(path: str) -> str:
     if not raw:
         return ""
     resolved = raw if os.path.isabs(raw) else os.path.join(_SCRIPT_DIR, raw)
+    resolved = os.path.realpath(resolved)
+    if not resolved.startswith(os.path.realpath(_SCRIPT_DIR) + os.sep) and resolved != os.path.realpath(_SCRIPT_DIR):
+        return ""
     return resolved if os.path.isfile(resolved) else ""
 
 
@@ -1267,6 +1282,21 @@ def _get_all_tools(include_subagent: bool = True, include_telegram: bool = False
             }
         })
 
+    tools.append({
+        "type": "function",
+        "function": {
+            "name": "read_tool_guide",
+            "description": "Read the full usage guide for a tool. Use this BEFORE using a tool you're unfamiliar with.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "tool_name": {"type": "string", "description": "The tool name (e.g. 'browser', 'file_tools', 'email')"}
+                },
+                "required": ["tool_name"]
+            }
+        }
+    })
+
     tools.extend(dynamic_tools.get_tool_definitions())
 
     return tools
@@ -1795,6 +1825,18 @@ async def _execute_tool_call(
                 )
             return json.dumps({"role": role, "task": task, "result": result}, indent=2)
 
+        elif tool_name == "read_tool_guide":
+            name = str(tool_args.get("tool_name", "")).strip()
+            if not name:
+                return json.dumps({"error": "tool_name is required"}, indent=2)
+            filepath = os.path.join(_TOOLS_DIR, f"{name}.md")
+            if not os.path.isfile(filepath):
+                available = [f[:-3] for f in os.listdir(_TOOLS_DIR) if f.endswith(".md")] if os.path.isdir(_TOOLS_DIR) else []
+                return json.dumps({"error": f"Unknown tool: {name}", "available_tools": available}, indent=2)
+            with open(filepath, "r") as f:
+                content = f.read().strip()
+            return content
+
         else:
             if dynamic_tools.get_tool_spec(tool_name):
                 prepared = dynamic_tools.build_command(tool_name, tool_args)
@@ -1836,6 +1878,44 @@ async def _execute_tool_call(
 # ---------------------------------------------------------------------------
 # Agentic loop (multi-turn tool calling with parallel subagents)
 # ---------------------------------------------------------------------------
+
+
+_TOOLCALL_TAG_RE = re.compile(
+    r"<toolcall>(.+?)</(?:toolcall|argvalue)>",
+    re.DOTALL,
+)
+_TOOLCALL_ARG_RE = re.compile(
+    r'\$(\w+)=("(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|\[[^\]]*\]|\{[^}]*\}|[^\s<]+)',
+)
+_TOOLCALL_NAME_RE = re.compile(r"^([a-zA-Z_]\w*)")
+
+
+def _parse_text_tool_calls(content: str) -> tuple[list[dict], str]:
+    parsed = []
+    remaining = _TOOLCALL_TAG_RE.sub("", content)
+    for match in _TOOLCALL_TAG_RE.finditer(content):
+        body = match.group(1).strip()
+        name_match = _TOOLCALL_NAME_RE.match(body)
+        if not name_match:
+            continue
+        tool_name = name_match.group(1)
+        rest = body[name_match.end():]
+        args: dict = {}
+        for arg_match in _TOOLCALL_ARG_RE.finditer(rest):
+            key = arg_match.group(1)
+            val_str = arg_match.group(2)
+            try:
+                val = json.loads(val_str)
+            except (json.JSONDecodeError, TypeError):
+                val = val_str.strip("'\"")
+            args[key] = val
+        parsed.append({
+            "id": f"text_tool_{len(parsed)}",
+            "name": tool_name,
+            "arguments": args,
+        })
+    return parsed, remaining.strip()
+
 
 async def _run_agent(
     model: str,
@@ -1901,19 +1981,31 @@ async def _run_agent(
 
         response = await model_router.call_model(model_id, messages, tools)
         
-        if not response.get("tool_calls"):
-            interrupt_texts = _drain_interrupts()
-            if interrupt_texts:
-                msg = _build_interruption_message(interrupt_texts)
-                if msg:
-                    messages.append(response.get("message", {"role": "assistant", "content": response.get("content", "")}))
-                    messages.append(msg)
-                    continue
-            return response.get("content", "I could not generate a response right now.")
+        tool_calls = response.get("tool_calls", [])
+        content_text = response.get("content", "")
+        text_tools = None
+
+        if not tool_calls:
+            text_tools, cleaned_content = _parse_text_tool_calls(content_text)
+            if text_tools:
+                tool_calls = text_tools
+                content_text = cleaned_content
+                logger.warning(f"Model emitted {len(text_tools)} tool call(s) as text, intercepted and routing to execution")
+                messages.append({"role": "assistant", "content": content_text})
+            else:
+                interrupt_texts = _drain_interrupts()
+                if interrupt_texts:
+                    msg = _build_interruption_message(interrupt_texts)
+                    if msg:
+                        messages.append(response.get("message", {"role": "assistant", "content": response.get("content", "")}))
+                        messages.append(msg)
+                        continue
+                return response.get("content", "I could not generate a response right now.")
         
-        messages.append(response["message"])
+        if not text_tools:
+            messages.append(response["message"])
         
-        tool_calls = response["tool_calls"][:max_calls_per_round]
+        tool_calls = tool_calls[:max_calls_per_round]
         
         subagent_calls = [tc for tc in tool_calls if tc["name"] == "spawn_subagent"]
         other_calls = [tc for tc in tool_calls if tc["name"] != "spawn_subagent"]
@@ -2045,8 +2137,9 @@ async def respond(
     send_func: SendFunc | None = None,
     interrupt_event: asyncio.Event | None = None,
     interrupt_queue: asyncio.Queue | None = None,
+    model_override: str | None = None,
 ) -> str:
-    model = db.get_model(user_id)
+    model = model_override or db.get_model(user_id)
     history = db.get_history(user_id)
     system = _build_system(user_id, text)
     

@@ -1,8 +1,10 @@
 import hashlib
+import ipaddress
 import json
 import logging
 import os
 import re
+import socket
 import time
 from typing import Any
 from urllib.parse import urljoin, urldefrag
@@ -25,6 +27,36 @@ logger = logging.getLogger("talos.scrapy_scraper")
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _CACHE_DIR = os.path.join(_SCRIPT_DIR, "logs", "scrape_cache")
 _CACHE_INDEX_PATH = os.path.join(_CACHE_DIR, "index.json")
+
+
+_ALLOWED_SCHEMES = {"http", "https"}
+
+
+def _is_private_ip(hostname: str) -> bool:
+    try:
+        addrs = socket.getaddrinfo(hostname, None)
+        for family, _, _, _, sockaddr in addrs:
+            ip = ipaddress.ip_address(sockaddr[0])
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                return True
+    except (socket.gaierror, ValueError):
+        pass
+    return False
+
+
+def _validate_url(url: str) -> str | None:
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    if parsed.scheme.lower() not in _ALLOWED_SCHEMES:
+        return f"URL scheme must be http or https, got '{parsed.scheme}'"
+    hostname = parsed.hostname or ""
+    if not hostname:
+        return "URL must include a hostname"
+    if hostname.endswith(".local") or hostname.endswith(".internal"):
+        return "Access to local/internal hostnames is blocked"
+    if _is_private_ip(hostname):
+        return "Access to private/internal IP addresses is blocked"
+    return None
 
 _SUPPORTED_FORMATS = {"markdown", "html", "links", "screenshot"}
 _TEXT_BLOCK_XPATH = ".//h1|.//h2|.//h3|.//h4|.//h5|.//h6|.//p|.//li|.//blockquote|.//pre"
@@ -221,6 +253,10 @@ def scrape_url(
     raw_url = str(url or "").strip()
     if not raw_url:
         return {"error": "No URL provided"}
+
+    url_error = _validate_url(raw_url)
+    if url_error:
+        return {"error": url_error, "url": raw_url}
 
     if not SCRAPY_AVAILABLE:
         return {

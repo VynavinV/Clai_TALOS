@@ -12,6 +12,7 @@ import base64
 import mimetypes
 import zlib
 import re
+import html
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 from aiohttp import web
@@ -50,6 +51,7 @@ MANAGED_KEYS = [
     {"env_key": "OPENAI_API_KEY", "label": "OpenAI", "icon": "&#129302;"},
     {"env_key": "ANTHROPIC_API_KEY", "label": "Anthropic", "icon": "&#129302;"},
     {"env_key": "NVIDIA_API_KEY", "label": "NVIDIA", "icon": "&#9889;"},
+    {"env_key": "CEREBRAS_API_KEY", "label": "Cerebras", "icon": "&#9889;"},
 ]
 
 SESSION_COOKIE = "talos_session"
@@ -276,13 +278,12 @@ def load_credentials():
 
 
 def get_client_ip(request):
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
     peername = request.transport.get_extra_info("peername")
-    if peername:
-        return peername[0]
-    return "unknown"
+    peer_ip = peername[0] if peername else "unknown"
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded and peer_ip in ("127.0.0.1", "::1", "localhost"):
+        return forwarded.split(",")[0].strip()
+    return peer_ip
 
 
 def _is_secure(request):
@@ -386,6 +387,27 @@ def validate_csrf(token):
     return True
 
 
+def require_auth_csrf(handler):
+    async def middleware(request):
+        token = request.cookies.get(SESSION_COOKIE)
+        if not validate_session(token):
+            return web.Response(
+                status=401,
+                content_type="application/json",
+                text='{"error": "unauthorized"}'
+            )
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        csrf = body.get("csrf_token", "") if isinstance(body, dict) else ""
+        if not validate_csrf(csrf):
+            return web.json_response({"error": "Invalid or expired CSRF token."}, status=403)
+        request._json_body = body
+        return await handler(request)
+    return middleware
+
+
 def cleanup_csrf():
     now = time.time()
     expired = [t for t, ts in csrf_tokens.items() if now - ts > CSRF_MAX_AGE]
@@ -480,10 +502,10 @@ def check_credentials():
 def render_template(name, **kwargs):
     path = os.path.join(WEB_DIR, name)
     with open(path, "r") as f:
-        html = f.read()
+        html_content = f.read()
     for key, value in kwargs.items():
-        html = html.replace("{{" + key + "}}", str(value))
-    return html
+        html_content = html_content.replace("{{" + key + "}}", html.escape(str(value)))
+    return html_content
 
 
 def require_auth(handler):
@@ -851,6 +873,7 @@ async def handle_api_onboarding_model(request):
         "gemini": "GEMINI_API_KEY",
         "zhipu": "ZHIPUAI_API_KEY",
         "nvidia": "NVIDIA_API_KEY",
+        "cerebras": "CEREBRAS_API_KEY",
     }
 
     env_key = env_key_map.get(provider)
@@ -902,6 +925,93 @@ async def handle_api_onboarding_gemini(request):
     return web.json_response({"ok": True})
 
 
+async def _download_himalaya() -> str | None:
+    import platform as _platform
+    import tarfile
+    import tempfile
+
+    system = _platform.system().lower()
+    machine = _platform.machine().lower()
+
+    arch_map = {
+        "x86_64": "x86_64", "amd64": "x86_64",
+        "aarch64": "aarch64", "arm64": "aarch64",
+        "armv7l": "armv7l", "armv6l": "armv6l",
+        "i686": "i686",
+    }
+    os_map = {
+        "linux": "linux",
+        "darwin": "darwin",
+        "windows": "windows",
+    }
+
+    arch = arch_map.get(machine)
+    os_name = os_map.get(system)
+
+    if not arch or not os_name:
+        return None
+
+    asset_name = f"himalaya.{arch}-{os_name}.tgz"
+    download_url = f"https://github.com/pimalaya/himalaya/releases/latest/download/{asset_name}"
+
+    bin_dir = os.path.join(SCRIPT_DIR, "bin")
+    os.makedirs(bin_dir, exist_ok=True)
+    bin_path = os.path.join(bin_dir, "himalaya" if os_name != "windows" else "himalaya.exe")
+
+    if os.path.isfile(bin_path):
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                bin_path, "--version",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await asyncio.wait_for(proc.communicate(), timeout=10)
+            if proc.returncode == 0:
+                return bin_path
+        except Exception:
+            pass
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "curl", "-fsSL", "--connect-timeout", "15", "-o", bin_path + ".tgz", download_url,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+        if proc.returncode != 0:
+            return None
+    except Exception:
+        return None
+
+    tgz_path = bin_path + ".tgz"
+    if not os.path.isfile(tgz_path) or os.path.getsize(tgz_path) < 1000:
+        if os.path.isfile(tgz_path):
+            os.remove(tgz_path)
+        return None
+
+    try:
+        with tarfile.open(tgz_path, "r:gz") as tf:
+            for member in tf.getmembers():
+                if member.isfile():
+                    member.name = os.path.basename(member.name)
+                    tf.extract(member, bin_dir)
+                    extracted = os.path.join(bin_dir, member.name)
+                    os.chmod(extracted, 0o755)
+                    if os.path.isfile(extracted):
+                        os.rename(extracted, bin_path)
+                        break
+    except Exception:
+        return None
+    finally:
+        if os.path.isfile(tgz_path):
+            os.remove(tgz_path)
+
+    if os.path.isfile(bin_path):
+        return bin_path
+
+    return None
+
+
 @require_auth
 async def handle_api_onboarding_email(request):
     """Install Himalaya and configure Gmail account during onboarding."""
@@ -922,55 +1032,11 @@ async def handle_api_onboarding_email(request):
     himalaya_bin = shutil.which("himalaya")
 
     if not himalaya_bin:
-        cargo_bin = shutil.which("cargo")
-        brew_bin = shutil.which("brew")
-        installed = False
-
-        if cargo_bin:
-            try:
-                proc = await asyncio.create_subprocess_exec(
-                    "cargo", "install", "himalaya",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
-                if proc.returncode == 0:
-                    installed = True
-                    himalaya_bin = shutil.which("himalaya")
-                else:
-                    return web.json_response({
-                        "error": f"Cargo install failed: {(stderr or b'').decode(errors='replace')[:300]}"
-                    }, status=500)
-            except asyncio.TimeoutError:
-                return web.json_response({"error": "Himalaya installation timed out (5 min). Install manually and retry."}, status=500)
-            except Exception as e:
-                return web.json_response({"error": f"Failed to install Himalaya: {e}"}, status=500)
-        elif brew_bin:
-            try:
-                proc = await asyncio.create_subprocess_exec(
-                    "brew", "install", "himalaya",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
-                if proc.returncode == 0:
-                    installed = True
-                    himalaya_bin = shutil.which("himalaya")
-                else:
-                    return web.json_response({
-                        "error": f"Brew install failed: {(stderr or b'').decode(errors='replace')[:300]}"
-                    }, status=500)
-            except asyncio.TimeoutError:
-                return web.json_response({"error": "Himalaya installation timed out (5 min). Install manually and retry."}, status=500)
-            except Exception as e:
-                return web.json_response({"error": f"Failed to install Himalaya: {e}"}, status=500)
-        else:
+        himalaya_bin = await _download_himalaya()
+        if not himalaya_bin:
             return web.json_response({
-                "error": "Neither cargo nor brew found. Install Himalaya manually from github.com/pimalaya/himalaya and set HIMALAYA_BIN in Settings."
-            }, status=400)
-
-    if not himalaya_bin:
-        return web.json_response({"error": "Himalaya was installed but not found on PATH. Set HIMALAYA_BIN in Settings."}, status=500)
+                "error": "Failed to download Himalaya. Install manually from github.com/pimalaya/himalaya and set HIMALAYA_BIN in Settings."
+            }, status=500)
 
     config_dir = os.path.join(SCRIPT_DIR, ".himalaya")
     os.makedirs(config_dir, exist_ok=True)
@@ -979,10 +1045,14 @@ async def handle_api_onboarding_email(request):
     username = email_addr.split("@")[0]
     account_alias = "gmail"
 
+    safe_email = email_addr.replace('"', '').replace('\\', '')
+    safe_username = username.replace('"', '').replace('\\', '')
+    safe_password = app_password.replace('"', '').replace('\\', '')
+
     config_content = f"""[accounts.{account_alias}]
 default = true
-email = "{email_addr}"
-display-name = "{username}"
+email = "{safe_email}"
+display-name = "{safe_username}"
 
 folder.aliases.sent = "[Gmail]/Sent Mail"
 
@@ -993,18 +1063,18 @@ type = "imap"
 host = "imap.gmail.com"
 port = 993
 encryption.type = "tls"
-login = "{email_addr}"
+login = "{safe_email}"
 auth.type = "password"
-auth.raw = "{app_password}"
+auth.raw = "{safe_password}"
 
 [accounts.{account_alias}.message.send.backend]
 type = "smtp"
 host = "smtp.gmail.com"
 port = 465
 encryption.type = "tls"
-login = "{email_addr}"
+login = "{safe_email}"
 auth.type = "password"
-auth.raw = "{app_password}"
+auth.raw = "{safe_password}"
 """
 
     with open(config_path, "w") as f:
@@ -1102,15 +1172,14 @@ def _read_env_keys():
     return keys
 
 
+@require_auth
 async def handle_api_keys_get(request):
     return web.json_response(_read_env_keys())
 
 
+@require_auth_csrf
 async def handle_api_keys_post(request):
-    try:
-        body = await request.json()
-    except Exception:
-        return web.json_response({"error": "Invalid request."}, status=400)
+    body = request._json_body
 
     env_vars = _read_env_file()
 
@@ -1191,6 +1260,7 @@ async def handle_login(request):
     return response
 
 
+@require_auth
 async def handle_logout(request):
     token = request.cookies.get(SESSION_COOKIE)
     ip = get_client_ip(request)
@@ -1254,23 +1324,31 @@ async def handle_projects_page(request):
     return web.Response(text=render_template("projects.html", BOT_NAME=BOT_NAME), content_type="text/html")
 
 
+_SECRET_KEYS = frozenset({
+    "TELEGRAM_BOT_TOKEN", "ZHIPUAI_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY", "NVIDIA_API_KEY", "CEREBRAS_API_KEY", "GOOGLE_API_KEY",
+    "GOOGLE_OAUTH_CLIENT_SECRET",
+})
+
+
+def _mask_secret(value: str) -> str:
+    if not value:
+        return ""
+    if len(value) <= 8:
+        return "****"
+    return value[:4] + "****" + value[-4:]
+
+
 @require_auth
 async def handle_api_settings_get(request):
     env_vars = _read_env_file()
-    return web.json_response({
+    result = {
         "BOT_NAME": env_vars.get("BOT_NAME", ""),
-        "TELEGRAM_BOT_TOKEN": env_vars.get("TELEGRAM_BOT_TOKEN", ""),
         "WEB_PORT": env_vars.get("WEB_PORT", "8080"),
         "MAIN_MODEL": env_vars.get("MAIN_MODEL", ""),
         "IMAGE_MODEL": env_vars.get("IMAGE_MODEL", ""),
-        "ZHIPUAI_API_KEY": env_vars.get("ZHIPUAI_API_KEY", ""),
-        "GEMINI_API_KEY": env_vars.get("GEMINI_API_KEY", ""),
-        "OPENAI_API_KEY": env_vars.get("OPENAI_API_KEY", ""),
-        "ANTHROPIC_API_KEY": env_vars.get("ANTHROPIC_API_KEY", ""),
-        "NVIDIA_API_KEY": env_vars.get("NVIDIA_API_KEY", ""),
-        "GOOGLE_API_KEY": env_vars.get("GOOGLE_API_KEY", ""),
+        "FAST_MODEL": env_vars.get("FAST_MODEL", ""),
         "GOOGLE_OAUTH_CLIENT_ID": env_vars.get("GOOGLE_OAUTH_CLIENT_ID", ""),
-        "GOOGLE_OAUTH_CLIENT_SECRET": env_vars.get("GOOGLE_OAUTH_CLIENT_SECRET", ""),
         "GOOGLE_OAUTH_REDIRECT_URI": env_vars.get("GOOGLE_OAUTH_REDIRECT_URI", ""),
         "GOOGLE_APPS_SCRIPT_URL": env_vars.get("GOOGLE_APPS_SCRIPT_URL", ""),
         "GOOGLE_OAUTH_SCOPES": env_vars.get("GOOGLE_OAUTH_SCOPES", ""),
@@ -1280,6 +1358,7 @@ async def handle_api_settings_get(request):
         "PIPER_VOICE": env_vars.get("PIPER_VOICE", "en_US-lessac-medium"),
         "CLIENT_BASE_URL": env_vars.get("CLIENT_BASE_URL", "https://api.z.ai/api/coding/paas/v4"),
         "NVIDIA_BASE_URL": env_vars.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
+        "CEREBRAS_BASE_URL": env_vars.get("CEREBRAS_BASE_URL", "https://api.cerebras.ai/v1"),
         "MAX_TOOL_ROUNDS": env_vars.get("MAX_TOOL_ROUNDS", "5"),
         "MAX_TOOL_CALLS_PER_ROUND": env_vars.get("MAX_TOOL_CALLS_PER_ROUND", "20"),
         "MAX_COMMAND_TIMEOUT": env_vars.get("MAX_COMMAND_TIMEOUT", "120"),
@@ -1287,7 +1366,10 @@ async def handle_api_settings_get(request):
         "MAX_SUBAGENT_TOOL_ROUNDS": env_vars.get("MAX_SUBAGENT_TOOL_ROUNDS", "5"),
         "MAX_SUBAGENT_TOOL_CALLS_PER_ROUND": env_vars.get("MAX_SUBAGENT_TOOL_CALLS_PER_ROUND", "15"),
         "MAX_CONTEXT_CHARS": env_vars.get("MAX_CONTEXT_CHARS", "120000"),
-    })
+    }
+    for key in _SECRET_KEYS:
+        result[key] = _mask_secret(env_vars.get(key, ""))
+    return web.json_response(result)
 
 
 @require_auth
@@ -1332,27 +1414,24 @@ async def handle_api_context_usage(request):
     })
 
 
-@require_auth
+@require_auth_csrf
 async def handle_api_settings_post(request):
     global BOT_NAME
 
-    try:
-        body = await request.json()
-    except Exception:
-        return web.json_response({"error": "Invalid request."}, status=400)
+    body = request._json_body
 
     env_vars = _read_env_file()
 
     _TEXT_KEYS = [
         "BOT_NAME", "TELEGRAM_BOT_TOKEN", "WEB_PORT",
-        "ZHIPUAI_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "NVIDIA_API_KEY",
+        "ZHIPUAI_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "NVIDIA_API_KEY", "CEREBRAS_API_KEY",
         "GOOGLE_API_KEY", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET",
         "GOOGLE_OAUTH_REDIRECT_URI", "GOOGLE_APPS_SCRIPT_URL", "GOOGLE_OAUTH_SCOPES",
         "HIMALAYA_BIN", "HIMALAYA_CONFIG", "HIMALAYA_DEFAULT_ACCOUNT",
-        "PIPER_VOICE", "CLIENT_BASE_URL", "NVIDIA_BASE_URL",
+        "PIPER_VOICE", "CLIENT_BASE_URL", "NVIDIA_BASE_URL", "CEREBRAS_BASE_URL",
     ]
 
-    _MODEL_KEYS = ["MAIN_MODEL", "IMAGE_MODEL"]
+    _MODEL_KEYS = ["MAIN_MODEL", "IMAGE_MODEL", "FAST_MODEL"]
 
     for key in _MODEL_KEYS:
         if key in body:
@@ -1427,6 +1506,7 @@ async def handle_api_models(request):
     return web.json_response({
         "main_models": model_router.list_provider_models(),
         "image_models": model_router.list_image_models(),
+        "all_models": model_router.list_models_with_provider(),
     })
 
 
@@ -1558,15 +1638,9 @@ async def handle_api_google_test(request):
     return web.json_response(response)
 
 
-@require_auth
+@require_auth_csrf
 async def handle_api_chat(request):
-    logging.info(f"handle_api_chat: method={request.method}, content_type={request.content_type}, content_length={request.content_length}")
-    try:
-        body = await request.json()
-        logging.info(f"handle_api_chat: parsed body keys={list(body.keys())}")
-    except Exception as e:
-        logging.warning(f"handle_api_chat: JSON parse error: {e}")
-        return web.json_response({"error": f"Invalid JSON: {e}"}, status=400)
+    body = request._json_body
 
     text = str(body.get("message", "")).strip()
     attachment = body.get("attachment")
@@ -1611,7 +1685,8 @@ async def handle_api_chat(request):
         try:
             await core.process_message(user_id, text, send_func)
         except Exception as e:
-            events.append({"type": "error", "text": f"Execution failed. {e}"})
+            security_logger.exception("Web chat execution failed")
+            events.append({"type": "error", "text": "Execution failed. Check logs for details."})
 
     return web.json_response({"ok": True, "events": events})
 
@@ -1673,12 +1748,9 @@ async def handle_api_tools_get(request):
     return web.json_response(enabled_tools)
 
 
-@require_auth
+@require_auth_csrf
 async def handle_api_tools_post(request):
-    try:
-        body = await request.json()
-    except Exception:
-        return web.json_response({"error": "Invalid request."}, status=400)
+    body = request._json_body
 
     config_file = os.path.join(SCRIPT_DIR, ".tools_config")
 
@@ -1688,7 +1760,7 @@ async def handle_api_tools_post(request):
     return web.json_response({"ok": True})
 
 
-@require_auth
+@require_auth_csrf
 async def handle_api_reload(request):
     try:
         load_dotenv(override=True)
@@ -1696,11 +1768,11 @@ async def handle_api_reload(request):
         import websearch
         websearch.reload_client()
         return web.json_response({"ok": True})
-    except Exception as e:
-        return web.json_response({"error": str(e)}, status=500)
+    except Exception:
+        return web.json_response({"error": "Reload failed."}, status=500)
 
 
-@require_auth
+@require_auth_csrf
 async def handle_api_restart(request):
     try:
         if sys.platform == "win32":
@@ -1709,8 +1781,8 @@ async def handle_api_restart(request):
         else:
             os.execv(sys.executable, [sys.executable, os.path.join(SCRIPT_DIR, "telegram_bot.py")])
         return web.json_response({"ok": True})
-    except Exception as e:
-        return web.json_response({"error": str(e)}, status=500)
+    except Exception:
+        return web.json_response({"error": "Restart failed."}, status=500)
 
 
 async def main():
@@ -1724,7 +1796,23 @@ async def main():
     gateway.init()
     load_credentials()
 
-    web_app = web.Application(client_max_size=12 * 1024 * 1024)
+    @web.middleware
+    async def security_headers_middleware(request, handler):
+        response = await handler(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+            "connect-src 'self'; font-src 'self'"
+        )
+        return response
+
+    web_app = web.Application(
+        client_max_size=12 * 1024 * 1024,
+        middlewares=[security_headers_middleware],
+    )
     web_app.router.add_get("/", handle_root)
     web_app.router.add_get("/signup", handle_signup)
     web_app.router.add_post("/api/signup", handle_api_signup)
@@ -1761,7 +1849,7 @@ async def main():
     web_app.router.add_post("/api/reload", handle_api_reload)
     web_app.router.add_post("/api/restart", handle_api_restart)
     web_app.router.add_static("/static", STATIC_DIR)
-    gateway.setup_routes(web_app)
+    gateway.setup_routes(web_app, auth_decorator=require_auth)
 
     runner = web.AppRunner(web_app)
     await runner.setup()

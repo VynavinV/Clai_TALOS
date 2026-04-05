@@ -7,8 +7,11 @@ import logging
 import shutil
 import subprocess
 import importlib
+import ipaddress
+import socket
 from datetime import datetime, timezone
 from urllib import request, error
+from urllib.parse import urlparse
 
 logger = logging.getLogger("talos.browser")
 
@@ -612,6 +615,21 @@ async def _execute_step(session: BrowserSession, page, step: dict, default_timeo
         url = str(step.get("url", "")).strip()
         if not url:
             raise ValueError("goto requires url")
+        parsed = urlparse(url)
+        if parsed.scheme.lower() not in ("http", "https"):
+            raise ValueError("goto only supports http/https URLs")
+        hostname = parsed.hostname or ""
+        if hostname.endswith(".local") or hostname.endswith(".internal"):
+            raise ValueError("Access to local/internal hostnames is blocked")
+        try:
+            addrs = socket.getaddrinfo(hostname, None)
+            for family, _, _, _, sockaddr in addrs:
+                ip = ipaddress.ip_address(sockaddr[0])
+                if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                    raise ValueError("Access to private/internal IP addresses is blocked")
+        except (socket.gaierror, ValueError) as e:
+            if isinstance(e, ValueError):
+                raise
         wait_until = str(step.get("wait_until", "domcontentloaded")).strip() or "domcontentloaded"
         response = await page.goto(url, wait_until=wait_until, timeout=timeout_ms)
         status = response.status if response is not None else None

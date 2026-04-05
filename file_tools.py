@@ -36,6 +36,7 @@ if sys.platform == "win32":
 
 BLOCKED_PATTERNS = re.compile(
     r"(\.env|\.credentials|\.ssh|\.gnupg|id_rsa|id_ed25519|\.pem|\.key)"
+    r"|(\.google_oauth\.json|\.himalaya)"
     r"|(\.git/|\.svn/|\.hg/)"
     r"|(__pycache__|\.pyc|node_modules/)"
 )

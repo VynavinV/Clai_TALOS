@@ -31,6 +31,7 @@ HELP_TEXT = (
     "Commands:\n"
     "/start - Start or restart\n"
     "/model - Change AI model\n"
+    "/fast - Use Cerebras for next message\n"
     "/clear - Clear chat history\n"
     "/help - Show this message\n"
     "Dashboard: http://localhost:8080"
@@ -82,6 +83,7 @@ def _get_user_process_lock(user_id: int) -> asyncio.Lock:
 def _sanitize_outgoing(text: str) -> str:
     normalized = unicodedata.normalize("NFKC", text or "")
     normalized = normalized.replace("\r\n", "\n").replace("\r", "\n")
+    normalized = re.sub(r"<toolcall>.*?</(?:toolcall|argvalue)>", "", normalized, flags=re.DOTALL).strip()
     cleaned = []
     for ch in normalized:
         if ch in ("\n", "\t"):
@@ -253,6 +255,28 @@ async def callback_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         reply_markup=_model_keyboard(model_id, models),
         parse_mode="Markdown",
     )
+
+
+async def cmd_fast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    uid = update.effective_user.id
+    if not db.has_user_profile(uid):
+        context.user_data[_ONBOARDING_STEP_KEY] = "name"
+        await update.message.reply_text("Please complete onboarding first. What's your name?")
+        return
+    fast_model = os.getenv("FAST_MODEL", "").strip()
+    if not fast_model:
+        await update.message.reply_text("Fast model not configured. Set FAST_MODEL in Settings.")
+        return
+    provider, _ = model_router.resolve_model(fast_model)
+    if not model_router._provider_enabled(provider):
+        cfg = model_router._PROVIDERS.get(provider, {})
+        env_key = cfg.get("env_key", "API_KEY")
+        await update.message.reply_text(
+            f"Fast model \"{fast_model}\" requires provider \"{provider}\", but {env_key} is not set. Add your API key in Settings to use /fast."
+        )
+        return
+    context.user_data["_fast_next"] = fast_model
+    await update.message.reply_text(f"Next message will use {fast_model}.")
 
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -469,8 +493,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     uid = update.effective_user.id
     send_func = _make_send_func(chat)
 
+    model_override = context.user_data.pop("_fast_next", None)
+
     async def _runner():
-        await core.process_message(uid, text, send_func)
+        await core.process_message(uid, text, send_func, model_override=model_override)
 
     await _run_with_user_lock(uid, chat, _runner)
 
@@ -540,7 +566,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     except Exception as e:
         logger.exception("Error handling voice message")
-        await update.message.reply_text(f"Error: {e}")
+        await update.message.reply_text("An error occurred processing your voice message.")
 
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -589,13 +615,14 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     except Exception as e:
         logger.exception("Error handling photo message")
-        await update.message.reply_text(f"Error: {e}")
+        await update.message.reply_text("An error occurred processing your photo.")
 
 
 def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("model", cmd_model))
     app.add_handler(CommandHandler("clear", cmd_clear))
+    app.add_handler(CommandHandler("fast", cmd_fast))
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CallbackQueryHandler(callback_model, pattern=r"^model:"))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))

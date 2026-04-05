@@ -60,6 +60,14 @@ _PROVIDERS = {
         "patterns": ["nvidia"],
         "env_key": "NVIDIA_API_KEY",
     },
+    "cerebras": {
+        "models": {
+            "llama4": "llama4-scout-17b-16e-instruct",
+            "llama31": "llama-3.3-70b",
+        },
+        "patterns": ["cerebras", "llama"],
+        "env_key": "CEREBRAS_API_KEY",
+    },
 }
 
 _openai_client = None
@@ -67,8 +75,10 @@ _anthropic_client = None
 _gemini_client = None
 _zhipu_client = None
 _nvidia_client = None
+_cerebras_client = None
 
 _NVIDIA_BASE_URL = os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
+_CEREBRAS_BASE_URL = os.getenv("CEREBRAS_BASE_URL", "https://api.cerebras.ai/v1")
 
 _CLIENT_BASE_URL = os.getenv("CLIENT_BASE_URL", "https://api.z.ai/api/coding/paas/v4")
 
@@ -99,16 +109,18 @@ def get_all_model_aliases() -> dict[str, str]:
 
 
 def reload_clients():
-    global _openai_client, _anthropic_client, _gemini_client, _zhipu_client, _nvidia_client
-    global _CLIENT_BASE_URL, _NVIDIA_BASE_URL
+    global _openai_client, _anthropic_client, _gemini_client, _zhipu_client, _nvidia_client, _cerebras_client
+    global _CLIENT_BASE_URL, _NVIDIA_BASE_URL, _CEREBRAS_BASE_URL
     _openai_client = None
     _anthropic_client = None
     _gemini_client = None
     _zhipu_client = None
     _nvidia_client = None
+    _cerebras_client = None
     load_dotenv(override=True)
     _CLIENT_BASE_URL = os.getenv("CLIENT_BASE_URL", "https://api.z.ai/api/coding/paas/v4")
     _NVIDIA_BASE_URL = os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
+    _CEREBRAS_BASE_URL = os.getenv("CEREBRAS_BASE_URL", "https://api.cerebras.ai/v1")
 
 
 def _get_openai_client():
@@ -172,6 +184,17 @@ def _get_nvidia_client():
             raise RuntimeError("NVIDIA_API_KEY not set")
         _nvidia_client = AsyncOpenAI(api_key=api_key, base_url=_NVIDIA_BASE_URL)
     return _nvidia_client
+
+
+def _get_cerebras_client():
+    global _cerebras_client
+    if _cerebras_client is None:
+        from openai import AsyncOpenAI
+        api_key = os.getenv("CEREBRAS_API_KEY")
+        if not api_key:
+            raise RuntimeError("CEREBRAS_API_KEY not set")
+        _cerebras_client = AsyncOpenAI(api_key=api_key, base_url=_CEREBRAS_BASE_URL)
+    return _cerebras_client
 
 
 def _safe_json_loads(raw, default=None):
@@ -345,15 +368,51 @@ async def call_gemini(model_id: str, messages: list[dict], tools: list[dict] | N
             else:
                 contents.append({"role": "user", "parts": [{"text": content}]})
         elif role == "assistant":
-            contents.append({"role": "model", "parts": [{"text": content}]})
+            parts = []
+            if content:
+                parts.append({"text": content})
+            msg_tool_calls = msg.get("tool_calls")
+            if msg_tool_calls:
+                for tc in msg_tool_calls:
+                    fn = tc.get("function", {})
+                    args = fn.get("arguments", "{}")
+                    try:
+                        args_dict = json.loads(args) if isinstance(args, str) else args
+                    except (json.JSONDecodeError, TypeError):
+                        args_dict = {}
+                    parts.append({
+                        "function_call": {
+                            "name": fn.get("name", ""),
+                            "args": args_dict,
+                        }
+                    })
+            if parts:
+                contents.append({"role": "model", "parts": parts})
         elif role == "tool":
             contents.append({"role": "user", "parts": [{"text": f"Tool result: {content}"}]})
 
     from google.genai import types
+
+    gemini_tools = None
+    if tools:
+        function_decls = []
+        for tool in tools:
+            if tool.get("type") == "function":
+                fn = tool["function"]
+                function_decls.append(
+                    types.FunctionDeclaration(
+                        name=fn["name"],
+                        description=fn.get("description", ""),
+                        parameters=fn.get("parameters", {"type": "object", "properties": {}}),
+                    )
+                )
+        if function_decls:
+            gemini_tools = [types.Tool(function_declarations=function_decls)]
     
     config = types.GenerateContentConfig(
         temperature=0.7,
         max_output_tokens=2048,
+        tools=gemini_tools,
     )
 
     response = await asyncio.to_thread(
@@ -363,12 +422,33 @@ async def call_gemini(model_id: str, messages: list[dict], tools: list[dict] | N
         config=config,
     )
 
-    text = response.text if hasattr(response, 'text') else ""
+    text = ""
+    tool_calls = []
+    if hasattr(response, 'candidates') and response.candidates:
+        candidate = response.candidates[0]
+        if hasattr(candidate, 'content') and candidate.content:
+            for part in candidate.content.parts:
+                if hasattr(part, 'text') and part.text:
+                    text += part.text
+                elif hasattr(part, 'function_call') and part.function_call:
+                    fc = part.function_call
+                    tool_calls.append({
+                        "id": f"gemini_{len(tool_calls)}",
+                        "name": fc.name,
+                        "arguments": dict(fc.args) if fc.args else {},
+                    })
 
     return {
         "content": text,
-        "tool_calls": [],
-        "message": {"role": "assistant", "content": text},
+        "tool_calls": tool_calls,
+        "message": {
+            "role": "assistant",
+            "content": text,
+            "tool_calls": [
+                {"id": tc["id"], "type": "function", "function": {"name": tc["name"], "arguments": json.dumps(tc["arguments"])}}
+                for tc in tool_calls
+            ] if tool_calls else None,
+        }
     }
 
 
@@ -453,12 +533,50 @@ async def call_nvidia(model_id: str, messages: list[dict], tools: list[dict] | N
     }
 
 
+async def call_cerebras(model_id: str, messages: list[dict], tools: list[dict] | None) -> dict:
+    client = _get_cerebras_client()
+    kwargs: dict[str, Any] = {
+        "model": model_id,
+        "messages": messages,
+    }
+    if tools:
+        kwargs["tools"] = _tools_to_openai(tools)
+        kwargs["tool_choice"] = "auto"
+
+    response = await client.chat.completions.create(**kwargs)
+    choice = response.choices[0]
+    reply_text = choice.message.content or ""
+
+    tool_calls = []
+    if choice.message.tool_calls:
+        for tc in choice.message.tool_calls:
+            tool_calls.append({
+                "id": tc.id,
+                "name": tc.function.name,
+                "arguments": _safe_json_loads(tc.function.arguments, {}),
+            })
+
+    return {
+        "content": reply_text,
+        "tool_calls": tool_calls,
+        "message": {
+            "role": "assistant",
+            "content": reply_text,
+            "tool_calls": [
+                {"id": tc["id"], "type": "function", "function": {"name": tc["name"], "arguments": json.dumps(tc["arguments"])}}
+                for tc in tool_calls
+            ] if tool_calls else None,
+        }
+    }
+
+
 _CALLERS = {
     "openai": call_openai,
     "anthropic": call_anthropic,
     "gemini": call_gemini,
     "zhipu": call_zhipu,
     "nvidia": call_nvidia,
+    "cerebras": call_cerebras,
 }
 
 
@@ -537,6 +655,10 @@ async def call_model(model: str, messages: list[dict], tools: list[dict] | None)
     caller = _CALLERS.get(provider)
     if not caller:
         return {"content": f"Unknown provider: {provider}", "tool_calls": [], "message": None}
+    if not _provider_enabled(provider):
+        cfg = _PROVIDERS.get(provider, {})
+        env_key = cfg.get("env_key", "API_KEY")
+        return {"content": f"Model \"{model}\" requires provider \"{provider}\", but {env_key} is not set. Add your API key in Settings to use this model.", "tool_calls": [], "message": None}
     try:
         return await caller(model_id, messages, tools)
     except Exception as e:
@@ -647,6 +769,24 @@ def _fetch_nvidia_models(api_key: str) -> list[str]:
     return models if models else list(_PROVIDERS["nvidia"]["models"].values())
 
 
+def _fetch_cerebras_models(api_key: str) -> list[str]:
+    import httpx
+    models = []
+    try:
+        r = httpx.get(
+            f"{_CEREBRAS_BASE_URL}/models",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=10,
+        )
+        r.raise_for_status()
+        for m in r.json().get("data", []):
+            mid = m["id"]
+            models.append(mid)
+    except Exception:
+        pass
+    return models if models else list(_PROVIDERS["cerebras"]["models"].values())
+
+
 def fetch_provider_models(provider: str, api_key: str) -> dict:
     fetchers = {
         "gemini": _fetch_gemini_models,
@@ -654,6 +794,7 @@ def fetch_provider_models(provider: str, api_key: str) -> dict:
         "anthropic": _fetch_anthropic_models,
         "zhipu": _fetch_zhipu_models,
         "nvidia": _fetch_nvidia_models,
+        "cerebras": _fetch_cerebras_models,
     }
     fetcher = fetchers.get(provider)
     if not fetcher:
@@ -748,6 +889,21 @@ def list_provider_models() -> list[str]:
         except Exception:
             pass
 
+    if os.getenv("CEREBRAS_API_KEY"):
+        try:
+            r = httpx.get(
+                f"{_CEREBRAS_BASE_URL}/models",
+                headers={"Authorization": f"Bearer {os.getenv('CEREBRAS_API_KEY')}"},
+                timeout=10,
+            )
+            r.raise_for_status()
+            for m in r.json().get("data", []):
+                mid = m["id"]
+                if mid not in models:
+                    models.append(mid)
+        except Exception:
+            pass
+
     return models if models else list(get_all_model_aliases().values())
 
 
@@ -799,6 +955,20 @@ def list_models_with_provider() -> list[str]:
             for m in r.json().get("data", []):
                 mid = m["id"]
                 tagged = "nvidia/" + mid
+                if tagged not in seen:
+                    seen.add(tagged)
+                    result.append(tagged)
+        except Exception:
+            pass
+
+    if os.getenv("CEREBRAS_API_KEY"):
+        try:
+            import httpx
+            r = httpx.get(f"{_CEREBRAS_BASE_URL}/models", headers={"Authorization": f"Bearer {os.getenv('CEREBRAS_API_KEY')}"}, timeout=10)
+            r.raise_for_status()
+            for m in r.json().get("data", []):
+                mid = m["id"]
+                tagged = "cerebras/" + mid
                 if tagged not in seen:
                     seen.add(tagged)
                     result.append(tagged)

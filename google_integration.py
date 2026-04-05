@@ -52,6 +52,10 @@ def _safe_json_save(path: str, data: dict) -> None:
     with open(tmp, "w") as f:
         json.dump(data, f, indent=2)
     os.replace(tmp, path)
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
 
 
 def _parse_json_or_raw(raw: str) -> dict:

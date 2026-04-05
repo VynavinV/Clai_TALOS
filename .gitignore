@@ -15,6 +15,7 @@ logs/
 projects/
 .browser-profile/
 .himalaya/
+bin/
 terminal_config.json
 
 # temp files

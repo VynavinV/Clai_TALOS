@@ -12,6 +12,7 @@ import os
 import json
 import logging
 import mimetypes
+import html as html_mod
 from aiohttp import web
 
 logger = logging.getLogger("talos.gateway")
@@ -115,6 +116,11 @@ def register_project(name: str, project_path: str | None = None, description: st
         project_path = os.path.join(projects_dir, name)
 
     project_path = os.path.expanduser(project_path)
+    project_path = os.path.realpath(project_path)
+    projects_dir_real = os.path.realpath(projects_dir)
+    if not project_path.startswith(projects_dir_real + os.sep) and project_path != projects_dir_real:
+        raise ValueError(f"Project path must be inside the projects directory")
+
     os.makedirs(project_path, exist_ok=True)
 
     config = _load_config()
@@ -204,9 +210,11 @@ async def handle_projects_index(request):
     items = []
     for p in projects:
         status = "ready" if p["has_index"] else "no index.html"
-        desc = f' — {p["description"]}' if p["description"] else ""
+        safe_name = html_mod.escape(p["name"])
+        safe_desc = html_mod.escape(p["description"]) if p["description"] else ""
+        desc = f' — {safe_desc}' if safe_desc else ""
         items.append(
-            f'<li><a href="{p["url"]}">{p["name"]}</a>{desc}'
+            f'<li><a href="{p["url"]}">{safe_name}</a>{desc}'
             f' <span style="color:#666;font-size:0.8em">({status})</span></li>'
         )
 
@@ -280,14 +288,14 @@ async def handle_api_unregister(request):
     return web.json_response({"ok": ok})
 
 
-def setup_routes(app: web.Application):
+def setup_routes(app: web.Application, auth_decorator=None):
     """Add gateway routes to the existing aiohttp app."""
-    # Public routes — projects are meant to be shared
+    _auth = auth_decorator or (lambda h: h)
+
     app.router.add_get("/projects/", handle_projects_index)
     app.router.add_get("/projects/{name}/", handle_project_file)
     app.router.add_get("/projects/{name}/{path:.*}", handle_project_file)
 
-    # API routes (behind auth in telegram_bot.py if needed)
     app.router.add_get("/api/projects", handle_api_projects)
-    app.router.add_post("/api/projects/register", handle_api_register)
-    app.router.add_post("/api/projects/unregister", handle_api_unregister)
+    app.router.add_post("/api/projects/register", _auth(handle_api_register))
+    app.router.add_post("/api/projects/unregister", _auth(handle_api_unregister))

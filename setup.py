@@ -9,6 +9,7 @@ import sys
 import subprocess
 import shutil
 import json
+import re
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 VENV_DIR = os.path.join(SCRIPT_DIR, "venv")
@@ -169,6 +170,125 @@ def package_is_installed(pip_executable: str, package_name: str) -> bool:
     return result.returncode == 0
 
 
+def _migrate_himalaya_config():
+    config_dir = os.path.join(SCRIPT_DIR, ".himalaya")
+    config_path = os.path.join(config_dir, "config.toml")
+    if not os.path.isfile(config_path):
+        return False
+
+    try:
+        import tomllib
+    except ImportError:
+        try:
+            import tomli as tomllib
+        except ImportError:
+            return False
+
+    try:
+        with open(config_path, "rb") as f:
+            data = tomllib.load(f)
+    except Exception:
+        return False
+
+    accounts = data.get("accounts", {})
+    migrated = False
+
+    for account_name, account in accounts.items():
+        if not isinstance(account, dict):
+            continue
+
+        backend = account.get("backend", {})
+        if not isinstance(backend, dict):
+            continue
+
+        auth = backend.get("auth", {})
+        if not isinstance(auth, dict):
+            auth = {}
+
+        if auth.get("type") == "password" and "raw" in auth:
+            login = backend.get("login", "")
+            if login.endswith("@gmail.com"):
+                if backend.get("port") == 993 and backend.get("encryption", {}).get("type") == "tls":
+                    send_backend = account.get("message", {}).get("send", {}).get("backend", {})
+                    if not isinstance(send_backend, dict):
+                        send_backend = {}
+                    send_auth = send_backend.get("auth", {})
+                    if not isinstance(send_auth, dict):
+                        send_auth = {}
+
+                    if send_backend.get("type") == "smtp" and send_auth.get("type") == "password" and "raw" in send_auth:
+                        continue
+
+                    send_backend.setdefault("type", "smtp")
+                    send_backend.setdefault("host", "smtp.gmail.com")
+                    send_backend.setdefault("port", 465)
+                    send_backend.setdefault("login", login)
+
+                    send_enc = send_backend.setdefault("encryption", {})
+                    if not isinstance(send_enc, dict):
+                        send_enc = {}
+                    send_enc.setdefault("type", "tls")
+                    send_backend["encryption"] = send_enc
+
+                    send_auth.setdefault("type", "password")
+                    send_auth["raw"] = auth["raw"]
+                    send_backend["auth"] = send_auth
+
+                    msg = account.setdefault("message", {})
+                    if not isinstance(msg, dict):
+                        msg = {}
+                    send = msg.setdefault("send", {})
+                    if not isinstance(send, dict):
+                        send = {}
+                    send["backend"] = send_backend
+                    msg["send"] = send
+                    account["message"] = msg
+                    migrated = True
+
+        folder_aliases = account.get("folder", {}).get("aliases", {})
+        if isinstance(folder_aliases, dict):
+            if "sent" in folder_aliases and folder_aliases["sent"] != "[Gmail]/Sent Mail":
+                if backend.get("login", "").endswith("@gmail.com"):
+                    folder_aliases["sent"] = "[Gmail]/Sent Mail"
+                    migrated = True
+
+    if not migrated:
+        return False
+
+    try:
+        with open(config_path, "w") as f:
+            f.write(_dict_to_toml(data))
+        os.chmod(config_path, 0o600)
+    except Exception:
+        return False
+
+    return True
+
+
+def _dict_to_toml(data: dict, prefix: str = "") -> str:
+    lines = []
+    for key, value in data.items():
+        full_key = f"{prefix}.{key}" if prefix else key
+        if isinstance(value, dict):
+            has_sub_dicts = any(isinstance(v, dict) for v in value.values())
+            if has_sub_dicts:
+                lines.append(f"\n[{full_key}]")
+            else:
+                lines.append(f"\n[{full_key}]")
+            lines.append(_dict_to_toml(value, full_key))
+        elif isinstance(value, bool):
+            lines.append(f"{key} = {'true' if value else 'false'}")
+        elif isinstance(value, (int, float)):
+            lines.append(f"{key} = {value}")
+        elif isinstance(value, str):
+            escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+            lines.append(f'{key} = "{escaped}"')
+        elif isinstance(value, list):
+            items = ", ".join(f'"{str(i)}"' for i in value)
+            lines.append(f"{key} = [{items}]")
+    return "\n".join(lines)
+
+
 def auto_heal():
     """Non-interactive setup. Returns True if anything was fixed."""
     config = load_setup_config()
@@ -216,8 +336,12 @@ def auto_heal():
     save_setup_config(config)
 
     # Ensure directories
-    for d in ["projects", "logs", "logs/web_uploads", "logs/browser"]:
+    for d in ["projects", "logs", "logs/web_uploads", "logs/browser", "bin"]:
         os.makedirs(os.path.join(SCRIPT_DIR, d), exist_ok=True)
+
+    # Migrate himalaya config to latest format
+    if _migrate_himalaya_config():
+        fixed.append("himalaya config migrated")
 
     if fixed:
         print(f"{GREEN}[setup] Fixed: {', '.join(fixed)}{RESET}")
