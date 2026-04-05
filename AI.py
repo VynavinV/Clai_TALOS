@@ -1945,13 +1945,30 @@ async def _execute_tool_call(
 
 
 _TOOLCALL_TAG_RE = re.compile(
-    r"<toolcall>(.+?)</(?:toolcall|argvalue)>",
+    r"<toolcall>(.+?)(?:</(?:toolcall|argvalue)>|$)",
     re.DOTALL,
 )
 _TOOLCALL_ARG_RE = re.compile(
     r'\$(\w+)=("(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|\[[^\]]*\]|\{[^}]*\}|[^\s<]+)',
 )
-_TOOLCALL_NAME_RE = re.compile(r"^([a-zA-Z_]\w*)")
+_TOOLCALL_NAME_RE = re.compile(r"^([a-zA-Z_][\w:]*)")
+_TOOLCALL_JSON_RE = re.compile(
+    r"`(?:json)?\s*(\{.+?\})\s*$",
+    re.DOTALL,
+)
+_TOOLCALL_ARTIFACT_RE = re.compile(
+    r"</?(?:toolcall|argvalue)\s*>",
+    re.IGNORECASE,
+)
+
+
+def _sanitize_response(text: str) -> str:
+    if not text:
+        return text
+    cleaned = _TOOLCALL_ARTIFACT_RE.sub("", text)
+    if cleaned != text:
+        logger.warning(f"Stripped tool-call artifacts from response: {text[:200]}")
+    return cleaned.strip()
 
 
 def _parse_text_tool_calls(content: str) -> tuple[list[dict], str]:
@@ -1959,25 +1976,43 @@ def _parse_text_tool_calls(content: str) -> tuple[list[dict], str]:
     remaining = _TOOLCALL_TAG_RE.sub("", content)
     for match in _TOOLCALL_TAG_RE.finditer(content):
         body = match.group(1).strip()
+        if not body:
+            continue
         name_match = _TOOLCALL_NAME_RE.match(body)
         if not name_match:
             continue
-        tool_name = name_match.group(1)
-        rest = body[name_match.end():]
+        raw_name = name_match.group(1)
+        tool_name = raw_name.split(":", 1)[-1] if ":" in raw_name else raw_name
+        rest = body[name_match.end():].strip()
+
         args: dict = {}
-        for arg_match in _TOOLCALL_ARG_RE.finditer(rest):
-            key = arg_match.group(1)
-            val_str = arg_match.group(2)
+
+        json_match = _TOOLCALL_JSON_RE.search(rest)
+        if json_match:
             try:
-                val = json.loads(val_str)
+                args = json.loads(json_match.group(1))
+                if not isinstance(args, dict):
+                    args = {}
             except (json.JSONDecodeError, TypeError):
-                val = val_str.strip("'\"")
-            args[key] = val
+                logger.warning(f"Failed to parse JSON args in text tool call: {json_match.group(1)[:200]}")
+        else:
+            for arg_match in _TOOLCALL_ARG_RE.finditer(rest):
+                key = arg_match.group(1)
+                val_str = arg_match.group(2)
+                try:
+                    val = json.loads(val_str)
+                except (json.JSONDecodeError, TypeError):
+                    val = val_str.strip("'\"")
+                args[key] = val
+
         parsed.append({
             "id": f"text_tool_{len(parsed)}",
             "name": tool_name,
             "arguments": args,
         })
+
+    if parsed:
+        logger.info(f"Parsed {len(parsed)} text tool call(s): {[tc['name'] for tc in parsed]}")
     return parsed, remaining.strip()
 
 
@@ -2095,7 +2130,7 @@ async def _run_agent(
                         messages.append(response.get("message", {"role": "assistant", "content": response.get("content", "")}))
                         messages.append(msg)
                         continue
-                return response.get("content", "I could not generate a response right now.")
+                return _sanitize_response(response.get("content", "I could not generate a response right now."))
         
         if not text_tools:
             messages.append(response["message"])
@@ -2171,7 +2206,7 @@ async def _run_agent(
                 response = await model_router.call_model(model_id, messages, None)
                 final_content = response.get("content", final_content)
 
-        return final_content
+        return _sanitize_response(final_content)
     except Exception:
         return "I ran out of processing rounds. Please try again."
 
@@ -2363,7 +2398,7 @@ Based on this analysis and the user's current request, proceed with any tasks ne
     db.add_message(user_id, "user", text)
     db.add_message(user_id, "assistant", reply)
     await _maybe_summarize(user_id, model)
-    return reply
+    return _sanitize_response(reply)
 
 
 async def respond_with_image(user_id: int, text: str, image_b64: str, send_func: SendFunc | None = None) -> str:
@@ -2439,4 +2474,4 @@ Based on this analysis and the user's request, proceed with any tasks needed. If
     db.add_message(user_id, "user", f"[Image] {text}", image_b64=image_b64)
     db.add_message(user_id, "assistant", reply)
     await _maybe_summarize(user_id, main_model)
-    return reply
+    return _sanitize_response(reply)
