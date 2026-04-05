@@ -28,6 +28,7 @@ import model_router
 import core
 import google_integration
 import activity_tracker
+from auth_policy import MIN_DASHBOARD_PASSWORD_LENGTH, validate_dashboard_password
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 VENV_DIR = os.path.join(SCRIPT_DIR, "venv")
@@ -731,7 +732,11 @@ async def handle_signup(request):
     if has_credentials():
         return web.HTTPFound("/")
     return web.Response(
-        text=render_template("signup.html", BOT_NAME=BOT_NAME),
+        text=render_template(
+            "signup.html",
+            BOT_NAME=BOT_NAME,
+            MIN_PASSWORD_LENGTH=MIN_DASHBOARD_PASSWORD_LENGTH,
+        ),
         content_type="text/html",
     )
 
@@ -751,8 +756,10 @@ async def handle_api_signup(request):
 
     if not username:
         return web.json_response({"error": "Username is required."}, status=400)
-    if len(password) < 4:
-        return web.json_response({"error": "Password must be at least 4 characters."}, status=400)
+
+    password_ok, password_error = validate_dashboard_password(password)
+    if not password_ok:
+        return web.json_response({"error": password_error}, status=400)
 
     hashed = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
     with open(CREDS_FILE, "w") as f:

@@ -12,6 +12,7 @@ for arg in "$@"; do
 done
 
 WEB_PORT="${WEB_PORT:-8080}"
+MIN_DASH_PASSWORD_LENGTH=10
 BOLD="\033[1m"
 CYAN="\033[36m"
 GREEN="\033[32m"
@@ -257,7 +258,14 @@ create_credentials() {
   local username="$1"
   local password="$2"
   local hash
-  hash=$(venv/bin/python -c "import bcrypt; print(bcrypt.hashpw(b'${password}', bcrypt.gensalt()).decode())")
+  hash=$(DASH_PASSWORD_RAW="$password" venv/bin/python - <<'PY'
+import os
+import bcrypt
+
+raw = os.environ.get("DASH_PASSWORD_RAW", "")
+print(bcrypt.hashpw(raw.encode("utf-8"), bcrypt.gensalt()).decode("utf-8"))
+PY
+)
   echo "USERNAME=${username}" > .credentials
   echo "PASSWORD_HASH=${hash}" >> .credentials
   chmod 600 .credentials
@@ -318,10 +326,10 @@ headless_tailscale_mode() {
     echo ""
     echo -e "${DIM}Create a dashboard account (used to log in from your browser):${RESET}"
     prompt DASH_USER "Username" "admin"
-    prompt_secret DASH_PASS "Password (min 4 chars)"
-    while [[ ${#DASH_PASS} -lt 4 ]]; do
-      warn "Password must be at least 4 characters."
-      prompt_secret DASH_PASS "Password (min 4 chars)"
+    prompt_secret DASH_PASS "Password (min ${MIN_DASH_PASSWORD_LENGTH} chars)"
+    while [[ ${#DASH_PASS} -lt ${MIN_DASH_PASSWORD_LENGTH} ]]; do
+      warn "Password must be at least ${MIN_DASH_PASSWORD_LENGTH} characters."
+      prompt_secret DASH_PASS "Password (min ${MIN_DASH_PASSWORD_LENGTH} chars)"
     done
     create_credentials "$DASH_USER" "$DASH_PASS"
     ok "Dashboard account created"
@@ -455,10 +463,10 @@ headless_terminal_setup() {
     prompt CREATE_CREDS "Create dashboard account? [y/N]" "n"
     if [[ "$CREATE_CREDS" =~ ^[Yy]$ ]]; then
       prompt DASH_USER "Username" "admin"
-      prompt_secret DASH_PASS "Password (min 4 chars)"
-      while [[ ${#DASH_PASS} -lt 4 ]]; do
-        warn "Password must be at least 4 characters."
-        prompt_secret DASH_PASS "Password (min 4 chars)"
+      prompt_secret DASH_PASS "Password (min ${MIN_DASH_PASSWORD_LENGTH} chars)"
+      while [[ ${#DASH_PASS} -lt ${MIN_DASH_PASSWORD_LENGTH} ]]; do
+        warn "Password must be at least ${MIN_DASH_PASSWORD_LENGTH} characters."
+        prompt_secret DASH_PASS "Password (min ${MIN_DASH_PASSWORD_LENGTH} chars)"
       done
       create_credentials "$DASH_USER" "$DASH_PASS"
       ok "Dashboard account created"

@@ -145,7 +145,7 @@
     <div class="field">
       <label for="password">Password</label>
       <input type="password" id="password" name="password" autocomplete="new-password" required placeholder="Choose a password">
-      <div class="hint">At least 4 characters</div>
+      <div class="hint">At least {{MIN_PASSWORD_LENGTH}} characters</div>
     </div>
     <div class="field">
       <label for="password-confirm">Confirm Password</label>
@@ -158,6 +158,7 @@
 <script>
 document.getElementById('signup-form').addEventListener('submit', function(e) {
   e.preventDefault();
+  var minPasswordLength = Number('{{MIN_PASSWORD_LENGTH}}') || 10;
   var btn = document.getElementById('submit-btn');
   var err = document.getElementById('error');
   var user = document.getElementById('username').value.trim();
@@ -167,7 +168,10 @@ document.getElementById('signup-form').addEventListener('submit', function(e) {
   err.textContent = '';
 
   if (user.length < 1) { err.textContent = 'Username is required.'; return; }
-  if (pass.length < 4) { err.textContent = 'Password must be at least 4 characters.'; return; }
+  if (pass.length < minPasswordLength) {
+    err.textContent = 'Password must be at least ' + minPasswordLength + ' characters.';
+    return;
+  }
   if (pass !== pass2) { err.textContent = 'Passwords do not match.'; return; }
 
   btn.disabled = true;

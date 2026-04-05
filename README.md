@@ -64,15 +64,41 @@ The startup scripts (`start.sh`, `start.bat`) automatically:
 4. Install dependencies from `requirements.txt`.
 5. Run `setup.py` checks (env defaults, package checks, browser defaults).
 6. Launch dashboard and bot runtime.
+7. On Linux, `start.sh` may configure passwordless sudo for TALOS setup tasks.
 
 `start.sh` (Linux/macOS) also attempts best-effort Tailscale + Funnel setup.
+
+## Sudoers Behavior (Linux)
+
+TALOS currently uses an opinionated setup path for Linux convenience.
+
+On Linux, `start.sh` can create `/etc/sudoers.d/clai-talos` containing a rule equivalent to:
+
+```text
+<current-user> ALL=(ALL) NOPASSWD: ALL
+```
+
+This is used so setup steps can run non-interactively.
+
+If this is not acceptable in your environment, review `start.sh` before running TALOS.
+
+To remove the sudoers file later:
+
+```bash
+sudo rm -f /etc/sudoers.d/clai-talos
+sudo -k
+```
+
+This behavior is Linux-specific.
 
 ## Table of Contents
 
 - [Who This Is For](#who-this-is-for)
 - [Why TALOS Instead of Heavy Platforms](#why-talos-instead-of-heavy-platforms)
 - [Capability Overview](#capability-overview)
+- [Repository Layout](#repository-layout)
 - [Architecture](#architecture)
+- [Sudoers Behavior (Linux)](#sudoers-behavior-linux)
 - [First Boot and Onboarding](#first-boot-and-onboarding)
 - [Dashboard Guide](#dashboard-guide)
 - [HTTP Routes and API Reference](#http-routes-and-api-reference)
@@ -88,6 +114,9 @@ The startup scripts (`start.sh`, `start.bat`) automatically:
 - [Operational Notes](#operational-notes)
 - [Troubleshooting](#troubleshooting)
 - [Development Workflow](#development-workflow)
+- [Contributing](#contributing)
+- [Security Reporting](#security-reporting)
+- [Changelog](#changelog)
 - [Documentation Map](#documentation-map)
 - [License](#license)
 
@@ -105,7 +134,7 @@ It is not aimed at multi-channel enterprise orchestration, large plugin marketpl
 
 ## Why TALOS Instead of Heavy Platforms
 
-The project philosophy comes from `CLAUDE.md`: simplicity over features, fail loudly, and avoid architecture that hides failure points.
+The project philosophy comes from `philosophy.md`: simplicity over features, fail loudly, and avoid architecture that hides failure points.
 
 | Common platform pattern | Clai TALOS approach |
 |-------------------------|---------------------|
@@ -133,6 +162,19 @@ If you need broad team collaboration or many messaging channels, OpenClaw or Cla
 | Email bridge | Himalaya CLI operations | `email_tools.py` |
 | Advanced file support | XLSX and DOCX operations | `spreadsheet_tools.py`, `docx_tools.py` |
 | Live projects | Static project serving + registration | `gateway.py` |
+
+## Repository Layout
+
+TALOS intentionally keeps a flat Python module layout at repo root. This is a deliberate tradeoff for readability and quick debugging in a single-process system.
+
+Structure overview:
+
+- Runtime and orchestration modules live at repo root (`AI.py`, `core.py`, `telegram_bot.py`, `model_router.py`, etc.).
+- Tool docs and usage references live in `tools/`.
+- Dashboard pages and static assets live in `web/`.
+- Runtime-generated data stays local and ignored (`logs/`, `projects/`, `talos.db`, `.env`, `.credentials`).
+
+If you prefer package-style layout (`src/` with subpackages), you can refactor there later, but the current structure is intentional and acceptable for this project's goals.
 
 ## Architecture
 
@@ -595,6 +637,8 @@ Implemented controls include:
 Operational reminders:
 
 - Use a strong unique dashboard username/password at first setup.
+- Dashboard signup requires at least 10 characters.
+- Linux users: review [Sudoers Behavior (Linux)](#sudoers-behavior-linux), especially on shared or managed systems.
 - Do not expose dashboard publicly without proper network controls.
 - Review tool permissions in `/tools` before broad usage.
 
@@ -752,11 +796,27 @@ Two paths (see [MAKING_TOOLS.md](MAKING_TOOLS.md) for full guide):
 - Add native Python tool implementation and register in `AI.py`.
 - Use dynamic tools (`create_tool`, `list_dynamic_tools`, `delete_tool`) for command-template style tools.
 
+## Contributing
+
+See `CONTRIBUTING.md` for local setup, coding standards, and pull request workflow.
+
+## Security Reporting
+
+See `SECURITY.md` for vulnerability reporting guidance.
+
+## Changelog
+
+See `CHANGELOG.md` for release notes and notable changes.
+
 ## Documentation Map
 
 Top-level docs:
 
-- `philosphy.md` - project philosophy and complexity boundaries
+- `philosophy.md` - project philosophy and complexity boundaries
+- `CONTRIBUTING.md` - contribution workflow and standards
+- `SECURITY.md` - vulnerability reporting policy
+- `CODE_OF_CONDUCT.md` - contributor behavior expectations
+- `CHANGELOG.md` - release history
 - `tools/*.md` - per-tool usage documentation
 
 Current tool docs:
@@ -783,4 +843,4 @@ Current tool docs:
 
 ## License
 
-MIT
+MIT (see `LICENSE`).
