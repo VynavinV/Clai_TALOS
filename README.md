@@ -95,6 +95,7 @@ This behavior is Linux-specific.
 
 - [Who This Is For](#who-this-is-for)
 - [Why TALOS Instead of Heavy Platforms](#why-talos-instead-of-heavy-platforms)
+- [The Evolution of CLAI (2020-2026)](#the-evolution-of-clai-2020-2026)
 - [Capability Overview](#capability-overview)
 - [Repository Layout](#repository-layout)
 - [Architecture](#architecture)
@@ -145,6 +146,19 @@ The project philosophy comes from `philosophy.md`: simplicity over features, fai
 | "Everything" feature scope | Focused personal automation |
 
 If you need broad team collaboration or many messaging channels, OpenClaw or Claude Cowork style stacks may be a better fit. If you want a personal assistant that is easier to set up and maintain, TALOS is designed for that.
+
+## The Evolution of CLAI (2020-2026)
+
+CLAI began in 2020 as a personal experiment in automated interaction: a simple Discord bot built on legacy chatterbot-style architecture.
+
+Over six years, the project evolved through repeated real-world failures, rewrites, and architectural simplification.
+
+- 2020 (v1): Built as a reactive, Discord-based roasting bot to explore basic natural language parsing.
+- 2021-2025 (v2-v3): Shifted into iterative chatbot experimentation focused on state management and response latency.
+- Early 2026 (v4): Adopted early agentic framework patterns (including OpenClaw-style workflows), which exposed limitations in bloated, vision-heavy, and black-box orchestration.
+- 2026 (v5 / TALOS): Rebuilt for reliability first. TALOS uses a high-density core prompt architecture, ephemeral tool injection, and a hybrid-automation design aimed at long-term maintainability.
+
+TALOS is designed as the practical infrastructure this project needed from the beginning: user-first, inspectable, and sustainable for personal AI automation.
 
 ## Capability Overview
 
