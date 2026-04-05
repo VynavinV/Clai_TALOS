@@ -682,7 +682,7 @@ Current core packages include:
 
 ### Extending tools
 
-Two paths:
+Two paths (see [tools/MAKING_TOOLS.md](tools/MAKING_TOOLS.md) for full guide):
 
 - Add native Python tool implementation and register in `AI.py`.
 - Use dynamic tools (`create_tool`, `list_dynamic_tools`, `delete_tool`) for command-template style tools.
@@ -696,6 +696,7 @@ Top-level docs:
 
 Current tool docs:
 
+- `tools/MAKING_TOOLS.md`
 - `tools/browser.md`
 - `tools/cron.md`
 - `tools/docx_execute.md`
