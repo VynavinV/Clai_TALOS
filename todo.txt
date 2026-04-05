@@ -1,6 +1,4 @@
-locall gemma support
-PA system
-In depth screen and browser control + logins 
+locall gemma supportIn depth screen and browser control + logins 
 
 Generate Images
 Lyria 3 music

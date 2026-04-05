@@ -1,20 +1,22 @@
 import logging
 import asyncio
 import os
+import time
 import AI
 import db
 import model_router
+import activity_tracker
 
 logger = logging.getLogger("talos.core")
 
 GREETINGS = {"hi", "hello", "hey"}
-_PROGRESS_SILENCE_THRESHOLD_S = max(20, int(os.getenv("TALOS_PROGRESS_SILENCE_THRESHOLD_S", "45")))
-_PROGRESS_MIN_GAP_S = max(45, int(os.getenv("TALOS_PROGRESS_MIN_GAP_S", "120")))
-_PROGRESS_CHECK_INTERVAL_S = max(5, int(os.getenv("TALOS_PROGRESS_CHECK_INTERVAL_S", "10")))
-_PROGRESS_MAX_AUTO_UPDATES = max(0, int(os.getenv("TALOS_PROGRESS_MAX_AUTO_UPDATES", "0")))
-_PROGRESS_MESSAGES = [
-    "Quick update: still executing. I will send the next meaningful result.",
-    "Still running after {elapsed}s. No action needed from you right now.",
+_STUCK_CHECK_INTERVAL_S = max(5, int(os.getenv("TALOS_STUCK_CHECK_INTERVAL_S", "10")))
+_STUCK_THRESHOLD_S = max(30, int(os.getenv("TALOS_STUCK_THRESHOLD_S", "90")))
+_STUCK_MAX_INTERVENTIONS = max(1, int(os.getenv("TALOS_STUCK_MAX_INTERVENTIONS", "2")))
+
+_STUCK_RECOVERY_MESSAGES = [
+    "SYSTEM INTERVENTION: You have been stuck with no progress for {elapsed}s. Whatever command or operation you're waiting on is likely hung. STOP waiting, try a different approach, and inform the user.",
+    "SYSTEM INTERVENTION: Still stuck after {elapsed}s. The current approach is not working. ABANDON it immediately. Try an alternative method or ask the user for help.",
 ]
 
 
@@ -63,33 +65,57 @@ def _build_activity_send(send_func, state: dict):
             caption=caption,
             stream=stream,
         )
-        state["last_activity"] = asyncio.get_running_loop().time()
+        state["last_activity"] = time.monotonic()
 
     return _tracked_send
 
 
-async def _progress_loop(send_func, state: dict) -> None:
-    while True:
-        await asyncio.sleep(_PROGRESS_CHECK_INTERVAL_S)
+async def _stuck_watchdog(send_func, state: dict, interrupt_queue: asyncio.Queue | None) -> None:
+    tracker = activity_tracker.get_tracker()
+    queue = await tracker.subscribe()
+    try:
+        while True:
+            await asyncio.sleep(_STUCK_CHECK_INTERVAL_S)
 
-        if state["auto_updates_sent"] >= _PROGRESS_MAX_AUTO_UPDATES:
-            continue
+            if state["interventions_sent"] >= _STUCK_MAX_INTERVENTIONS:
+                continue
 
-        now = asyncio.get_running_loop().time()
-        if (now - state["last_activity"]) < _PROGRESS_SILENCE_THRESHOLD_S:
-            continue
-        if (now - state["last_auto_update"]) < _PROGRESS_MIN_GAP_S:
-            continue
+            now = time.monotonic()
+            real_activity_age = now - state["last_real_activity"]
 
-        elapsed = int(now - state["started_at"])
-        template = _PROGRESS_MESSAGES[state["auto_updates_sent"] % len(_PROGRESS_MESSAGES)]
-        message = template.format(elapsed=elapsed)
-        await _send_with_optional_voice(send_func, message)
+            if real_activity_age <= _STUCK_THRESHOLD_S:
+                continue
 
-        sent_at = asyncio.get_running_loop().time()
-        state["last_activity"] = sent_at
-        state["last_auto_update"] = sent_at
-        state["auto_updates_sent"] += 1
+            elapsed = int(real_activity_age)
+            idx = state["interventions_sent"] % len(_STUCK_RECOVERY_MESSAGES)
+            recovery_msg = _STUCK_RECOVERY_MESSAGES[idx].format(elapsed=elapsed)
+            state["interventions_sent"] += 1
+
+            if interrupt_queue:
+                try:
+                    interrupt_queue.put_nowait({"text": recovery_msg, "source": "stuck_watchdog"})
+                except asyncio.QueueFull:
+                    pass
+
+            await _send_with_optional_voice(send_func, f"Detected a hang ({elapsed}s no progress). Injecting recovery — trying to unstick myself.")
+            state["last_activity"] = time.monotonic()
+    finally:
+        await tracker.unsubscribe(queue)
+
+
+async def _real_activity_watcher(state: dict) -> None:
+    tracker = activity_tracker.get_tracker()
+    queue = await tracker.subscribe()
+    try:
+        while True:
+            evt = await queue.get()
+            evt_type = evt.get("type", "")
+            if evt_type in {"thinking", "model", "tool", "command", "spawn", "done", "receive"}:
+                state["last_real_activity"] = time.monotonic()
+    except asyncio.CancelledError:
+        pass
+    finally:
+        await tracker.unsubscribe(queue)
 
 
 def _format_failure_message(error: Exception) -> str:
@@ -115,31 +141,39 @@ async def process_message(user_id: int, text: str, send_func, model_override: st
         await _send_with_optional_voice(send_func, "hello I am Clai TALOS")
         return
 
-    progress_task: asyncio.Task | None = None
-    loop = asyncio.get_running_loop()
-    progress_state = {
-        "started_at": loop.time(),
-        "last_activity": loop.time(),
-        "last_auto_update": 0.0,
-        "auto_updates_sent": 0,
+    watchdog_task: asyncio.Task | None = None
+    watcher_task: asyncio.Task | None = None
+    now = time.monotonic()
+    watchdog_state = {
+        "started_at": now,
+        "last_activity": now,
+        "last_real_activity": now,
+        "interventions_sent": 0,
     }
-    tracked_send = _build_activity_send(send_func, progress_state)
+    interrupt_event = asyncio.Event()
+    interrupt_queue = asyncio.Queue(maxsize=10)
+    tracked_send = _build_activity_send(send_func, watchdog_state)
     try:
-        if _PROGRESS_MAX_AUTO_UPDATES > 0:
-            progress_task = asyncio.create_task(_progress_loop(send_func, progress_state))
+        watcher_task = asyncio.create_task(_real_activity_watcher(watchdog_state))
+        watchdog_task = asyncio.create_task(_stuck_watchdog(send_func, watchdog_state, interrupt_queue))
+        await _send_with_optional_voice(send_func, "On it.")
         reply = await AI.respond(
             user_id=user_id,
             text=text,
             send_func=tracked_send,
+            interrupt_event=interrupt_event,
+            interrupt_queue=interrupt_queue,
             model_override=model_override,
         )
-        await _cancel_task(progress_task)
+        await _cancel_task(watchdog_task)
+        await _cancel_task(watcher_task)
         if reply:
             await _send_with_optional_voice(send_func, reply, stream=True)
         else:
             await _send_with_optional_voice(send_func, "Done.")
     except Exception as error:
-        await _cancel_task(progress_task)
+        await _cancel_task(watchdog_task)
+        await _cancel_task(watcher_task)
         failure = _format_failure_message(error)
         await _send_with_optional_voice(send_func, f"Execution failed. {failure}")
 
@@ -157,31 +191,36 @@ async def process_image_message(user_id: int, text: str, image_b64: str, send_fu
         return
 
     await _send_with_optional_voice(send_func, "Got it. Analyzing image...")
-    
-    progress_task: asyncio.Task | None = None
-    loop = asyncio.get_running_loop()
-    progress_state = {
-        "started_at": loop.time(),
-        "last_activity": loop.time(),
-        "last_auto_update": 0.0,
-        "auto_updates_sent": 0,
+
+    watchdog_task: asyncio.Task | None = None
+    watcher_task: asyncio.Task | None = None
+    now = time.monotonic()
+    watchdog_state = {
+        "started_at": now,
+        "last_activity": now,
+        "last_real_activity": now,
+        "interventions_sent": 0,
     }
-    tracked_send = _build_activity_send(send_func, progress_state)
+    interrupt_event = asyncio.Event()
+    interrupt_queue = asyncio.Queue(maxsize=10)
+    tracked_send = _build_activity_send(send_func, watchdog_state)
     try:
-        if _PROGRESS_MAX_AUTO_UPDATES > 0:
-            progress_task = asyncio.create_task(_progress_loop(send_func, progress_state))
+        watcher_task = asyncio.create_task(_real_activity_watcher(watchdog_state))
+        watchdog_task = asyncio.create_task(_stuck_watchdog(send_func, watchdog_state, interrupt_queue))
         reply = await AI.respond_with_image(
             user_id=user_id,
             text=text,
             image_b64=image_b64,
             send_func=tracked_send,
         )
-        await _cancel_task(progress_task)
+        await _cancel_task(watchdog_task)
+        await _cancel_task(watcher_task)
         if reply:
             await _send_with_optional_voice(send_func, f"Execution complete. {reply}")
         else:
             await _send_with_optional_voice(send_func, "Execution complete.")
     except Exception as error:
-        await _cancel_task(progress_task)
+        await _cancel_task(watchdog_task)
+        await _cancel_task(watcher_task)
         failure = _format_failure_message(error)
         await _send_with_optional_voice(send_func, f"Execution failed. {failure}")

@@ -1,15 +1,78 @@
 # Clai TALOS
 
-Clai TALOS is a personal AI assistant focused on practical automation through Telegram and a local web dashboard.
+<p align="center">
+      <img src="web/static/clai-icon.png" alt="Clai TALOS logo" width="120">
+</p>
+
+Clai TALOS is a free, self-hosted AI assistant focused on practical automation through Telegram and a local web dashboard.
 
 It is intentionally a single-process Python system: easy to run, easy to debug, and easy to modify.
 
+If you are searching for an easier OpenClaw alternative, a free Claude Cowork alternative for personal use, or a simple AI assistant that does not require platform-level setup, Clai TALOS is built for that use case.
+
+## Installation (Fast Start)
+
+### 1. Download or clone this repository
+
+Then open a terminal in the project folder:
+
+```bash
+cd Clai_TALOS
+```
+
+### 2. Run one script
+
+Linux/macOS:
+
+```bash
+./start.sh
+```
+
+Windows:
+
+```cmd
+start.bat
+```
+
+> **Windows status:** Experimental support.
+> Linux/macOS are currently the recommended and most-tested platforms.
+
+### 3. Open the dashboard
+
+Go to `http://localhost:8080` and complete signup + onboarding.
+
+### Headless / SSH mode
+
+For servers or remote machines without a browser:
+
+```bash
+./start.sh --headless
+```
+
+When no config exists, headless mode offers:
+
+1. **Tailscale + browser path** - Connect Tailscale, start Funnel, and finish onboarding from any device.
+2. **Terminal-only path** - Configure Telegram, model provider, API keys, and optional services directly in terminal.
+
+### What startup does automatically
+
+The startup scripts (`start.sh`, `start.bat`) automatically:
+
+1. Ensure required directories exist (`projects`, `logs/...`).
+2. Verify a supported Python runtime (3.10 to 3.13).
+3. Create/validate a virtual environment.
+4. Install dependencies from `requirements.txt`.
+5. Run `setup.py` checks (env defaults, package checks, browser defaults).
+6. Launch dashboard and bot runtime.
+
+`start.sh` (Linux/macOS) also attempts best-effort Tailscale + Funnel setup.
+
 ## Table of Contents
 
-- [What This Project Is](#what-this-project-is)
+- [Who This Is For](#who-this-is-for)
+- [Why TALOS Instead of Heavy Platforms](#why-talos-instead-of-heavy-platforms)
 - [Capability Overview](#capability-overview)
 - [Architecture](#architecture)
-- [Quick Start](#quick-start)
 - [First Boot and Onboarding](#first-boot-and-onboarding)
 - [Dashboard Guide](#dashboard-guide)
 - [HTTP Routes and API Reference](#http-routes-and-api-reference)
@@ -28,32 +91,31 @@ It is intentionally a single-process Python system: easy to run, easy to debug, 
 - [Documentation Map](#documentation-map)
 - [License](#license)
 
-## What This Project Is
+## Who This Is For
 
-Clai TALOS provides a chat-first assistant that can:
+Clai TALOS is a good fit if you want:
 
-- run terminal commands
-- manage persistent memory
-- schedule cron tasks
-- search and scrape the web
-- automate browser actions
-- interact with Google services
-- interact with email via Himalaya
-- create and serve web projects
-- process advanced file workflows for XLSX and DOCX
+- a free personal AI assistant that you can self-host
+- a simpler alternative to platform-style assistant stacks
+- fast setup with one script and a guided onboarding flow
+- local control (SQLite + files) instead of distributed infrastructure
+- loud errors and straightforward debugging when something fails
 
-Primary design goals:
+It is not aimed at multi-channel enterprise orchestration, large plugin marketplaces, or microservice-heavy deployments.
 
-- Reliability through simple architecture
-- Loud failures (visible errors instead of silent degradation)
-- Fast iteration in one codebase
-- Local-first operations where practical
+## Why TALOS Instead of Heavy Platforms
 
-What it is not optimized for:
+The project philosophy comes from `CLAUDE.md`: simplicity over features, fail loudly, and avoid architecture that hides failure points.
 
-- Multi-channel messenger abstraction layers
-- Distributed plugin orchestration systems
-- Multi-service microservice deployments
+| Common platform pattern | Clai TALOS approach |
+|-------------------------|---------------------|
+| Multi-channel abstractions | Telegram first + local web dashboard |
+| Gateway + nodes + plugin layers | Single Python process |
+| Complex registries/config DSLs | File-based tools + straightforward config |
+| Silent retries/fallback behavior | Explicit errors and visible logs |
+| "Everything" feature scope | Focused personal automation |
+
+If you need broad team collaboration or many messaging channels, OpenClaw or Claude Cowork style stacks may be a better fit. If you want a personal assistant that is easier to set up and maintain, TALOS is designed for that.
 
 ## Capability Overview
 
@@ -108,51 +170,6 @@ Response back to Telegram or Dashboard chat
 - Manages SQLite initialization, settings, chat history, and summaries.
 - `memory.py`
 - Handles long-term memory storage and relevance retrieval.
-
-### Key startup behavior
-
-The start scripts (`start.sh`, `start.bat`) do more than launch the bot.
-
-On startup they:
-
-1. Ensure required directories exist (`projects`, `logs/...`).
-2. Verify a supported Python runtime (3.10 to 3.13).
-3. Create/validate virtual environment.
-4. Install dependencies from `requirements.txt`.
-5. Run `setup.py` auto-heal (env defaults, package checks, browser defaults).
-6. Launch dashboard and bot runtime.
-
-`start.sh` (Linux/macOS) also attempts best-effort Tailscale + Funnel setup.
-
-## Quick Start
-
-### Linux/macOS
-
-```bash
-./start.sh
-```
-
-### Windows
-
-```cmd
-start.bat
-```
-
-### Headless / SSH
-
-For servers or remote machines without a browser, use `--headless`:
-
-```bash
-./start.sh --headless
-```
-
-Two setup modes are offered when no configuration exists:
-
-1. **Tailscale + browser** — Ensures Tailscale is connected, starts Funnel to expose the dashboard publicly, creates a dashboard account from the terminal, and prints the URL to open on any device. The web onboarding wizard handles the rest.
-
-2. **Terminal setup** — Walks through the full setup in the terminal: Telegram bot token, AI provider and API key (OpenAI, Anthropic, Gemini, ZhipuAI, NVIDIA, Cerebras, OpenRouter, or Ollama), model selection, optional Gemini key for web search, and optional dashboard account. Writes everything directly to `.env`.
-
-If configuration already exists, `--headless` skips straight to starting the bot.
 
 ## First Boot and Onboarding
 
@@ -730,7 +747,7 @@ Current core packages include:
 
 ### Extending tools
 
-Two paths (see [tools/MAKING_TOOLS.md](tools/MAKING_TOOLS.md) for full guide):
+Two paths (see [MAKING_TOOLS.md](MAKING_TOOLS.md) for full guide):
 
 - Add native Python tool implementation and register in `AI.py`.
 - Use dynamic tools (`create_tool`, `list_dynamic_tools`, `delete_tool`) for command-template style tools.
@@ -739,12 +756,12 @@ Two paths (see [tools/MAKING_TOOLS.md](tools/MAKING_TOOLS.md) for full guide):
 
 Top-level docs:
 
-- `CLAUDE.md` - project philosophy and complexity boundaries
+- `philosphy.md` - project philosophy and complexity boundaries
 - `tools/*.md` - per-tool usage documentation
 
 Current tool docs:
 
-- `tools/MAKING_TOOLS.md`
+- `MAKING_TOOLS.md`
 - `tools/browser.md`
 - `tools/cron.md`
 - `tools/docx_execute.md`

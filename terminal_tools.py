@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import signal
 import asyncio
 import logging
 import platform
@@ -166,8 +167,18 @@ class TerminalExecutor:
             except Exception:
                 process.kill()
         else:
-            process.kill()
-        await process.wait()
+            try:
+                pgid = os.getpgid(process.pid)
+                if pgid != os.getpid():
+                    os.killpg(pgid, signal.SIGKILL)
+                else:
+                    process.kill()
+            except (ProcessLookupError, PermissionError, OSError):
+                process.kill()
+        try:
+            await asyncio.wait_for(process.wait(), timeout=5)
+        except (asyncio.TimeoutError, Exception):
+            pass
 
     async def _execute_native(self, command: str, timeout: int) -> dict:
         try:

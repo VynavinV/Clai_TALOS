@@ -926,7 +926,8 @@ def _get_all_tools(include_subagent: bool = True, include_telegram: bool = False
             "function": {
                 "name": "write_file",
                 "description": (
-                    "Write content to a file atomically. Creates the file if it doesn't exist, overwrites if it does. "
+                    "Write the FULL content to a file atomically. ONLY use this to CREATE new files. "
+                    "For editing existing files, use edit_file instead — it is safer and more efficient. "
                     "Returns a unified diff preview for existing files. Warns if content is identical. "
                     "Uses atomic writes (write to temp then move) to prevent corruption on crash."
                 ),
@@ -946,8 +947,9 @@ def _get_all_tools(include_subagent: bool = True, include_telegram: bool = False
             "function": {
                 "name": "edit_file",
                 "description": (
-                    "Find and replace an exact string in a file. Use this for targeted edits instead of rewriting "
-                    "entire files. The old_string must match the file content EXACTLY (indentation, whitespace, etc). "
+                    "PREFERRED tool for modifying existing files. Find and replace an exact string in a file. "
+                    "Always use this instead of write_file when editing — it is safer, faster, and shows exactly what changed. "
+                    "The old_string must match the file content EXACTLY (indentation, whitespace, etc). "
                     "On failure, returns a fuzzy match suggestion and file preview to help you self-correct. "
                     "Uses atomic writes to prevent corruption."
                 ),
@@ -2014,38 +2016,55 @@ async def _run_agent(
             payload.setdefault("parent_agent", _parent_agent_id)
         return payload
 
-    def _drain_interrupts() -> list[str]:
+    def _drain_interrupts() -> list[dict]:
         if not interrupt_event or not interrupt_queue:
             return []
-        texts = []
+        items = []
         while not interrupt_queue.empty():
             try:
                 item = interrupt_queue.get_nowait()
-                texts.append(item.get("text", ""))
+                items.append(item)
             except asyncio.QueueEmpty:
                 break
-        if texts:
+        if items:
             interrupt_event.clear()
-        return texts
+        return items
 
-    def _build_interruption_message(texts: list[str]) -> dict | None:
-        if not texts:
+    def _build_interruption_message(items: list[dict]) -> dict | None:
+        if not items:
             return None
-        combined = "\n".join(f"- {t}" for t in texts)
-        return {
-            "role": "user",
-            "content": (
+        user_texts = [i.get("text", "") for i in items if i.get("source") != "stuck_watchdog"]
+        system_texts = [i.get("text", "") for i in items if i.get("source") == "stuck_watchdog"]
+
+        parts = []
+        if user_texts:
+            combined = "\n".join(f"- {t}" for t in user_texts)
+            parts.append(
                 "[USER INTERRUPTION] The user sent new message(s) while you were working:\n\n"
                 f"{combined}\n\n"
                 "Decide: adjust current task, send updated instructions to subagents, "
                 "cancel and pivot, or acknowledge and continue."
-            ),
+            )
+        if system_texts:
+            combined = "\n".join(f"- {t}" for t in system_texts)
+            parts.append(
+                "[SYSTEM INTERVENTION] The watchdog detected you have been stuck with no progress. "
+                "You MUST stop waiting on whatever is hung and try a different approach immediately. "
+                "Do not ignore this.\n\n"
+                f"{combined}"
+            )
+
+        if not parts:
+            return None
+        return {
+            "role": "user",
+            "content": "\n\n".join(parts),
         }
 
     for _ in range(max_rounds):
-        interrupt_texts = _drain_interrupts()
-        if interrupt_texts:
-            msg = _build_interruption_message(interrupt_texts)
+        interrupts = _drain_interrupts()
+        if interrupts:
+            msg = _build_interruption_message(interrupts)
             if msg:
                 messages.append(msg)
 
