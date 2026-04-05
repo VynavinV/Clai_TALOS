@@ -16,10 +16,12 @@ Use `spawn_subagent` to delegate a focused task to a bounded internal subagent.
 
 ## Telegram Messaging
 
-Each subagent has access to `send_telegram_message` and should use it to:
-1. Introduce itself when starting (what it's about to do)
-2. Send progress updates during multi-step work
-3. Send its conclusion/result when done
+Each subagent has access to `send_telegram_message` and should use it sparingly:
+1. Optional brief start update (one line)
+2. At most one progress update only for a milestone, blocker, key decision, or long silence
+3. One completion/failure summary when done
+
+Do not stream step-by-step logs, repetitive narration, or generic still-working pings.
 
 Subagents sign off with their role in brackets, e.g. [researcher], so the user knows who's talking.
 

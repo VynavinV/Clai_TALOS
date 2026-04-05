@@ -9,3 +9,7 @@ google-genai
 openai
 anthropic
 gTTS
+playwright
+scrapy
+pandas
+openpyxl

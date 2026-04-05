@@ -297,22 +297,40 @@ async def call_gemini(model_id: str, messages: list[dict], tools: list[dict] | N
         if role == "system":
             contents.append({"role": "user", "parts": [{"text": f"System: {content}"}]})
         elif role == "user":
-            contents.append({"role": "user", "parts": [{"text": content}]})
+            if isinstance(content, list):
+                parts = []
+                for item in content:
+                    if isinstance(item, dict):
+                        if item.get("type") == "text":
+                            parts.append({"text": item.get("text", "")})
+                        elif item.get("type") == "image_url":
+                            img_url = item.get("image_url", {}).get("url", "")
+                            if img_url.startswith("data:"):
+                                import base64
+                                mime_end = img_url.index(";base64,")
+                                mime_type = img_url[5:mime_end]
+                                b64_data = img_url[mime_end + 8:]
+                                parts.append({"inline_data": {"mime_type": mime_type, "data": b64_data}})
+                contents.append({"role": "user", "parts": parts})
+            else:
+                contents.append({"role": "user", "parts": [{"text": content}]})
         elif role == "assistant":
             contents.append({"role": "model", "parts": [{"text": content}]})
         elif role == "tool":
             contents.append({"role": "user", "parts": [{"text": f"Tool result: {content}"}]})
 
-    config = {
-        "temperature": 0.7,
-        "max_output_tokens": 2048,
-    }
+    from google.genai import types
+    
+    config = types.GenerateContentConfig(
+        temperature=0.7,
+        max_output_tokens=2048,
+    )
 
     response = await asyncio.to_thread(
         client.models.generate_content,
         model=model_id,
         contents=contents,
-        generation_config=config,
+        config=config,
     )
 
     text = response.text if hasattr(response, 'text') else ""
@@ -373,6 +391,76 @@ _CALLERS = {
 }
 
 
+_MAIN_MODEL_PREFERENCES = [
+    "o3",
+    "gpt-4.1",
+    "gpt-4o",
+    "claude-sonnet-4-20250514",
+    "claude-3-5-sonnet-20241022",
+    "gemini-2.5-pro",
+    "glm-5",
+    "glm-4",
+]
+
+_IMAGE_MODEL_PREFERENCES = [
+    "gpt-4o",
+    "gpt-4.1",
+    "claude-sonnet-4-20250514",
+    "gemini-2.5-pro",
+    "glm-4v",
+]
+
+
+_IMAGE_MODEL_HINTS = (
+    "gpt-4o",
+    "gpt-4.1",
+    "o3",
+    "o4-",
+    "claude-sonnet-4",
+    "claude-3-5",
+    "gemini-2.5",
+    "gemini-2.0",
+    "gemini-1.5",
+    "glm-4v",
+)
+
+
+def _is_image_model(model_id: str) -> bool:
+    lowered = model_id.lower()
+    if "vision" in lowered or "multimodal" in lowered:
+        return True
+    return any(hint in lowered for hint in _IMAGE_MODEL_HINTS)
+
+
+def _provider_enabled(provider: str) -> bool:
+    cfg = _PROVIDERS.get(provider, {})
+    env_key = cfg.get("env_key")
+    if not env_key:
+        return False
+    return bool(os.getenv(env_key, "").strip())
+
+
+def _available_models() -> list[str]:
+    models = list_provider_models()
+    filtered = []
+    for model_id in models:
+        provider, _ = resolve_model(model_id)
+        if _provider_enabled(provider):
+            filtered.append(model_id)
+    return filtered
+
+
+def _pick_preferred(preferences: list[str], candidates: list[str], fallback: str) -> str:
+    if not candidates:
+        return fallback
+    lowered = {m.lower(): m for m in candidates}
+    for pref in preferences:
+        hit = lowered.get(pref.lower())
+        if hit:
+            return hit
+    return candidates[0]
+
+
 async def call_model(model: str, messages: list[dict], tools: list[dict] | None) -> dict:
     provider, model_id = resolve_model(model)
     caller = _CALLERS.get(provider)
@@ -392,6 +480,102 @@ async def call_model_simple(model: str, system: str, prompt: str) -> str:
     messages.append({"role": "user", "content": prompt})
     result = await call_model(model, messages, None)
     return result.get("content", "")
+
+
+def _fetch_gemini_models(api_key: str) -> list[str]:
+    import google.genai as genai
+    client = genai.Client(api_key=api_key)
+    models = []
+    available = client.models.list()
+    for m in available:
+        name = getattr(m, "name", "").removeprefix("models/")
+        if any(p in name.lower() for p in _PROVIDERS["gemini"]["patterns"]):
+            models.append(name)
+    return models
+
+
+def _fetch_openai_models(api_key: str) -> list[str]:
+    import httpx
+    models = []
+    try:
+        r = httpx.get(
+            "https://api.openai.com/v1/models",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=10,
+        )
+        r.raise_for_status()
+        for m in r.json().get("data", []):
+            mid = m["id"]
+            if any(p in mid for p in _PROVIDERS["openai"]["patterns"]):
+                models.append(mid)
+    except Exception:
+        pass
+    return models
+
+
+def _fetch_anthropic_models(api_key: str) -> list[str]:
+    import httpx
+    models = []
+    try:
+        r = httpx.get(
+            "https://api.anthropic.com/v1/models",
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+            },
+            timeout=10,
+        )
+        r.raise_for_status()
+        for m in r.json().get("data", []):
+            mid = m.get("id", "")
+            if any(p in mid for p in _PROVIDERS["anthropic"]["patterns"]):
+                models.append(mid)
+    except Exception:
+        pass
+    if not models:
+        models = [
+            "claude-sonnet-4-20250514",
+            "claude-3-5-sonnet-20241022",
+            "claude-3-5-haiku-20241022",
+            "claude-3-opus-20240229",
+        ]
+    return models
+
+
+def _fetch_zhipu_models(api_key: str) -> list[str]:
+    import httpx
+    models = []
+    try:
+        r = httpx.get(
+            f"{_CLIENT_BASE_URL}/models",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=10,
+        )
+        r.raise_for_status()
+        models = [m["id"] for m in r.json().get("data", [])]
+    except Exception:
+        pass
+    return models if models else list(_PROVIDERS["zhipu"]["models"].values())
+
+
+def fetch_provider_models(provider: str, api_key: str) -> dict:
+    fetchers = {
+        "gemini": _fetch_gemini_models,
+        "openai": _fetch_openai_models,
+        "anthropic": _fetch_anthropic_models,
+        "zhipu": _fetch_zhipu_models,
+    }
+    fetcher = fetchers.get(provider)
+    if not fetcher:
+        return {"models": [], "image_models": []}
+    try:
+        models = fetcher(api_key)
+    except Exception:
+        models = list(_PROVIDERS.get(provider, {}).get("models", {}).values())
+    image_models = [m for m in models if _is_image_model(m)]
+    if not image_models:
+        image_models = models
+    return {"models": sorted(models), "image_models": sorted(set(image_models))}
 
 
 def list_provider_models() -> list[str]:
@@ -460,3 +644,21 @@ def list_provider_models() -> list[str]:
                 models.append(m)
 
     return models if models else list(get_all_model_aliases().values())
+
+
+def list_image_models() -> list[str]:
+    models = list_provider_models()
+    image_models = [m for m in models if _is_image_model(m)]
+    if not image_models:
+        return models
+    return sorted(set(image_models))
+
+
+def best_main_model() -> str:
+    candidates = _available_models()
+    return _pick_preferred(_MAIN_MODEL_PREFERENCES, candidates, "glm-5")
+
+
+def best_image_model() -> str:
+    candidates = [m for m in _available_models() if _is_image_model(m)]
+    return _pick_preferred(_IMAGE_MODEL_PREFERENCES, candidates, best_main_model())

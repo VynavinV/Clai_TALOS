@@ -2,7 +2,7 @@
 
 ## Core Principle: Simplicity Over Features
 
-Clai_TALOS is a reaction against the complexity spiral in AI assistant projects. Most alternatives have become tech demos - impressive on paper, frustrating in practice.
+Clai_TALOS is a reaction against the complexity spiral in AI assistant projects. Most alternatives have become tech demos - impressive on paper, frustrating in practice. AI assistants should be simple enough to set up, where any grandma can download, run one script, and get an intuitive interface to set up anything else. 
 
 ## The Problem With "Platform" Thinking
 
@@ -62,36 +62,14 @@ No gateways. No nodes. No WebSocket RPC. No device pairing. Just code.
 ## What We Explicitly Don't Do
 
 - Multi-platform messaging (use OpenClaw if you need WhatsApp)
-- Voice interfaces (use OpenClaw)
-- Device control (use OpenClaw)
 - Team collaboration (use Claude Cowork alternatives)
 - SaaS integrations beyond web scraping
-- Visual canvases or workspaces
 
 ## The 850 Line Test
 
 AI.py is ~850 lines. If a feature would double that, we don't add it. Complexity budget is real.
 
-## When To Use Clai_TALOS vs Alternatives
 
-**Use Clai_TALOS if:**
-- You want a Telegram assistant that just works
-- You prefer Python and simple code
-- You want to understand and modify your assistant
-- You use ZhipuAI or Gemini models
-- You value reliability over features
-
-**Use OpenClaw if:**
-- You need AI on WhatsApp/Slack/Discord/Signal/iMessage/etc.
-- You want voice interactions
-- You want device control (iOS/Android/macOS nodes)
-- You want a full platform, not just a bot
-
-**Use Claude Cowork alternatives (Eigent, OpenWork) if:**
-- You want a desktop GUI application
-- You need team collaboration features
-- You want 500+ SaaS integrations
-- You're doing knowledge work automation
 
 ## Design Decisions Log
 
@@ -110,14 +88,6 @@ Zero config, single file, works everywhere.
 ### Why No Plugin System?
 Plugins add complexity. If you want a new tool, write a function.
 
-### Why spawn_subagent Instead of Multi-Agent Workforce?
-Most tasks don't need parallel agents. When they do, one level of delegation is enough.
-
-### Why No Voice?
-Voice requires platform-specific code, permissions, and complexity. Text is universal.
-
-### Why No Visual Canvas?
-Same reason. Also, Telegram doesn't support it.
 
 ## The Anti-Pattern List
 
@@ -151,5 +121,6 @@ A personal AI assistant that:
 - You can debug when it breaks
 - You can modify when you need to
 - You can trust to work reliably
+- A granny can run one thing, and be walked through simply
 
 Everything else is noise.

@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Clai TALOS - Chat</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0a0a0f;
+    color: #e0e0e0;
+    min-height: 100vh;
+    padding: 2rem;
+  }
+
+  .container {
+    max-width: 980px;
+    margin: 0 auto;
+  }
+
+  .nav {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .nav a {
+    font-size: 0.85rem;
+    color: #555;
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+
+  .nav a:hover { color: #999; }
+  .nav a.active { color: #63b3ed; }
+
+  h1 {
+    font-size: 1.6rem;
+    font-weight: 600;
+    margin-bottom: 0.35rem;
+    color: #fff;
+  }
+
+  .subtitle {
+    font-size: 0.85rem;
+    color: #666;
+    margin-bottom: 1.25rem;
+  }
+
+  .chat-shell {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  .chat-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.85rem 1rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.02);
+  }
+
+  .chat-meta {
+    font-size: 0.78rem;
+    color: #888;
+  }
+
+  .badge {
+    display: inline-block;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    border: 1px solid rgba(99, 179, 237, 0.35);
+    color: #63b3ed;
+    background: rgba(99, 179, 237, 0.12);
+    margin-left: 0.4rem;
+  }
+
+  .chat-body {
+    height: 60vh;
+    min-height: 380px;
+    max-height: 720px;
+    overflow-y: auto;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+  }
+
+  .empty {
+    color: #666;
+    font-size: 0.85rem;
+    text-align: center;
+    margin: auto;
+  }
+
+  .msg {
+    max-width: 82%;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    padding: 0.7rem 0.8rem;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 0.9rem;
+  }
+
+  .msg img.preview {
+    display: block;
+    margin-top: 0.5rem;
+    width: min(100%, 560px);
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+  }
+
+  .msg.user {
+    align-self: flex-end;
+    background: rgba(99, 179, 237, 0.14);
+    border-color: rgba(99, 179, 237, 0.35);
+  }
+
+  .msg.assistant {
+    align-self: flex-start;
+    background: rgba(255, 255, 255, 0.03);
+    border-color: rgba(255, 255, 255, 0.12);
+  }
+
+  .msg.error {
+    align-self: flex-start;
+    background: rgba(245, 101, 101, 0.12);
+    border-color: rgba(245, 101, 101, 0.35);
+    color: #f6b2b2;
+  }
+
+  .typing {
+    align-self: flex-start;
+    font-size: 0.78rem;
+    color: #666;
+    padding: 0.2rem 0.3rem;
+  }
+
+  .chat-foot {
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 0.85rem;
+    display: grid;
+    gap: 0.7rem;
+  }
+
+  textarea {
+    width: 100%;
+    resize: vertical;
+    min-height: 78px;
+    max-height: 240px;
+    padding: 0.75rem 0.85rem;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.03);
+    color: #e0e0e0;
+    outline: none;
+    font-size: 0.92rem;
+    line-height: 1.4;
+  }
+
+  textarea:focus {
+    border-color: rgba(99, 179, 237, 0.45);
+  }
+
+  textarea::placeholder {
+    color: #4a4a4a;
+  }
+
+  .actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+
+  .hint {
+    color: #666;
+    font-size: 0.76rem;
+  }
+
+  .btns {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .attach-row {
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.5rem 0.65rem;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.03);
+    font-size: 0.8rem;
+    color: #bbb;
+  }
+
+  .attach-row .meta {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .btn {
+    padding: 0.55rem 1rem;
+    border-radius: 8px;
+    cursor: pointer;
+    border: 1px solid rgba(99, 179, 237, 0.35);
+    background: rgba(99, 179, 237, 0.14);
+    color: #63b3ed;
+    font-size: 0.82rem;
+  }
+
+  .btn:hover { background: rgba(99, 179, 237, 0.24); }
+
+  .btn.secondary {
+    border-color: rgba(255, 255, 255, 0.18);
+    background: rgba(255, 255, 255, 0.05);
+    color: #bbb;
+  }
+
+  .btn.secondary:hover {
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  .btn.icon {
+    min-width: 40px;
+    padding: 0.55rem 0.75rem;
+    font-size: 1rem;
+    line-height: 1;
+  }
+
+  .logout-btn {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    padding: 0.4rem 0.8rem;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 6px;
+    color: #666;
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .logout-btn:hover {
+    background: rgba(255,255,255,0.08);
+    color: #999;
+  }
+
+  @media (max-width: 760px) {
+    body { padding: 1rem; }
+    .chat-body { height: 58vh; }
+    .msg { max-width: 90%; }
+  }
+</style>
+</head>
+<body>
+<button class="logout-btn" onclick="logout()">Sign Out</button>
+<div class="container">
+  <div class="nav">
+    <a href="/dashboard">&larr; Dashboard</a>
+    <a href="/keys">API Keys</a>
+    <a href="/tools">Tools</a>
+    <a href="/settings">Settings</a>
+    <a href="/projects">Projects</a>
+    <a href="/static/chat.html" class="active">Chat</a>
+  </div>
+
+  <h1>Native Chat</h1>
+  <p class="subtitle">Backend-native chat using the same core execution path as Telegram.</p>
+
+  <div class="chat-shell">
+    <div class="chat-head">
+      <div class="chat-meta">
+        Active model: <span id="activeModel" class="badge">loading</span>
+      </div>
+      <div class="chat-meta" id="providerLabel">Backend: loading</div>
+    </div>
+
+    <div class="chat-body" id="chatBody">
+      <div class="empty" id="emptyState">Start typing to chat.</div>
+    </div>
+
+    <div class="chat-foot">
+      <textarea id="chatInput" placeholder="Type your message..."></textarea>
+      <div class="attach-row" id="attachRow">
+        <div class="meta" id="attachMeta"></div>
+        <button class="btn secondary" id="removeAttachBtn" title="Remove attachment">Remove</button>
+      </div>
+      <div class="actions">
+        <div class="hint">Enter to send, Shift+Enter for newline, or attach a file</div>
+        <div class="btns">
+          <input type="file" id="fileInput" style="display:none;" />
+          <button class="btn secondary icon" id="attachBtn" title="Attach file">&#128206;</button>
+          <button class="btn secondary" id="clearBtn">Clear</button>
+          <button class="btn" id="sendBtn">Send</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const STORAGE_KEY = 'talos_native_chat_history_v1';
+const MAX_ATTACH_BYTES = 10 * 1024 * 1024;
+
+const state = {
+  settings: null,
+  mainModel: '',
+  history: [],
+  isSending: false,
+  pendingAttachment: null,
+};
+
+function pickBestMainModel(settings, models) {
+  if (settings.MAIN_MODEL) return settings.MAIN_MODEL;
+  const available = (models && models.main_models) || [];
+  if (!available.length) return 'glm-5';
+
+  const lowered = {};
+  available.forEach(m => { lowered[m.toLowerCase()] = m; });
+  const prefs = ['o3', 'gpt-4.1', 'gpt-4o', 'claude-sonnet-4-20250514', 'claude-3-5-sonnet-20241022', 'gemini-2.5-pro', 'glm-5', 'glm-4'];
+
+  for (const pref of prefs) {
+    if (lowered[pref.toLowerCase()]) return lowered[pref.toLowerCase()];
+  }
+  return available[0];
+}
+
+function escapeHtml(value) {
+  const div = document.createElement('div');
+  div.textContent = value;
+  return div.innerHTML;
+}
+
+function saveHistory() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state.history.slice(-40)));
+}
+
+function loadHistory() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      state.history = parsed.filter(m => m && m.type && typeof m.text === 'string');
+    }
+  } catch (e) {
+    state.history = [];
+  }
+}
+
+function renderHistory() {
+  const container = document.getElementById('chatBody');
+  let empty = document.getElementById('emptyState');
+
+  if (!state.history.length) {
+    if (!empty) {
+      container.innerHTML = '<div class="empty" id="emptyState">Start typing to chat.</div>';
+      empty = document.getElementById('emptyState');
+    }
+    empty.style.display = 'block';
+    container.scrollTop = container.scrollHeight;
+    return;
+  }
+
+  if (empty) empty.style.display = 'none';
+  container.innerHTML = state.history.map(function(msg) {
+    if (msg.type === 'user') {
+      return '<div class="msg user">' + escapeHtml(msg.text) + '</div>';
+    }
+
+    if (msg.type === 'error') {
+      return '<div class="msg error">' + escapeHtml(msg.text) + '</div>';
+    }
+
+    if (msg.type === 'image') {
+      var textPart = msg.text ? '<div>' + escapeHtml(msg.text) + '</div>' : '';
+      var imagePart = msg.data_url
+        ? '<img class="preview" src="' + msg.data_url + '" alt="Generated image output">'
+        : '<div style="margin-top:0.5rem;font-size:0.78rem;color:#888;">Image: ' + escapeHtml(msg.path || 'not available') + '</div>';
+      return '<div class="msg assistant">' + textPart + imagePart + '</div>';
+    }
+
+    if (msg.type === 'voice') {
+      var voiceText = msg.text ? ' ' + msg.text : '';
+      return '<div class="msg assistant">[Voice output]' + escapeHtml(voiceText) + '</div>';
+    }
+
+    return '<div class="msg assistant">' + escapeHtml(msg.text || '') + '</div>';
+  }).join('');
+  container.scrollTop = container.scrollHeight;
+}
+
+function pushMessage(type, text, extra) {
+  var item = { type: type, text: text || '' };
+  if (extra && typeof extra === 'object') {
+    Object.assign(item, extra);
+  }
+  state.history.push(item);
+  saveHistory();
+  renderHistory();
+}
+
+function speakVoice(text) {
+  if (!text || !window.speechSynthesis) return;
+  try {
+    var utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 1;
+    utterance.pitch = 1;
+    window.speechSynthesis.speak(utterance);
+  } catch (e) {
+    // Ignore browser TTS errors and keep chat flow stable.
+  }
+}
+
+function pushBackendEvents(events) {
+  if (!Array.isArray(events)) return;
+  events.forEach(function(evt) {
+    if (!evt || !evt.type) return;
+    if (evt.type === 'image') {
+      pushMessage('image', evt.text || '', {
+        data_url: evt.data_url || '',
+        path: evt.path || '',
+      });
+      return;
+    }
+    if (evt.type === 'voice') {
+      pushMessage('voice', evt.text || '');
+      speakVoice(evt.text || '');
+      return;
+    }
+    if (evt.type === 'error') {
+      pushMessage('error', evt.text || 'Unknown error');
+      return;
+    }
+    pushMessage('assistant', evt.text || '');
+  });
+}
+
+function setAttachmentUI() {
+  var row = document.getElementById('attachRow');
+  var meta = document.getElementById('attachMeta');
+  if (!state.pendingAttachment) {
+    row.style.display = 'none';
+    meta.textContent = '';
+    return;
+  }
+
+  row.style.display = 'flex';
+  var kb = Math.max(1, Math.round(state.pendingAttachment.bytes / 1024));
+  meta.textContent = 'Attached: ' + state.pendingAttachment.name + ' (' + kb + ' KB)';
+}
+
+function clearAttachment() {
+  state.pendingAttachment = null;
+  document.getElementById('fileInput').value = '';
+  setAttachmentUI();
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise(function(resolve, reject) {
+    var reader = new FileReader();
+    reader.onload = function() { resolve(String(reader.result || '')); };
+    reader.onerror = function() { reject(new Error('Failed to read file')); };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function handleFilePicked(evt) {
+  var file = evt && evt.target && evt.target.files && evt.target.files[0];
+  if (!file) return;
+
+  if (file.size > MAX_ATTACH_BYTES) {
+    pushMessage('error', 'File too large. Max size is ' + Math.round(MAX_ATTACH_BYTES / (1024 * 1024)) + ' MB.');
+    clearAttachment();
+    return;
+  }
+
+  try {
+    var dataUrl = await readFileAsDataUrl(file);
+    state.pendingAttachment = {
+      name: file.name || 'upload.bin',
+      bytes: file.size || 0,
+      data_url: dataUrl,
+    };
+    setAttachmentUI();
+  } catch (e) {
+    pushMessage('error', String(e.message || e));
+    clearAttachment();
+  }
+}
+
+function setTyping(visible) {
+  const container = document.getElementById('chatBody');
+  const existing = document.getElementById('typingRow');
+  if (visible) {
+    if (existing) return;
+    const row = document.createElement('div');
+    row.className = 'typing';
+    row.id = 'typingRow';
+    row.textContent = 'Thinking...';
+    container.appendChild(row);
+    container.scrollTop = container.scrollHeight;
+    return;
+  }
+  if (existing) existing.remove();
+}
+
+async function ensureAuth() {
+  const res = await fetch('/api/status');
+  if (res.status === 401) {
+    window.location.href = '/';
+    throw new Error('Unauthorized');
+  }
+}
+
+async function boot() {
+  await ensureAuth();
+
+  const settingsRes = await fetch('/api/settings');
+  if (settingsRes.status === 401) {
+    window.location.href = '/';
+    return;
+  }
+  state.settings = await settingsRes.json();
+
+  let models = { main_models: [] };
+  try {
+    const modelsRes = await fetch('/api/models');
+    if (modelsRes.ok) {
+      models = await modelsRes.json();
+    }
+  } catch (e) {
+    models = { main_models: [] };
+  }
+
+  state.mainModel = pickBestMainModel(state.settings, models);
+
+  document.getElementById('activeModel').textContent = state.mainModel;
+  document.getElementById('providerLabel').textContent = 'Backend: Telegram-compatible core';
+
+  loadHistory();
+  renderHistory();
+}
+
+async function callBackendChat(text, attachment) {
+  const payload = {
+    message: text,
+    attachment: attachment || null,
+  };
+  console.log('callBackendChat: sending', JSON.stringify(payload).slice(0, 200));
+  const res = await fetch('/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  console.log('callBackendChat: response status=', res.status);
+  if (res.status === 401) {
+    window.location.href = '/';
+    throw new Error('Unauthorized');
+  }
+  let data;
+  try {
+    data = await res.json();
+    console.log('callBackendChat: response data=', data);
+  } catch (e) {
+    throw new Error('Server returned invalid JSON (status ' + res.status + ')');
+  }
+  if (!res.ok || !data.ok) {
+    throw new Error((data && data.error) || 'Chat request failed (status ' + res.status + ')');
+  }
+  return data.events || [];
+}
+
+async function sendMessage() {
+  const input = document.getElementById('chatInput');
+  const sendBtn = document.getElementById('sendBtn');
+
+  if (state.isSending) return;
+
+  const text = (input.value || '').trim();
+  const attachment = state.pendingAttachment;
+  if (!text && !attachment) return;
+
+  input.value = '';
+  state.isSending = true;
+  sendBtn.disabled = true;
+  sendBtn.textContent = 'Sending...';
+
+  if (attachment) {
+    var attachSummary = text ? text + '\n\n' : '';
+    attachSummary += '[Attachment] ' + attachment.name;
+    pushMessage('user', attachSummary);
+  } else {
+    pushMessage('user', text);
+  }
+  setTyping(true);
+
+  try {
+    const events = await callBackendChat(text, attachment);
+    setTyping(false);
+    pushBackendEvents(events);
+    clearAttachment();
+  } catch (e) {
+    setTyping(false);
+    pushMessage('error', String(e.message || e));
+  } finally {
+    state.isSending = false;
+    sendBtn.disabled = false;
+    sendBtn.textContent = 'Send';
+  }
+}
+
+async function clearChat() {
+  if (state.isSending) return;
+  state.history = [];
+  saveHistory();
+  renderHistory();
+  clearAttachment();
+  try {
+    const events = await callBackendChat('/clear', null);
+    pushBackendEvents(events);
+  } catch (e) {
+    pushMessage('error', 'Failed to clear backend history: ' + String(e.message || e));
+  }
+}
+
+function logout() {
+  fetch('/logout', { method: 'POST' }).then(function() {
+    window.location.href = '/';
+  });
+}
+
+document.getElementById('sendBtn').addEventListener('click', sendMessage);
+document.getElementById('clearBtn').addEventListener('click', clearChat);
+document.getElementById('attachBtn').addEventListener('click', function() {
+  document.getElementById('fileInput').click();
+});
+document.getElementById('fileInput').addEventListener('change', handleFilePicked);
+document.getElementById('removeAttachBtn').addEventListener('click', clearAttachment);
+document.getElementById('chatInput').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+});
+
+boot().catch(function(err) {
+  const body = document.getElementById('chatBody');
+  body.innerHTML = '<div class="msg error">Failed to initialize chat: ' + escapeHtml(String(err.message || err)) + '</div>';
+});
+</script>
+</body>
+</html>

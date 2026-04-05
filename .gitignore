@@ -1,6 +1,7 @@
 venv/
 .env
 .credentials
+.google_oauth.json
 .security.log
 .setup_config
 .tools_config
@@ -10,3 +11,5 @@ talos.db-wal
 talos.db-shm
 logs/
 projects/
+.browser-profile/
+.himalaya/

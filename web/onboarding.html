@@ -1,0 +1,914 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{BOT_NAME}} — Setup</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0a0a0f;
+    color: #e0e0e0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .wizard {
+    width: 100%;
+    max-width: 520px;
+    padding: 2rem;
+  }
+  .step { display: none; }
+  .step.active { display: block; }
+  .step-indicator {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: center;
+    margin-bottom: 2rem;
+  }
+  .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.1);
+    transition: all 0.3s;
+  }
+  .dot.active { background: #63b3ed; box-shadow: 0 0 8px rgba(99,179,237,0.4); }
+  .dot.done { background: #48bb78; }
+  h2 {
+    font-size: 1.3rem;
+    font-weight: 600;
+    color: #fff;
+    margin-bottom: 0.4rem;
+  }
+  .desc {
+    font-size: 0.85rem;
+    color: #888;
+    line-height: 1.6;
+    margin-bottom: 1.5rem;
+  }
+  .field { margin-bottom: 1rem; }
+  .field label {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 0.4rem;
+  }
+  .field input, .field select {
+    width: 100%;
+    padding: 0.7rem 0.9rem;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    color: #e0e0e0;
+    font-size: 0.9rem;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .field select {
+    font-family: inherit;
+    appearance: none;
+    background-image: linear-gradient(45deg, transparent 50%, #666 50%), linear-gradient(135deg, #666 50%, transparent 50%);
+    background-position: calc(100% - 18px) 50%, calc(100% - 12px) 50%;
+    background-size: 6px 6px, 6px 6px;
+    background-repeat: no-repeat;
+  }
+  .field input:focus, .field select:focus { border-color: rgba(99,179,237,0.5); }
+  .field .hint {
+    font-size: 0.72rem;
+    color: #555;
+    margin-top: 0.3rem;
+    line-height: 1.4;
+  }
+  .field .hint a { color: #63b3ed; text-decoration: none; }
+  .field .hint a:hover { text-decoration: underline; }
+  .btn-row {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+  }
+  .btn {
+    flex: 1;
+    padding: 0.75rem;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-align: center;
+  }
+  .btn-primary {
+    background: rgba(99,179,237,0.15);
+    border: 1px solid rgba(99,179,237,0.3);
+    color: #63b3ed;
+  }
+  .btn-primary:hover { background: rgba(99,179,237,0.25); }
+  .btn-skip {
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.08);
+    color: #666;
+  }
+  .btn-skip:hover { color: #999; border-color: rgba(255,255,255,0.15); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .error {
+    color: #f56565;
+    font-size: 0.8rem;
+    min-height: 1em;
+    margin-top: 0.5rem;
+  }
+  .success {
+    color: #48bb78;
+    font-size: 0.8rem;
+    min-height: 1em;
+    margin-top: 0.5rem;
+  }
+  .info-box {
+    padding: 1rem 1.2rem;
+    background: rgba(99,179,237,0.06);
+    border: 1px solid rgba(99,179,237,0.15);
+    border-radius: 10px;
+    font-size: 0.82rem;
+    color: #999;
+    line-height: 1.6;
+    margin-bottom: 1.5rem;
+  }
+  .info-box ol {
+    margin: 0.5rem 0 0 1.2rem;
+  }
+  .info-box a { color: #63b3ed; text-decoration: none; }
+  .info-box a:hover { text-decoration: underline; }
+  .provider-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.6rem;
+    margin-bottom: 1rem;
+  }
+  .provider-card {
+    padding: 0.8rem;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-align: center;
+  }
+  .provider-card:hover {
+    background: rgba(255,255,255,0.06);
+    border-color: rgba(255,255,255,0.12);
+  }
+  .provider-card.selected {
+    background: rgba(99,179,237,0.1);
+    border-color: rgba(99,179,237,0.4);
+  }
+  .provider-card .name {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #fff;
+    margin-bottom: 0.2rem;
+  }
+  .provider-card .models {
+    font-size: 0.7rem;
+    color: #666;
+  }
+  .section-label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #aaa;
+    margin-bottom: 0.6rem;
+    margin-top: 0.5rem;
+  }
+  .divider {
+    border: none;
+    border-top: 1px solid rgba(255,255,255,0.06);
+    margin: 1.5rem 0;
+  }
+  .finish-wrap {
+    text-align: center;
+    padding: 2rem 0;
+  }
+  .finish-wrap h2 { margin-bottom: 0.6rem; }
+  .finish-check {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+    color: #48bb78;
+  }
+</style>
+</head>
+<body>
+<div class="wizard">
+  <div class="step-indicator" id="step-dots"></div>
+
+  <!-- Step 1: Telegram Bot Token -->
+  <div class="step active" data-step="0">
+    <h2>Connect Telegram</h2>
+    <p class="desc">Your bot needs a Telegram token to receive messages.</p>
+    <div class="info-box">
+      <ol>
+        <li>Open Telegram and search for <a href="https://t.me/BotFather" target="_blank">@BotFather</a></li>
+        <li>Send <strong>/newbot</strong> and follow the prompts</li>
+        <li>Copy the token BotFather gives you</li>
+      </ol>
+    </div>
+    <div class="field">
+      <label>Bot Token</label>
+      <input type="text" id="telegram-token" placeholder="123456789:ABC-..." autocomplete="off">
+    </div>
+    <div class="field">
+      <label>Bot Name</label>
+      <input type="text" id="bot-name" placeholder="Clai-TALOS" value="{{BOT_NAME}}">
+      <div class="hint">Display name for the dashboard and messages</div>
+    </div>
+    <div class="error" id="err-telegram"></div>
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="saveTelegram()">Continue</button>
+    </div>
+  </div>
+
+  <!-- Step 2: Tailscale -->
+  <div class="step" data-step="1">
+    <h2>Tailscale (Remote Access)</h2>
+    <p class="desc">Tailscale lets you access your bot from anywhere securely. It's free for personal use.</p>
+    <div id="ts-status"></div>
+    <div class="info-box">
+      If Tailscale is installed, you can log in now. If not, install it from
+      <a href="https://tailscale.com/download" target="_blank">tailscale.com/download</a>
+      and come back to this step.
+    </div>
+    <div id="ts-login-link" style="display:none; margin-bottom:1rem;">
+      <div class="field">
+        <label>Tailscale Login Link</label>
+        <a id="ts-link-url" href="#" target="_blank" style="color:#63b3ed; font-size:0.85rem;">Click here to authenticate Tailscale</a>
+      </div>
+    </div>
+    <div class="error" id="err-tailscale"></div>
+    <div class="success" id="ok-tailscale"></div>
+    <div class="btn-row">
+      <button class="btn btn-skip" onclick="goStep(2)">Skip for now</button>
+      <button class="btn btn-primary" id="ts-check-btn" onclick="checkTailscale()">Check Status</button>
+    </div>
+  </div>
+
+  <!-- Step 3: Main Model Provider + Model -->
+  <div class="step" data-step="2">
+    <h2>Choose Your AI Model</h2>
+    <p class="desc">Pick the provider and model for text conversations.</p>
+
+    <div class="section-label">Provider</div>
+    <div class="provider-grid" id="provider-grid"></div>
+
+    <div class="field" id="api-key-field" style="display:none;">
+      <label id="api-key-label">API Key</label>
+      <input type="password" id="api-key-input" placeholder="Paste your API key" autocomplete="off" oninput="onApiKeyInput()">
+      <div class="hint" id="api-key-hint"></div>
+    </div>
+
+    <div class="field">
+      <label>Main Text Model</label>
+      <select id="main-model"><option value="">Select provider first</option></select>
+    </div>
+
+    <hr class="divider">
+
+    <div class="section-label">Vision Model</div>
+    <div class="field">
+      <label>Image Understanding Model</label>
+      <select id="image-model" onchange="onVisionModelChange()"><option value="">Auto (same provider)</option></select>
+      <div class="hint">Used when you send photos. Select a provider below and enter its API key to load vision models.</div>
+    </div>
+
+    <div class="field" id="vision-api-key-field" style="display:none;">
+      <label id="vision-api-key-label">Vision Provider API Key</label>
+      <input type="password" id="vision-api-key-input" placeholder="Paste your API key" autocomplete="off" oninput="onVisionApiKeyInput()">
+      <div class="hint" id="vision-api-key-hint"></div>
+    </div>
+
+    <div class="error" id="err-model"></div>
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="saveModel()">Continue</button>
+    </div>
+  </div>
+
+  <!-- Step 4: Optional - Gemini (web search) -->
+  <div class="step" data-step="3">
+    <h2>Web Search (Optional)</h2>
+    <p class="desc">A Gemini API key enables web search. If you already entered one as your main provider, this is already set.</p>
+    <div class="field">
+      <label>Gemini API Key</label>
+      <input type="password" id="gemini-key" placeholder="Get from aistudio.google.com/app/apikey" autocomplete="off">
+      <div class="hint"><a href="https://aistudio.google.com/app/apikey" target="_blank">Get a free Gemini key here</a></div>
+    </div>
+    <div class="error" id="err-gemini"></div>
+    <div class="btn-row">
+      <button class="btn btn-skip" onclick="goStep(4)">Skip</button>
+      <button class="btn btn-primary" onclick="saveGemini()">Save & Continue</button>
+    </div>
+  </div>
+
+  <!-- Step 5: Optional - Email (Himalaya) -->
+  <div class="step" data-step="4">
+    <h2>Email Setup (Optional)</h2>
+    <p class="desc">Connect a Gmail account so your bot can read and send email.</p>
+    <div class="info-box">
+      We'll install <a href="https://github.com/pimalaya/himalaya" target="_blank">Himalaya</a> (CLI email client) and configure it with your Gmail account using an app password.
+      <ol>
+        <li>Go to your <a href="https://myaccount.google.com/apppasswords" target="_blank">Google App Passwords</a> page</li>
+        <li>Create a new app password (select "Mail" and "Other")</li>
+        <li>Copy the 16-character password below</li>
+      </ol>
+    </div>
+    <div class="field">
+      <label>Gmail Address</label>
+      <input type="email" id="email-address" placeholder="you@gmail.com" autocomplete="email">
+    </div>
+    <div class="field">
+      <label>App Password</label>
+      <input type="password" id="email-app-password" placeholder="xxxx xxxx xxxx xxxx" autocomplete="off">
+      <div class="hint">16-character app password from Google (no spaces needed)</div>
+    </div>
+    <div id="email-status" style="display:none; margin-bottom:1rem;"></div>
+    <div class="error" id="err-email"></div>
+    <div class="success" id="ok-email"></div>
+    <div class="btn-row">
+      <button class="btn btn-skip" onclick="goStep(5)">Skip</button>
+      <button class="btn btn-primary" id="email-setup-btn" onclick="setupEmail()">Install & Configure</button>
+    </div>
+  </div>
+
+  <!-- Step 6: Optional - Google -->
+  <div class="step" data-step="5">
+    <h2>Google Integration (Optional)</h2>
+    <p class="desc">Link your Google account for Calendar, Drive, and Sheets access.</p>
+
+    <div class="field">
+      <label>Google API Key</label>
+      <input type="password" id="google-api-key" placeholder="AIza..." autocomplete="off">
+      <div class="hint"><a href="https://aistudio.google.com/app/apikey" target="_blank">Get a free API key from Google AI Studio</a> (optional, enables enhanced features)</div>
+    </div>
+
+    <hr class="divider">
+    <div class="section-label">Connect Your Google Account</div>
+    <div class="info-box">
+      <strong>One-time setup (takes ~2 minutes):</strong>
+      <ol>
+        <li>Open <a href="https://console.cloud.google.com/apis/credentials" target="_blank">Google Cloud Console</a></li>
+        <li>Create a project (or pick existing), then click <strong>"Create Credentials" → "OAuth client ID"</strong></li>
+        <li>Select <strong>"Web application"</strong>, give it a name like "Clai-TALOS"</li>
+        <li>Under <strong>"Authorized redirect URIs"</strong>, add: <code id="google-redirect-uri-placeholder"></code></li>
+        <li>Click <strong>Create</strong>, then copy the <strong>Client ID</strong> and <strong>Client Secret</strong> below</li>
+      </ol>
+    </div>
+    <div class="field">
+      <label>OAuth Client ID</label>
+      <input type="text" id="google-oauth-client-id" placeholder="xxxx.apps.googleusercontent.com" autocomplete="off">
+    </div>
+    <div class="field">
+      <label>OAuth Client Secret</label>
+      <input type="password" id="google-oauth-client-secret" placeholder="GOCSPX-..." autocomplete="off">
+    </div>
+
+    <div id="google-connect-area" style="display:none; margin-bottom:1rem;">
+      <button class="btn btn-primary" onclick="connectGoogleOnboarding()" style="width:100%; margin-bottom:0.5rem;">Connect Google Account</button>
+      <div class="info-box" id="google-connect-status" style="display:none;"></div>
+    </div>
+
+    <div class="error" id="err-google"></div>
+    <div class="success" id="ok-google"></div>
+    <div class="btn-row">
+      <button class="btn btn-skip" onclick="goStep(6)">Skip</button>
+      <button class="btn btn-primary" id="google-save-btn" onclick="saveGoogle()">Save & Continue</button>
+    </div>
+  </div>
+
+  <!-- Step 7: Done! -->
+  <div class="step" data-step="6">
+    <div class="finish-wrap">
+      <div class="finish-check">&#10003;</div>
+      <h2>You're all set!</h2>
+      <p class="desc">
+        Your bot is starting up. Open Telegram and send it a message to start chatting.
+        Use the dashboard to manage settings anytime.
+      </p>
+      <div class="btn-row" style="justify-content:center;">
+        <button class="btn btn-primary" onclick="window.location.href='/dashboard'" style="max-width:220px;">Go to Dashboard</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+var TOTAL_STEPS = 7;
+var currentStep = 0;
+var selectedProvider = '';
+
+var PROVIDERS = {
+  openai: {
+    name: 'OpenAI',
+    models: [],
+    vision: [],
+    env_key: 'OPENAI_API_KEY',
+    url: 'https://platform.openai.com/api-keys'
+  },
+  anthropic: {
+    name: 'Anthropic',
+    models: [],
+    vision: [],
+    env_key: 'ANTHROPIC_API_KEY',
+    url: 'https://console.anthropic.com/settings/keys'
+  },
+  gemini: {
+    name: 'Gemini',
+    models: [],
+    vision: [],
+    env_key: 'GEMINI_API_KEY',
+    url: 'https://aistudio.google.com/app/apikey'
+  },
+  zhipu: {
+    name: 'ZhipuAI',
+    models: [],
+    vision: [],
+    env_key: 'ZHIPUAI_API_KEY',
+    url: 'https://open.bigmodel.cn/'
+  }
+};
+
+function initDots() {
+  var html = '';
+  for (var i = 0; i < TOTAL_STEPS; i++) html += '<div class="dot" id="dot-' + i + '"></div>';
+  document.getElementById('step-dots').innerHTML = html;
+  updateDots();
+}
+
+function updateDots() {
+  for (var i = 0; i < TOTAL_STEPS; i++) {
+    var d = document.getElementById('dot-' + i);
+    d.className = 'dot';
+    if (i < currentStep) d.className = 'dot done';
+    if (i === currentStep) d.className = 'dot active';
+  }
+}
+
+function goStep(n) {
+  document.querySelectorAll('.step').forEach(function(s) { s.classList.remove('active'); });
+  currentStep = n;
+  document.querySelector('[data-step="' + n + '"]').classList.add('active');
+  updateDots();
+  window.scrollTo(0, 0);
+}
+
+function initProviderGrid() {
+  var html = '';
+  for (var key in PROVIDERS) {
+    var p = PROVIDERS[key];
+    html += '<div class="provider-card" id="prov-' + key + '" onclick="selectProvider(\'' + key + '\')">'
+      + '<div class="name">' + p.name + '</div>'
+      + '<div class="models">Auto-detect models</div>'
+      + '</div>';
+  }
+  document.getElementById('provider-grid').innerHTML = html;
+}
+
+var _fetchTimer = null;
+var _visionFetchTimer = null;
+
+function selectProvider(key) {
+  selectedProvider = key;
+  document.querySelectorAll('.provider-card').forEach(function(c) { c.classList.remove('selected'); });
+  document.getElementById('prov-' + key).classList.add('selected');
+
+  var p = PROVIDERS[key];
+
+  var keyField = document.getElementById('api-key-field');
+  keyField.style.display = 'block';
+  document.getElementById('api-key-label').textContent = p.name + ' API Key';
+  document.getElementById('api-key-hint').innerHTML = '<a href="' + p.url + '" target="_blank">Get your ' + p.name + ' API key here</a>';
+
+  var apiKey = document.getElementById('api-key-input').value.trim();
+  if (apiKey) {
+    fetchModelsForProvider(key, apiKey);
+  } else {
+    var mainSel = document.getElementById('main-model');
+    mainSel.innerHTML = '<option value="">Enter API key to load models</option>';
+    rebuildVisionDropdown();
+  }
+}
+
+function onApiKeyInput() {
+  if (_fetchTimer) clearTimeout(_fetchTimer);
+  var apiKey = document.getElementById('api-key-input').value.trim();
+  if (!apiKey || !selectedProvider) return;
+  var mainSel = document.getElementById('main-model');
+  mainSel.innerHTML = '<option value="">Loading models...</option>';
+  _fetchTimer = setTimeout(function() {
+    fetchModelsForProvider(selectedProvider, apiKey);
+  }, 500);
+}
+
+function onVisionApiKeyInput() {
+  if (_visionFetchTimer) clearTimeout(_visionFetchTimer);
+  var apiKey = document.getElementById('vision-api-key-input').value.trim();
+  if (!apiKey) return;
+  var imgSel = document.getElementById('image-model');
+  var selectedOpt = imgSel.options[imgSel.selectedIndex];
+  var vp = selectedOpt ? selectedOpt.getAttribute('data-provider') : '';
+  if (!vp) return;
+  _visionFetchTimer = setTimeout(function() {
+    fetchVisionModels(vp, apiKey, '');
+  }, 500);
+}
+
+function getVisionProvider() {
+  var imgSel = document.getElementById('image-model');
+  var selectedOpt = imgSel.options[imgSel.selectedIndex];
+  return selectedOpt ? selectedOpt.getAttribute('data-provider') : '';
+}
+
+async function fetchModelsForProvider(provider, apiKey) {
+  var mainSel = document.getElementById('main-model');
+  try {
+    var res = await fetch('/api/models/fetch', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ provider: provider, api_key: apiKey })
+    });
+    var data = await res.json();
+    if (data.models && data.models.length > 0) {
+      PROVIDERS[provider].models = data.models;
+      PROVIDERS[provider].vision = data.image_models || data.models;
+    }
+  } catch (e) {}
+
+  var p = PROVIDERS[provider];
+  if (p.models.length === 0) {
+    mainSel.innerHTML = '<option value="">No models found</option>';
+    rebuildVisionDropdown();
+    return;
+  }
+
+  mainSel.innerHTML = '';
+  p.models.forEach(function(m) {
+    var opt = document.createElement('option');
+    opt.value = m; opt.textContent = m;
+    mainSel.appendChild(opt);
+  });
+
+  rebuildVisionDropdown();
+}
+
+async function fetchVisionModels(provider, apiKey, previouslySelected) {
+  try {
+    var res = await fetch('/api/models/fetch', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ provider: provider, api_key: apiKey })
+    });
+    var data = await res.json();
+    if (data.image_models && data.image_models.length > 0) {
+      PROVIDERS[provider].vision = data.image_models;
+    }
+  } catch (e) {}
+
+  rebuildVisionDropdown(previouslySelected);
+}
+
+function rebuildVisionDropdown(previouslySelected) {
+  var imgSel = document.getElementById('image-model');
+  var currentVal = previouslySelected || imgSel.value;
+  imgSel.innerHTML = '<option value="">Auto (same provider)</option>';
+
+  for (var pk in PROVIDERS) {
+    var hasModels = PROVIDERS[pk].vision.length > 0;
+    var isMain = pk === selectedProvider;
+
+    if (isMain) {
+      PROVIDERS[pk].vision.forEach(function(m) {
+        var opt = document.createElement('option');
+        opt.value = m;
+        opt.setAttribute('data-provider', pk);
+        opt.textContent = m;
+        if (m === currentVal) opt.selected = true;
+        imgSel.appendChild(opt);
+      });
+    } else if (hasModels) {
+      var optgroup = document.createElement('optgroup');
+      optgroup.label = PROVIDERS[pk].name;
+      PROVIDERS[pk].vision.forEach(function(m) {
+        var opt = document.createElement('option');
+        opt.value = m;
+        opt.setAttribute('data-provider', pk);
+        opt.textContent = m + ' (' + PROVIDERS[pk].name + ')';
+        if (m === currentVal) opt.selected = true;
+        optgroup.appendChild(opt);
+      });
+      if (optgroup.children.length > 0) {
+        imgSel.appendChild(optgroup);
+      }
+    } else {
+      var optgroup2 = document.createElement('optgroup');
+      optgroup2.label = PROVIDERS[pk].name;
+      var loadOpt = document.createElement('option');
+      loadOpt.value = '__load__' + pk;
+      loadOpt.setAttribute('data-provider', pk);
+      loadOpt.textContent = 'Enter ' + PROVIDERS[pk].name + ' key to load...';
+      optgroup2.appendChild(loadOpt);
+      imgSel.appendChild(optgroup2);
+    }
+  }
+  onVisionModelChange();
+}
+
+function onVisionModelChange() {
+  var imgSel = document.getElementById('image-model');
+  var selectedOpt = imgSel.options[imgSel.selectedIndex];
+  var visionProvider = selectedOpt ? selectedOpt.getAttribute('data-provider') : '';
+  var selectedVal = selectedOpt ? selectedOpt.value : '';
+
+  var field = document.getElementById('vision-api-key-field');
+  if (selectedVal && selectedVal.indexOf('__load__') === 0 && visionProvider) {
+    var p = PROVIDERS[visionProvider];
+    field.style.display = 'block';
+    document.getElementById('vision-api-key-label').textContent = p.name + ' API Key (for vision)';
+    document.getElementById('vision-api-key-hint').innerHTML = 'Enter your ' + p.name + ' key below to load available vision models. <a href="' + p.url + '" target="_blank">Get your ' + p.name + ' API key here</a>';
+    document.getElementById('vision-api-key-input').focus();
+    return;
+  }
+
+  if (visionProvider && visionProvider !== selectedProvider && visionProvider !== '') {
+    var p = PROVIDERS[visionProvider];
+    var hasModels = p.vision.length > 0;
+    field.style.display = 'block';
+    document.getElementById('vision-api-key-label').textContent = p.name + ' API Key (for vision)';
+    if (hasModels) {
+      document.getElementById('vision-api-key-hint').innerHTML = 'Vision model is from ' + p.name + '. Models loaded.';
+    } else {
+      document.getElementById('vision-api-key-hint').innerHTML = 'Vision model is from ' + p.name + '. <a href="' + p.url + '" target="_blank">Get your ' + p.name + ' API key here</a>';
+    }
+  } else {
+    field.style.display = 'none';
+  }
+}
+
+async function saveTelegram() {
+  var token = document.getElementById('telegram-token').value.trim();
+  var name = document.getElementById('bot-name').value.trim() || 'Clai-TALOS';
+  var err = document.getElementById('err-telegram');
+  err.textContent = '';
+
+  if (!token) { err.textContent = 'Bot token is required.'; return; }
+
+  try {
+    var res = await fetch('/api/onboarding/telegram', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ token: token, bot_name: name })
+    });
+    var data = await res.json();
+    if (data.ok) { goStep(1); }
+    else { err.textContent = data.error || 'Failed to save.'; }
+  } catch (e) { err.textContent = 'Network error.'; }
+}
+
+async function checkTailscale() {
+  var err = document.getElementById('err-tailscale');
+  var ok = document.getElementById('ok-tailscale');
+  err.textContent = ''; ok.textContent = '';
+
+  try {
+    var res = await fetch('/api/onboarding/tailscale');
+    var data = await res.json();
+    var statusEl = document.getElementById('ts-status');
+
+    if (data.installed && data.connected) {
+      ok.textContent = 'Tailscale is connected! (' + (data.hostname || 'online') + ')';
+      statusEl.innerHTML = '';
+      setTimeout(function() { goStep(2); }, 1000);
+    } else if (data.installed && !data.connected) {
+      statusEl.innerHTML = '<div class="info-box">Tailscale is installed but not connected. Run <strong>tailscale up</strong> in your terminal, or use the Tailscale app to sign in.</div>';
+      if (data.login_url) {
+        document.getElementById('ts-login-link').style.display = 'block';
+        document.getElementById('ts-link-url').href = data.login_url;
+      }
+    } else {
+      statusEl.innerHTML = '<div class="info-box">Tailscale is not installed. <a href="https://tailscale.com/download" target="_blank">Download it here</a> and run this check again.</div>';
+    }
+  } catch (e) { err.textContent = 'Could not check Tailscale status.'; }
+}
+
+async function saveModel() {
+  var err = document.getElementById('err-model');
+  err.textContent = '';
+
+  if (!selectedProvider) { err.textContent = 'Select a provider.'; return; }
+
+  var apiKey = document.getElementById('api-key-input').value.trim();
+  if (!apiKey) { err.textContent = 'API key is required.'; return; }
+
+  var mainModel = document.getElementById('main-model').value;
+  var imageModel = document.getElementById('image-model').value;
+
+  if (imageModel && imageModel.indexOf('__load__') === 0) {
+    err.textContent = 'Please enter a vision API key and wait for models to load, or select a loaded model.';
+    return;
+  }
+
+  var payload = {
+    provider: selectedProvider,
+    api_key: apiKey,
+    main_model: mainModel,
+    image_model: imageModel
+  };
+
+  var imgSel = document.getElementById('image-model');
+  var selectedOpt = imgSel.options[imgSel.selectedIndex];
+  var visionProvider = selectedOpt ? selectedOpt.getAttribute('data-provider') : '';
+  if (visionProvider && visionProvider !== selectedProvider) {
+    var visionKey = document.getElementById('vision-api-key-input').value.trim();
+    if (!visionKey) { err.textContent = 'Vision model is from ' + PROVIDERS[visionProvider].name + ' — you must provide its API key.'; return; }
+    payload.vision_provider = visionProvider;
+    payload.vision_api_key = visionKey;
+  }
+
+  try {
+    var res = await fetch('/api/onboarding/model', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    var data = await res.json();
+    if (data.ok) {
+      if (selectedProvider === 'gemini') goStep(4);
+      else goStep(3);
+    }
+    else { err.textContent = data.error || 'Failed to save.'; }
+  } catch (e) { err.textContent = 'Network error.'; }
+}
+
+async function saveGemini() {
+  var key = document.getElementById('gemini-key').value.trim();
+  var err = document.getElementById('err-gemini');
+  err.textContent = '';
+
+  if (!key) { goStep(4); return; }
+
+  try {
+    var res = await fetch('/api/onboarding/gemini', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ api_key: key })
+    });
+    var data = await res.json();
+    if (data.ok) goStep(4);
+    else err.textContent = data.error || 'Failed to save.';
+  } catch (e) { err.textContent = 'Network error.'; }
+}
+
+async function setupEmail() {
+  var email = document.getElementById('email-address').value.trim();
+  var appPassword = document.getElementById('email-app-password').value.trim().replace(/\s/g, '');
+  var err = document.getElementById('err-email');
+  var ok = document.getElementById('ok-email');
+  var statusEl = document.getElementById('email-status');
+  var btn = document.getElementById('email-setup-btn');
+  err.textContent = ''; ok.textContent = '';
+  statusEl.style.display = 'block';
+  statusEl.className = 'info-box';
+  statusEl.textContent = 'Installing Himalaya and configuring your email...';
+
+  if (!email) { err.textContent = 'Gmail address is required.'; statusEl.style.display = 'none'; return; }
+  if (!appPassword) { err.textContent = 'App password is required.'; statusEl.style.display = 'none'; return; }
+  if (!email.endsWith('@gmail.com')) { err.textContent = 'Only Gmail accounts are supported for automatic setup.'; statusEl.style.display = 'none'; return; }
+
+  btn.disabled = true;
+
+  try {
+    var res = await fetch('/api/onboarding/email', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ email: email, app_password: appPassword })
+    });
+    var data = await res.json();
+    if (data.ok) {
+      statusEl.className = 'info-box';
+      statusEl.style.borderColor = 'rgba(72,187,120,0.4)';
+      statusEl.textContent = 'Himalaya installed and configured! Your bot can now read and send email.';
+      ok.textContent = 'Email connected: ' + email;
+      setTimeout(function() { goStep(5); }, 1500);
+    } else {
+      statusEl.textContent = '';
+      err.textContent = data.error || 'Failed to set up email.';
+    }
+  } catch (e) {
+    statusEl.textContent = '';
+    err.textContent = 'Network error.';
+  }
+  btn.disabled = false;
+}
+
+var googlePollTimer = null;
+
+async function saveGoogle() {
+  var apiKey = document.getElementById('google-api-key').value.trim();
+  var clientId = document.getElementById('google-oauth-client-id').value.trim();
+  var clientSecret = document.getElementById('google-oauth-client-secret').value.trim();
+  var err = document.getElementById('err-google');
+  var ok = document.getElementById('ok-google');
+  err.textContent = ''; ok.textContent = '';
+
+  if (!apiKey && !clientId) { goStep(6); return; }
+
+  try {
+    var res = await fetch('/api/onboarding/google', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        api_key: apiKey,
+        oauth_client_id: clientId,
+        oauth_client_secret: clientSecret
+      })
+    });
+    var data = await res.json();
+    if (data.ok) {
+      if (clientId && clientSecret) {
+        try {
+          var statusRes = await fetch('/api/google/status');
+          var status = await statusRes.json();
+          if (status.connected) {
+            ok.textContent = 'Google account connected!';
+            if (googlePollTimer) { clearInterval(googlePollTimer); googlePollTimer = null; }
+            setTimeout(function() { goStep(6); }, 1000);
+            return;
+          }
+        } catch(e) {}
+        document.getElementById('google-connect-area').style.display = 'block';
+        ok.textContent = 'Credentials saved. Click "Connect Google Account" below.';
+      } else {
+        ok.textContent = 'Google API key saved.';
+        setTimeout(function() { goStep(6); }, 800);
+      }
+    } else {
+      err.textContent = data.error || 'Failed to save.';
+    }
+  } catch (e) { err.textContent = 'Network error.'; }
+}
+
+async function connectGoogleOnboarding() {
+  var err = document.getElementById('err-google');
+  var statusEl = document.getElementById('google-connect-status');
+  err.textContent = '';
+  statusEl.style.display = 'block';
+  statusEl.textContent = 'Opening Google login...';
+
+  try {
+    var res = await fetch('/api/google/connect', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'}
+    });
+    var data = await res.json();
+    if (data.ok && data.auth_url) {
+      statusEl.textContent = 'Waiting for you to authorize in the other tab...';
+      window.open(data.auth_url, '_blank');
+
+      if (googlePollTimer) clearInterval(googlePollTimer);
+      googlePollTimer = setInterval(async function() {
+        try {
+          var sRes = await fetch('/api/google/status');
+          var sData = await sRes.json();
+          if (sData.connected) {
+            clearInterval(googlePollTimer);
+            googlePollTimer = null;
+            statusEl.textContent = 'Connected!';
+            statusEl.style.borderColor = 'rgba(72,187,120,0.4)';
+            document.getElementById('ok-google').textContent = 'Google account connected!';
+            setTimeout(function() { goStep(6); }, 1200);
+          }
+        } catch(e) {}
+      }, 2000);
+    } else {
+      statusEl.style.display = 'none';
+      err.textContent = (data && data.error) || 'Failed to start Google connection.';
+    }
+  } catch (e) {
+    statusEl.style.display = 'none';
+    err.textContent = 'Network error.';
+  }
+}
+
+async function loadGoogleRedirectUri() {
+  try {
+    var res = await fetch('/api/google/status');
+    var data = await res.json();
+    if (data.redirect_uri) {
+      document.getElementById('google-redirect-uri-placeholder').textContent = data.redirect_uri;
+    }
+  } catch(e) {}
+}
+
+initDots();
+initProviderGrid();
+loadGoogleRedirectUri();
+</script>
+</body>
+</html>

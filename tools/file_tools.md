@@ -2,6 +2,10 @@
 
 Read, write, and edit files with precision. Prefer `edit_file` over `write_file` for changes to existing files.
 
+For advanced binary-office formats:
+- Use `spreadsheet_execute` for `.xlsx` workflows (pandas read, openpyxl edits, recalc, formula checks, financial coloring)
+- Use `docx_execute` for `.docx` workflows (JS docx creation, XML edit/repack, tracked changes, validation)
+
 ## read_file
 
 Read file contents with line numbers. Always read a file BEFORE editing it.

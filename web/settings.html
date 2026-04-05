@@ -6,453 +6,370 @@
 <title>{{BOT_NAME}} — Settings</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background: #0a0a0f;
-    color: #e0e0e0;
-    min-height: 100vh;
-    padding: 2rem;
-  }
-  
-  .container {
-    max-width: 800px;
-    margin: 0 auto;
-  }
-  
-  h1 {
-    font-size: 1.6rem;
-    font-weight: 600;
-    margin-bottom: 0.3rem;
-    color: #fff;
-  }
-  
-  .subtitle {
-    font-size: 0.85rem;
-    color: #666;
-    margin-bottom: 2rem;
-  }
-  
-  .section {
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 12px;
-    padding: 1.5rem;
-    margin-bottom: 1.5rem;
-  }
-  
-  .section-title {
-    font-size: 1rem;
-    font-weight: 600;
-    margin-bottom: 1rem;
-    color: #63b3ed;
-  }
-  
-  .form-group {
-    margin-bottom: 1rem;
-  }
-  
-  .form-group label {
-    display: block;
-    font-size: 0.85rem;
-    font-weight: 500;
-    margin-bottom: 0.4rem;
-    color: #999;
-  }
-  
-  .form-group input[type="text"],
-  .form-group input[type="password"] {
-    width: 100%;
-    padding: 0.65rem 0.9rem;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 8px;
-    color: #e0e0e0;
-    font-size: 0.9rem;
-    font-family: monospace;
-    outline: none;
-    transition: border-color 0.2s;
-  }
-  
-  .form-group input:focus {
-    border-color: rgba(99, 179, 237, 0.5);
-  }
-  
-  .form-group input::placeholder {
-    color: #444;
-  }
-  
-  .form-hint {
-    font-size: 0.75rem;
-    color: #555;
-    margin-top: 0.3rem;
-  }
-  
-  .btn {
-    padding: 0.65rem 1.5rem;
-    background: rgba(99, 179, 237, 0.15);
-    border: 1px solid rgba(99, 179, 237, 0.3);
-    border-radius: 8px;
-    color: #63b3ed;
-    font-size: 0.85rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s;
-    margin-right: 0.5rem;
-  }
-  
-  .btn:hover {
-    background: rgba(99, 179, 237, 0.25);
-  }
-  
-  .btn:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
-  
-  .btn-danger {
-    background: rgba(245, 101, 101, 0.15);
-    border-color: rgba(245, 101, 101, 0.3);
-    color: #f56565;
-  }
-  
-  .btn-danger:hover {
-    background: rgba(245, 101, 101, 0.25);
-  }
-  
-  .msg {
-    font-size: 0.85rem;
-    margin-top: 1rem;
-    min-height: 1.2em;
-    transition: opacity 0.3s;
-  }
-  
-  .msg-ok { color: #48bb78; }
-  .msg-err { color: #f56565; }
-  
-  .nav {
-    display: flex;
-    gap: 1rem;
-    margin-bottom: 2rem;
-  }
-  
-  .nav a {
-    font-size: 0.85rem;
-    color: #555;
-    text-decoration: none;
-    transition: color 0.2s;
-  }
-  
-  .nav a:hover { color: #999; }
-  .nav a.active { color: #63b3ed; }
-  
-  .logout-btn {
-    position: fixed;
-    top: 1rem;
-    right: 1rem;
-    padding: 0.4rem 0.8rem;
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 6px;
-    color: #666;
-    font-size: 0.75rem;
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-  
-  .logout-btn:hover {
-    background: rgba(255,255,255,0.08);
-    color: #999;
-  }
-  
-  .status-badge {
-    font-size: 0.7rem;
-    font-weight: 500;
-    padding: 0.2rem 0.6rem;
-    border-radius: 20px;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    display: inline-block;
-    margin-left: 0.5rem;
-  }
-  
-  .badge-set {
-    background: rgba(72, 187, 120, 0.15);
-    color: #48bb78;
-    border: 1px solid rgba(72, 187, 120, 0.3);
-  }
-  
-  .badge-unset {
-    background: rgba(245, 101, 101, 0.15);
-    color: #f56565;
-    border: 1px solid rgba(245, 101, 101, 0.3);
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0a0a0f; color: #e0e0e0; min-height: 100vh; display: flex; }
+  .sidebar { width: 220px; background: rgba(255,255,255,0.02); border-right: 1px solid rgba(255,255,255,0.06); padding: 1.5rem 0; display: flex; flex-direction: column; position: fixed; top: 0; left: 0; bottom: 0; z-index: 10; }
+  .sidebar-brand { display: flex; align-items: center; gap: 0.7rem; padding: 0 1.2rem; margin-bottom: 2rem; }
+  .sidebar-brand img { width: 36px; height: 36px; border-radius: 50%; border: 1px solid rgba(99,179,237,0.3); }
+  .sidebar-brand span { font-size: 1rem; font-weight: 600; color: #fff; }
+  .nav-items { flex: 1; }
+  .nav-item { display: flex; align-items: center; gap: 0.7rem; padding: 0.65rem 1.2rem; font-size: 0.85rem; color: #888; text-decoration: none; transition: all 0.15s; border-left: 3px solid transparent; }
+  .nav-item:hover { color: #ccc; background: rgba(255,255,255,0.03); }
+  .nav-item.active { color: #63b3ed; background: rgba(99,179,237,0.06); border-left-color: #63b3ed; }
+  .nav-item .icon { width: 18px; text-align: center; font-size: 0.9rem; }
+  .nav-bottom { padding: 0 1.2rem; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 1rem; }
+  .main { margin-left: 220px; flex: 1; padding: 2rem 2.5rem; max-width: 800px; }
+  .page-title { font-size: 1.5rem; font-weight: 600; color: #fff; margin-bottom: 0.3rem; }
+  .page-sub { font-size: 0.85rem; color: #666; margin-bottom: 2rem; }
+
+  .section { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; }
+  .section-title { font-size: 0.95rem; font-weight: 600; margin-bottom: 1rem; color: #63b3ed; }
+  .form-group { margin-bottom: 1rem; }
+  .form-group label { display: block; font-size: 0.82rem; font-weight: 500; margin-bottom: 0.35rem; color: #999; }
+  .form-group input, .form-group select { width: 100%; padding: 0.6rem 0.85rem; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; color: #e0e0e0; font-size: 0.85rem; font-family: monospace; outline: none; transition: border-color 0.2s; }
+  .form-group select { font-family: inherit; appearance: none; background-image: linear-gradient(45deg, transparent 50%, #666 50%), linear-gradient(135deg, #666 50%, transparent 50%); background-position: calc(100% - 18px) 50%, calc(100% - 12px) 50%; background-size: 6px 6px, 6px 6px; background-repeat: no-repeat; }
+  .form-group input:focus { border-color: rgba(99,179,237,0.5); }
+  .form-group input::placeholder { color: #444; }
+  .form-hint { font-size: 0.72rem; color: #555; margin-top: 0.25rem; }
+
+  .badge-set { font-size: 0.65rem; padding: 0.1rem 0.45rem; border-radius: 20px; background: rgba(72,187,120,0.15); color: #48bb78; border: 1px solid rgba(72,187,120,0.3); text-transform: uppercase; margin-left: 0.4rem; }
+  .badge-unset { font-size: 0.65rem; padding: 0.1rem 0.45rem; border-radius: 20px; background: rgba(245,101,101,0.15); color: #f56565; border: 1px solid rgba(245,101,101,0.3); text-transform: uppercase; margin-left: 0.4rem; }
+
+  .btn { padding: 0.6rem 1.3rem; background: rgba(99,179,237,0.15); border: 1px solid rgba(99,179,237,0.3); border-radius: 8px; color: #63b3ed; font-size: 0.82rem; font-weight: 500; cursor: pointer; transition: all 0.2s; margin-right: 0.5rem; }
+  .btn:hover { background: rgba(99,179,237,0.25); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-danger { background: rgba(245,101,101,0.15); border-color: rgba(245,101,101,0.3); color: #f56565; }
+  .btn-danger:hover { background: rgba(245,101,101,0.25); }
+  .msg { font-size: 0.82rem; margin-top: 1rem; min-height: 1.2em; }
+  .msg-ok { color: #48bb78; } .msg-err { color: #f56565; }
+  .status-line { font-size: 0.8rem; color: #888; margin-top: 0.5rem; }
+  .google-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.8rem; }
+  .usage-wrap { margin-top: 0.3rem; }
+  .usage-slider { width: 100%; height: 10px; border-radius: 999px; appearance: none; outline: none; background: rgba(255,255,255,0.12); pointer-events: none; }
+  .usage-slider.safe { accent-color: #48bb78; }
+  .usage-slider.warning { accent-color: #d69e2e; }
+  .usage-slider.critical { accent-color: #f56565; }
+
+  .mobile-header { display: none; position: fixed; top: 0; left: 0; right: 0; height: 56px; background: #0a0a0f; border-bottom: 1px solid rgba(255,255,255,0.06); z-index: 20; align-items: center; padding: 0 1rem; gap: 0.7rem; }
+  .mobile-header img { width: 28px; height: 28px; border-radius: 50%; }
+  .mobile-header span { font-weight: 600; color: #fff; font-size: 0.95rem; }
+  .hamburger { background: none; border: none; color: #888; font-size: 1.4rem; cursor: pointer; margin-left: auto; }
+  .sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 9; }
+  @media (max-width: 768px) {
+    .sidebar { transform: translateX(-100%); transition: transform 0.2s; }
+    .sidebar.open { transform: translateX(0); }
+    .sidebar-overlay.open { display: block; }
+    .mobile-header { display: flex; }
+    .main { margin-left: 0; padding: 72px 1rem 2rem; }
   }
 </style>
 </head>
 <body>
-<button class="logout-btn" onclick="logout()">Sign Out</button>
-<div class="container">
-  <div class="nav">
-    <a href="/dashboard">&larr; Dashboard</a>
-    <a href="/keys">API Keys</a>
-    <a href="/tools">Tools</a>
-    <a href="/settings" class="active">Settings</a>
-    <a href="/projects">Projects</a>
+<div class="mobile-header"><img src="/static/clai-icon.png" alt=""><span>{{BOT_NAME}}</span><button class="hamburger" onclick="toggleSidebar()">&#9776;</button></div>
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
+<nav class="sidebar" id="sidebar">
+  <div class="sidebar-brand"><img src="/static/clai-icon.png" alt="Clai"><span>{{BOT_NAME}}</span></div>
+  <div class="nav-items">
+    <a href="/dashboard" class="nav-item"><span class="icon">&#9632;</span> Dashboard</a>
+    <a href="/keys" class="nav-item"><span class="icon">&#9919;</span> API Keys</a>
+    <a href="/tools" class="nav-item"><span class="icon">&#9881;</span> Tools</a>
+    <a href="/settings" class="nav-item active"><span class="icon">&#9881;</span> Settings</a>
+    <a href="/projects" class="nav-item"><span class="icon">&#9830;</span> Projects</a>
+    <a href="/static/chat.html" class="nav-item"><span class="icon">&#9993;</span> Chat</a>
   </div>
-  
-  <h1>Settings</h1>
-  <p class="subtitle">Configure bot behavior and environment</p>
-  
+  <div class="nav-bottom"><a href="#" class="nav-item" onclick="logout(); return false;"><span class="icon">&#10140;</span> Sign Out</a></div>
+</nav>
+
+<main class="main">
+  <h1 class="page-title">Settings</h1>
+  <p class="page-sub">Configure bot behavior and integrations</p>
+
   <div class="section">
     <div class="section-title">Bot Configuration</div>
-    
     <div class="form-group">
       <label>Bot Name</label>
       <input type="text" id="bot-name" placeholder="Clai-TALOS">
-      <div class="form-hint">Display name shown in dashboard and messages</div>
     </div>
-    
     <div class="form-group">
       <label>Telegram Bot Token</label>
-      <input type="password" id="telegram-token" placeholder="123456789:ABC...">
-      <div class="form-hint">From @BotFather - restart required if changed</div>
+      <input type="password" id="telegram-token" placeholder="From @BotFather">
+      <div class="form-hint">Restart required if changed</div>
     </div>
-    
     <div class="form-group">
-      <label>Web Dashboard Port</label>
+      <label>Web Port</label>
       <input type="text" id="web-port" placeholder="8080">
-      <div class="form-hint">Port for web dashboard (default: 8080)</div>
     </div>
   </div>
-  
-  <div class="section">
-    <div class="section-title">API Keys</div>
-    
-    <div class="form-group">
-      <label>ZhipuAI API Key <span id="zhipuai-status"></span></label>
-      <input type="password" id="zhipuai-key" placeholder="Get from https://open.bigmodel.cn/">
-    </div>
-    
-    <div class="form-group">
-      <label>Gemini API Key <span id="gemini-status"></span></label>
-      <input type="password" id="gemini-key" placeholder="Get from https://aistudio.google.com/">
-    </div>
-    
-    <div class="form-group">
-      <label>OpenAI API Key <span id="openai-status"></span></label>
-      <input type="password" id="openai-key" placeholder="Get from https://platform.openai.com/">
-    </div>
-    
-    <div class="form-group">
-      <label>Anthropic API Key <span id="anthropic-status"></span></label>
-      <input type="password" id="anthropic-key" placeholder="Get from https://console.anthropic.com/">
-    </div>
-    
-    <div class="form-group">
-      <label>Firecrawl API Key <span id="firecrawl-status"></span></label>
-      <input type="password" id="firecrawl-key" placeholder="For web scraping">
-    </div>
-  </div>
-  
-  <div class="section">
-    <div class="section-title">Voice Settings</div>
-    
-    <div class="form-group">
-      <label>Piper Voice Model</label>
-      <input type="text" id="piper-voice" placeholder="en_US-lessac-medium">
-      <div class="form-hint">Voice model for TTS (default: en_US-lessac-medium)</div>
-    </div>
-  </div>
-  
+
   <div class="section">
     <div class="section-title">AI Configuration</div>
-    
+    <div class="form-group">
+      <label>Main Model</label>
+      <select id="main-model"></select>
+    </div>
+    <div class="form-group">
+      <label>Image Model</label>
+      <select id="image-model"></select>
+    </div>
     <div class="form-group">
       <label>Client Base URL</label>
       <input type="text" id="client-base-url" placeholder="https://api.z.ai/api/coding/paas/v4">
-      <div class="form-hint">ZhipuAI API base URL endpoint</div>
+      <div class="form-hint">ZhipuAI API base URL</div>
     </div>
   </div>
-  
+
   <div class="section">
-    <div class="section-title">Limits &amp; Thresholds</div>
-    
-    <div class="form-group">
-      <label>Max Tool Rounds</label>
-      <input type="text" id="max-tool-rounds" placeholder="5" inputmode="numeric" pattern="[0-9]*">
-      <div class="form-hint">Max agentic tool loop iterations (1-50)</div>
-    </div>
-    
-    <div class="form-group">
-      <label>Max Tool Calls Per Round</label>
-      <input type="text" id="max-tool-calls-per-round" placeholder="20" inputmode="numeric" pattern="[0-9]*">
-      <div class="form-hint">Max parallel tool calls in a single round (1-100)</div>
-    </div>
-    
-    <div class="form-group">
-      <label>Max Command Timeout (seconds)</label>
-      <input type="text" id="max-command-timeout" placeholder="120" inputmode="numeric" pattern="[0-9]*">
-      <div class="form-hint">Max execution time for terminal commands (5-600)</div>
-    </div>
-    
-    <div class="form-group">
-      <label>Max Workflow Steps</label>
-      <input type="text" id="max-workflow-steps" placeholder="12" inputmode="numeric" pattern="[0-9]*">
-      <div class="form-hint">Max steps in a single workflow (1-50)</div>
-    </div>
-    
-    <div class="form-group">
-      <label>Max Subagent Tool Rounds</label>
-      <input type="text" id="max-subagent-tool-rounds" placeholder="5" inputmode="numeric" pattern="[0-9]*">
-      <div class="form-hint">Max tool rounds for spawned subagents (1-50)</div>
-    </div>
-    
-    <div class="form-group">
-      <label>Max Subagent Tool Calls Per Round</label>
-      <input type="text" id="max-subagent-tool-calls-per-round" placeholder="15" inputmode="numeric" pattern="[0-9]*">
-      <div class="form-hint">Max parallel tool calls per subagent round (1-100)</div>
+    <div class="section-title">Google Ecosystem</div>
+    <div class="form-group"><label>Google API Key <span id="google-api-status"></span></label><input type="password" id="google-api-key"></div>
+    <div class="form-group"><label>OAuth Client ID</label><input type="text" id="google-oauth-client-id"></div>
+    <div class="form-group"><label>OAuth Client Secret</label><input type="password" id="google-oauth-client-secret"></div>
+    <div class="form-group"><label>OAuth Redirect URI</label><input type="text" id="google-oauth-redirect-uri" placeholder="Leave blank for auto"><div class="form-hint">Override only if needed</div></div>
+    <div class="form-group"><label>Apps Script URL</label><input type="text" id="google-apps-script-url" placeholder="https://script.google.com/macros/s/.../exec"></div>
+    <div class="form-group"><label>OAuth Scopes</label><input type="text" id="google-oauth-scopes" placeholder="Space-separated; blank for defaults"></div>
+    <div class="status-line" id="google-connection-status">Google account: checking...</div>
+    <div class="form-hint" id="google-redirect-hint"></div>
+    <div class="google-actions">
+      <button class="btn" id="connect-google-btn" onclick="connectGoogle()">Connect Google</button>
+      <button class="btn" id="test-google-btn" onclick="testGoogleConnection()">Test</button>
+      <button class="btn btn-danger" id="disconnect-google-btn" onclick="disconnectGoogle()">Disconnect</button>
     </div>
   </div>
-  
+
+  <div class="section">
+    <div class="section-title">Email (Himalaya)</div>
+    <div class="form-group"><label>Binary</label><input type="text" id="himalaya-bin" placeholder="himalaya"></div>
+    <div class="form-group"><label>Config Path</label><input type="text" id="himalaya-config" placeholder="Optional"></div>
+    <div class="form-group"><label>Default Account</label><input type="text" id="himalaya-default-account" placeholder="Optional"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Limits</div>
+    <div class="form-group"><label>Max Tool Rounds</label><input type="text" id="max-tool-rounds" placeholder="5" inputmode="numeric"></div>
+    <div class="form-group"><label>Max Tool Calls/Round</label><input type="text" id="max-tool-calls-per-round" placeholder="20" inputmode="numeric"></div>
+    <div class="form-group"><label>Command Timeout (s)</label><input type="text" id="max-command-timeout" placeholder="120" inputmode="numeric"></div>
+    <div class="form-group"><label>Max Workflow Steps</label><input type="text" id="max-workflow-steps" placeholder="12" inputmode="numeric"></div>
+    <div class="form-group"><label>Subagent Tool Rounds</label><input type="text" id="max-subagent-tool-rounds" placeholder="5" inputmode="numeric"></div>
+    <div class="form-group"><label>Subagent Calls/Round</label><input type="text" id="max-subagent-tool-calls-per-round" placeholder="15" inputmode="numeric"></div>
+    <div class="form-group">
+      <label>Auto Compact Threshold (chars)</label>
+      <input type="text" id="max-context-chars" placeholder="120000" inputmode="numeric">
+      <div class="form-hint">If estimated context exceeds this, TALOS auto-compacts and continues.</div>
+    </div>
+    <div class="form-group">
+      <label>Current Context Usage</label>
+      <div class="usage-wrap">
+        <input type="range" id="context-usage-slider" class="usage-slider safe" min="0" max="120000" value="0" aria-label="Context usage compared to threshold">
+        <div class="status-line" id="context-usage-label">Checking context usage...</div>
+        <div class="form-hint" id="context-usage-detail">This meter updates live for your current dashboard chat profile.</div>
+      </div>
+    </div>
+  </div>
+
   <button class="btn" onclick="saveSettings()">Save Settings</button>
   <button class="btn" onclick="hotReload()">Hot Reload</button>
   <button class="btn btn-danger" onclick="restartBot()">Restart Bot</button>
-  
   <div class="msg" id="msg"></div>
-</div>
+</main>
 
 <script>
+var googlePollTimer = null;
+var contextUsageTimer = null;
+
 async function loadSettings() {
   try {
     var res = await fetch('/api/settings');
     if (res.status === 401) { window.location.href = '/'; return; }
-    var data = await res.json();
-    
-    document.getElementById('bot-name').value = data.BOT_NAME || '';
-    document.getElementById('telegram-token').value = data.TELEGRAM_BOT_TOKEN || '';
-    document.getElementById('web-port').value = data.WEB_PORT || '8080';
-    document.getElementById('zhipuai-key').value = data.ZHIPUAI_API_KEY || '';
-    document.getElementById('gemini-key').value = data.GEMINI_API_KEY || '';
-    document.getElementById('openai-key').value = data.OPENAI_API_KEY || '';
-    document.getElementById('anthropic-key').value = data.ANTHROPIC_API_KEY || '';
-    document.getElementById('firecrawl-key').value = data.FIRECRAWL_API_KEY || '';
-    document.getElementById('piper-voice').value = data.PIPER_VOICE || 'en_US-lessac-medium';
-    document.getElementById('client-base-url').value = data.CLIENT_BASE_URL || '';
-    document.getElementById('max-tool-rounds').value = data.MAX_TOOL_ROUNDS || '5';
-    document.getElementById('max-tool-calls-per-round').value = data.MAX_TOOL_CALLS_PER_ROUND || '20';
-    document.getElementById('max-command-timeout').value = data.MAX_COMMAND_TIMEOUT || '120';
-    document.getElementById('max-workflow-steps').value = data.MAX_WORKFLOW_STEPS || '12';
-    document.getElementById('max-subagent-tool-rounds').value = data.MAX_SUBAGENT_TOOL_ROUNDS || '5';
-    document.getElementById('max-subagent-tool-calls-per-round').value = data.MAX_SUBAGENT_TOOL_CALLS_PER_ROUND || '15';
-    
-    updateStatus('zhipuai', data.ZHIPUAI_API_KEY);
-    updateStatus('gemini', data.GEMINI_API_KEY);
-    updateStatus('openai', data.OPENAI_API_KEY);
-    updateStatus('anthropic', data.ANTHROPIC_API_KEY);
-    updateStatus('firecrawl', data.FIRECRAWL_API_KEY);
-  } catch (e) {
-    console.error(e);
-  }
+    var d = await res.json();
+    document.getElementById('bot-name').value = d.BOT_NAME || '';
+    document.getElementById('telegram-token').value = d.TELEGRAM_BOT_TOKEN || '';
+    document.getElementById('web-port').value = d.WEB_PORT || '8080';
+    document.getElementById('google-api-key').value = d.GOOGLE_API_KEY || '';
+    document.getElementById('google-oauth-client-id').value = d.GOOGLE_OAUTH_CLIENT_ID || '';
+    document.getElementById('google-oauth-client-secret').value = d.GOOGLE_OAUTH_CLIENT_SECRET || '';
+    document.getElementById('google-oauth-redirect-uri').value = d.GOOGLE_OAUTH_REDIRECT_URI || '';
+    document.getElementById('google-apps-script-url').value = d.GOOGLE_APPS_SCRIPT_URL || '';
+    document.getElementById('google-oauth-scopes').value = d.GOOGLE_OAUTH_SCOPES || '';
+    document.getElementById('himalaya-bin').value = d.HIMALAYA_BIN || '';
+    document.getElementById('himalaya-config').value = d.HIMALAYA_CONFIG || '';
+    document.getElementById('himalaya-default-account').value = d.HIMALAYA_DEFAULT_ACCOUNT || '';
+    document.getElementById('client-base-url').value = d.CLIENT_BASE_URL || '';
+    document.getElementById('max-tool-rounds').value = d.MAX_TOOL_ROUNDS || '5';
+    document.getElementById('max-tool-calls-per-round').value = d.MAX_TOOL_CALLS_PER_ROUND || '20';
+    document.getElementById('max-command-timeout').value = d.MAX_COMMAND_TIMEOUT || '120';
+    document.getElementById('max-workflow-steps').value = d.MAX_WORKFLOW_STEPS || '12';
+    document.getElementById('max-subagent-tool-rounds').value = d.MAX_SUBAGENT_TOOL_ROUNDS || '5';
+    document.getElementById('max-subagent-tool-calls-per-round').value = d.MAX_SUBAGENT_TOOL_CALLS_PER_ROUND || '15';
+    document.getElementById('max-context-chars').value = d.MAX_CONTEXT_CHARS || '120000';
+    await loadModelOptions(d);
+    updateStatus('google-api', d.GOOGLE_API_KEY);
+    await loadGoogleStatus();
+    await loadContextUsage();
+    startContextUsagePolling();
+  } catch (e) {}
 }
 
-function updateStatus(key, value) {
+async function loadModelOptions(d) {
+  try {
+    var res = await fetch('/api/models');
+    if (res.status === 401) return;
+    var models = await res.json();
+    var ms = document.getElementById('main-model');
+    var is = document.getElementById('image-model');
+    ms.innerHTML = '<option value="">Auto</option>';
+    is.innerHTML = '<option value="">Auto</option>';
+    (models.main_models || []).forEach(function(m) { ms.innerHTML += '<option value="' + m + '">' + m + '</option>'; });
+    (models.image_models || []).forEach(function(m) { is.innerHTML += '<option value="' + m + '">' + m + '</option>'; });
+    if (d.MAIN_MODEL) ms.value = d.MAIN_MODEL;
+    if (d.IMAGE_MODEL) is.value = d.IMAGE_MODEL;
+  } catch (e) {}
+}
+
+function updateStatus(key, val) {
   var el = document.getElementById(key + '-status');
-  if (value) {
-    el.innerHTML = '<span class="status-badge badge-set">Set</span>';
-  } else {
-    el.innerHTML = '<span class="status-badge badge-unset">Not Set</span>';
+  if (el) el.innerHTML = val ? '<span class="badge-set">Set</span>' : '<span class="badge-unset">Not Set</span>';
+}
+
+function showMsg(t, ok) { var el = document.getElementById('msg'); el.textContent = t; el.className = 'msg ' + (ok ? 'msg-ok' : 'msg-err'); setTimeout(function() { el.textContent = ''; }, 4000); }
+
+function toInt(v, fallback) {
+  var n = parseInt(v, 10);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function renderContextUsage(data) {
+  var slider = document.getElementById('context-usage-slider');
+  var label = document.getElementById('context-usage-label');
+  var detail = document.getElementById('context-usage-detail');
+
+  var threshold = Math.max(10000, toInt(data.threshold_chars, 120000));
+  var used = Math.max(0, toInt(data.used_chars, 0));
+  var percent = Number(data.percent || 0);
+  var state = String(data.state || 'safe');
+
+  slider.max = String(Math.max(threshold, used, 1));
+  slider.value = String(Math.min(used, toInt(slider.max, threshold)));
+
+  slider.classList.remove('safe', 'warning', 'critical');
+  if (state !== 'warning' && state !== 'critical') state = 'safe';
+  slider.classList.add(state);
+
+  var clampedPercent = Math.max(0, Math.min(100, percent));
+  var color = state === 'critical' ? '#f56565' : (state === 'warning' ? '#d69e2e' : '#48bb78');
+  slider.style.background = 'linear-gradient(90deg, ' + color + ' 0%, ' + color + ' ' + clampedPercent + '%, rgba(255,255,255,0.12) ' + clampedPercent + '%, rgba(255,255,255,0.12) 100%)';
+
+  label.textContent = 'Used ' + used.toLocaleString() + ' / ' + threshold.toLocaleString() + ' chars (' + clampedPercent.toFixed(1) + '%)';
+  detail.textContent = 'Remaining: ' + Math.max(0, threshold - used).toLocaleString() + ' chars. History messages: ' + toInt(data.history_messages, 0) + '.';
+}
+
+async function loadContextUsage() {
+  try {
+    var res = await fetch('/api/context-usage');
+    if (res.status === 401) { window.location.href = '/'; return; }
+    var data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'failed');
+    renderContextUsage(data);
+  } catch (e) {
+    var label = document.getElementById('context-usage-label');
+    var detail = document.getElementById('context-usage-detail');
+    if (label) label.textContent = 'Context usage unavailable';
+    if (detail) detail.textContent = 'Could not fetch live context usage right now.';
   }
 }
 
-function showMsg(text, ok) {
-  var el = document.getElementById('msg');
-  el.textContent = text;
-  el.className = 'msg ' + (ok ? 'msg-ok' : 'msg-err');
-  setTimeout(function() { el.textContent = ''; el.className = 'msg'; }, 4000);
+function startContextUsagePolling() {
+  if (contextUsageTimer) clearInterval(contextUsageTimer);
+  contextUsageTimer = setInterval(loadContextUsage, 3000);
 }
 
 async function saveSettings() {
-  var payload = {
+  var p = {
     BOT_NAME: document.getElementById('bot-name').value.trim(),
     TELEGRAM_BOT_TOKEN: document.getElementById('telegram-token').value.trim(),
     WEB_PORT: document.getElementById('web-port').value.trim() || '8080',
-    ZHIPUAI_API_KEY: document.getElementById('zhipuai-key').value.trim(),
-    GEMINI_API_KEY: document.getElementById('gemini-key').value.trim(),
-    OPENAI_API_KEY: document.getElementById('openai-key').value.trim(),
-    ANTHROPIC_API_KEY: document.getElementById('anthropic-key').value.trim(),
-    FIRECRAWL_API_KEY: document.getElementById('firecrawl-key').value.trim(),
-    PIPER_VOICE: document.getElementById('piper-voice').value.trim() || 'en_US-lessac-medium',
+    GOOGLE_API_KEY: document.getElementById('google-api-key').value.trim(),
+    GOOGLE_OAUTH_CLIENT_ID: document.getElementById('google-oauth-client-id').value.trim(),
+    GOOGLE_OAUTH_CLIENT_SECRET: document.getElementById('google-oauth-client-secret').value.trim(),
+    GOOGLE_OAUTH_REDIRECT_URI: document.getElementById('google-oauth-redirect-uri').value.trim(),
+    GOOGLE_APPS_SCRIPT_URL: document.getElementById('google-apps-script-url').value.trim(),
+    GOOGLE_OAUTH_SCOPES: document.getElementById('google-oauth-scopes').value.trim(),
+    HIMALAYA_BIN: document.getElementById('himalaya-bin').value.trim(),
+    HIMALAYA_CONFIG: document.getElementById('himalaya-config').value.trim(),
+    HIMALAYA_DEFAULT_ACCOUNT: document.getElementById('himalaya-default-account').value.trim(),
     CLIENT_BASE_URL: document.getElementById('client-base-url').value.trim(),
+    MAIN_MODEL: document.getElementById('main-model').value.trim(),
+    IMAGE_MODEL: document.getElementById('image-model').value.trim(),
     MAX_TOOL_ROUNDS: document.getElementById('max-tool-rounds').value.trim(),
     MAX_TOOL_CALLS_PER_ROUND: document.getElementById('max-tool-calls-per-round').value.trim(),
     MAX_COMMAND_TIMEOUT: document.getElementById('max-command-timeout').value.trim(),
     MAX_WORKFLOW_STEPS: document.getElementById('max-workflow-steps').value.trim(),
     MAX_SUBAGENT_TOOL_ROUNDS: document.getElementById('max-subagent-tool-rounds').value.trim(),
-    MAX_SUBAGENT_TOOL_CALLS_PER_ROUND: document.getElementById('max-subagent-tool-calls-per-round').value.trim()
+    MAX_SUBAGENT_TOOL_CALLS_PER_ROUND: document.getElementById('max-subagent-tool-calls-per-round').value.trim(),
+    MAX_CONTEXT_CHARS: document.getElementById('max-context-chars').value.trim()
   };
-  
   try {
-    var res = await fetch('/api/settings', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(payload)
-    });
+    var res = await fetch('/api/settings', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(p) });
     if (res.status === 401) { window.location.href = '/'; return; }
-    var data = await res.json();
-    if (data.ok) {
-      showMsg('Settings saved successfully', true);
-      updateStatus('zhipuai', payload.ZHIPUAI_API_KEY);
-      updateStatus('gemini', payload.GEMINI_API_KEY);
-      updateStatus('openai', payload.OPENAI_API_KEY);
-      updateStatus('anthropic', payload.ANTHROPIC_API_KEY);
-      updateStatus('firecrawl', payload.FIRECRAWL_API_KEY);
-    } else {
-      showMsg(data.error || 'Save failed', false);
-    }
-  } catch (e) {
-    showMsg('Network error', false);
-  }
+    var d = await res.json();
+    if (d.ok) { showMsg('Saved', true); updateStatus('google-api', p.GOOGLE_API_KEY); await loadGoogleStatus(); await loadContextUsage(); }
+    else showMsg(d.error || 'Failed', false);
+  } catch (e) { showMsg('Network error', false); }
+}
+
+async function loadGoogleStatus() {
+  try {
+    var res = await fetch('/api/google/status');
+    if (res.status === 401) return;
+    var d = await res.json();
+    var connected = !!d.connected, hasClient = !!d.has_oauth_client;
+    var txt = connected ? 'Google account: linked' : hasClient ? 'Google account: not linked' : 'Google account: OAuth Client ID required';
+    document.getElementById('google-connection-status').textContent = txt;
+    document.getElementById('google-redirect-hint').textContent = 'Redirect URI: ' + (d.redirect_uri || '(auto)');
+    document.getElementById('connect-google-btn').disabled = !hasClient;
+    document.getElementById('test-google-btn').disabled = !connected;
+    document.getElementById('disconnect-google-btn').disabled = !connected;
+  } catch (e) { document.getElementById('google-connection-status').textContent = 'Status unavailable'; }
+}
+
+async function connectGoogle() {
+  document.getElementById('connect-google-btn').disabled = true;
+  try {
+    var res = await fetch('/api/google/connect', { method: 'POST' });
+    var d = await res.json();
+    if (d.ok && d.auth_url) {
+      var w = window.open(d.auth_url, '_blank', 'noopener');
+      if (!w) window.location.href = d.auth_url;
+      showMsg('Complete auth in the new tab', true);
+      if (googlePollTimer) clearInterval(googlePollTimer);
+      var n = 0;
+      googlePollTimer = setInterval(async function() { n++; await loadGoogleStatus(); if (n >= 30) clearInterval(googlePollTimer); }, 3000);
+    } else showMsg(d.error || 'Failed', false);
+  } catch (e) { showMsg('Network error', false); }
+  document.getElementById('connect-google-btn').disabled = false;
+}
+
+async function testGoogleConnection() {
+  try {
+    var res = await fetch('/api/google/test', { method: 'POST' });
+    var d = await res.json();
+    showMsg(d.ok ? (d.warning || 'Test passed') : (d.error || 'Failed'), d.ok && !d.warning);
+  } catch (e) { showMsg('Network error', false); }
+}
+
+async function disconnectGoogle() {
+  if (!confirm('Disconnect Google?')) return;
+  try { var res = await fetch('/api/google/disconnect', { method: 'POST' }); var d = await res.json(); showMsg(d.ok ? 'Disconnected' : (d.error || 'Failed'), d.ok); await loadGoogleStatus(); } catch (e) { showMsg('Network error', false); }
 }
 
 async function hotReload() {
-  try {
-    var res = await fetch('/api/reload', { method: 'POST' });
-    if (res.status === 401) { window.location.href = '/'; return; }
-    var data = await res.json();
-    if (data.ok) {
-      showMsg('Configuration reloaded', true);
-    } else {
-      showMsg(data.error || 'Reload failed', false);
-    }
-  } catch (e) {
-    showMsg('Network error', false);
-  }
+  try { var res = await fetch('/api/reload', { method: 'POST' }); var d = await res.json(); showMsg(d.ok ? 'Reloaded' : (d.error || 'Failed'), d.ok); } catch (e) { showMsg('Network error', false); }
 }
 
 async function restartBot() {
-  if (!confirm('This will restart the bot. Continue?')) return;
-  
-  try {
-    var res = await fetch('/api/restart', { method: 'POST' });
-    if (res.status === 401) { window.location.href = '/'; return; }
-    var data = await res.json();
-    if (data.ok) {
-      showMsg('Bot restarting...', true);
-      setTimeout(function() { window.location.reload(); }, 2000);
-    } else {
-      showMsg(data.error || 'Restart failed', false);
-    }
-  } catch (e) {
-    showMsg('Network error', false);
-  }
+  if (!confirm('Restart the bot?')) return;
+  try { var res = await fetch('/api/restart', { method: 'POST' }); var d = await res.json(); if (d.ok) { showMsg('Restarting...', true); setTimeout(function() { location.reload(); }, 2000); } else showMsg(d.error || 'Failed', false); } catch (e) { showMsg('Network error', false); }
 }
 
-function logout() {
-  fetch('/logout', { method: 'POST' }).then(function() {
-    window.location.href = '/';
-  });
-}
-
+function logout() { fetch('/logout', { method: 'POST' }).then(function() { window.location.href = '/'; }); }
+function toggleSidebar() { document.getElementById('sidebar').classList.toggle('open'); document.getElementById('sidebar-overlay').classList.toggle('open'); }
 loadSettings();
 </script>
 </body>

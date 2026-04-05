@@ -1,6 +1,6 @@
-# Firecrawl Tool
+# Scrape URL (Local Scrapy)
 
-Scrape and extract content from web pages using Firecrawl's web scraping service.
+Scrape and extract content from web pages locally using Scrapy-based parsing (no external API key required).
 
 ## Parameters
 
@@ -18,8 +18,7 @@ Use `scrape_url` when you need to:
 - Extract content from a specific web page
 - Get clean markdown from a URL
 - Collect links from a page
-- Take screenshots of web pages
-- Extract structured data from websites
+- Extract structured content without third-party services
 
 ## Examples
 
@@ -38,7 +37,7 @@ scrape_url(url="https://docs.python.org/3/library/asyncio.html", formats=["markd
 scrape_url(url="https://example.com", formats=["html"], only_main_content=false)
 ```
 
-**With screenshot:**
+**With screenshot requested:**
 ```
 scrape_url(url="https://example.com", formats=["markdown", "screenshot"])
 ```
@@ -51,36 +50,13 @@ Returns a JSON object with:
 - `markdown`: Extracted markdown content (if requested)
 - `html`: Cleaned HTML content (if requested)
 - `links`: List of links on the page (if requested)
-- `screenshot`: Screenshot URL (if requested, expires after 24h)
 - `metadata`: Page metadata (title, description, language, final_url)
+- `warnings`: Optional warnings for partially unsupported formats (for example when `screenshot` is requested)
 
 ## Notes
 
-- Requires FIRECRAWL_API_KEY in .env
-- Get an API key at https://www.firecrawl.dev/app
-- Uses credits from your Firecrawl account
-- Screenshots expire after 24 hours
+- Runs locally with Scrapy parsing and `httpx` fetching
+- No API key required
 - Cached results are returned if page was scraped recently (configurable via max_age)
+- `screenshot` format is not produced by Scrapy itself; use browser screenshot tools for images
 - Combine with web_search to find URLs, then scrape for detailed content
-
-## Common Use Cases
-
-**Documentation extraction:**
-```
-scrape_url(url="https://docs.example.com/api", formats=["markdown"])
-```
-
-**News article analysis:**
-```
-scrape_url(url="https://news.example.com/article/123")
-```
-
-**Link collection:**
-```
-scrape_url(url="https://example.com/resources", formats=["links"])
-```
-
-**Visual verification:**
-```
-scrape_url(url="https://example.com/dashboard", formats=["screenshot"])
-```

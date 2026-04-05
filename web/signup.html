@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{BOT_NAME}} — Setup</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0a0a0f;
+    color: #e0e0e0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .signup-box {
+    width: 100%;
+    max-width: 420px;
+    padding: 2.5rem;
+  }
+
+  .logo-wrap {
+    text-align: center;
+    margin-bottom: 2rem;
+  }
+
+  .logo-wrap img {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    border: 2px solid rgba(99, 179, 237, 0.4);
+    box-shadow: 0 0 30px rgba(99, 179, 237, 0.15);
+  }
+
+  h1 {
+    font-size: 1.4rem;
+    font-weight: 600;
+    color: #fff;
+    text-align: center;
+    margin-top: 1rem;
+  }
+
+  .sub {
+    font-size: 0.85rem;
+    color: #666;
+    text-align: center;
+    margin-top: 0.3rem;
+    margin-bottom: 2rem;
+  }
+
+  .welcome-text {
+    font-size: 0.85rem;
+    color: #888;
+    line-height: 1.6;
+    margin-bottom: 2rem;
+    padding: 1rem 1.2rem;
+    background: rgba(99, 179, 237, 0.06);
+    border: 1px solid rgba(99, 179, 237, 0.15);
+    border-radius: 10px;
+  }
+
+  .field {
+    margin-bottom: 1rem;
+  }
+
+  .field label {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 0.4rem;
+  }
+
+  .field input {
+    width: 100%;
+    padding: 0.7rem 0.9rem;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    color: #e0e0e0;
+    font-size: 0.9rem;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+
+  .field input:focus {
+    border-color: rgba(99, 179, 237, 0.5);
+  }
+
+  .field .hint {
+    font-size: 0.7rem;
+    color: #555;
+    margin-top: 0.3rem;
+  }
+
+  .error {
+    color: #f56565;
+    font-size: 0.8rem;
+    margin-bottom: 1rem;
+    min-height: 1.2em;
+  }
+
+  .btn {
+    width: 100%;
+    padding: 0.8rem;
+    background: rgba(99, 179, 237, 0.15);
+    border: 1px solid rgba(99, 179, 237, 0.3);
+    border-radius: 8px;
+    color: #63b3ed;
+    font-size: 0.95rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-top: 0.5rem;
+  }
+
+  .btn:hover { background: rgba(99, 179, 237, 0.25); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+</style>
+</head>
+<body>
+<div class="signup-box">
+  <div class="logo-wrap">
+    <img src="/static/clai-icon.png" alt="Clai">
+  </div>
+  <h1>Welcome to {{BOT_NAME}}</h1>
+  <p class="sub">Let's set up your admin account</p>
+
+  <div class="welcome-text">
+    This is your first time running {{BOT_NAME}}. Create a username and password
+    to secure the dashboard. You'll use these to log in from now on.
+  </div>
+
+  <form id="signup-form">
+    <div class="field">
+      <label for="username">Username</label>
+      <input type="text" id="username" name="username" autocomplete="username" required autofocus placeholder="Choose a username">
+    </div>
+    <div class="field">
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" autocomplete="new-password" required placeholder="Choose a password">
+      <div class="hint">At least 4 characters</div>
+    </div>
+    <div class="field">
+      <label for="password-confirm">Confirm Password</label>
+      <input type="password" id="password-confirm" name="password-confirm" autocomplete="new-password" required placeholder="Type it again">
+    </div>
+    <div class="error" id="error"></div>
+    <button type="submit" class="btn" id="submit-btn">Create Account & Continue</button>
+  </form>
+</div>
+<script>
+document.getElementById('signup-form').addEventListener('submit', function(e) {
+  e.preventDefault();
+  var btn = document.getElementById('submit-btn');
+  var err = document.getElementById('error');
+  var user = document.getElementById('username').value.trim();
+  var pass = document.getElementById('password').value;
+  var pass2 = document.getElementById('password-confirm').value;
+
+  err.textContent = '';
+
+  if (user.length < 1) { err.textContent = 'Username is required.'; return; }
+  if (pass.length < 4) { err.textContent = 'Password must be at least 4 characters.'; return; }
+  if (pass !== pass2) { err.textContent = 'Passwords do not match.'; return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Creating account...';
+
+  fetch('/api/signup', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ username: user, password: pass })
+  })
+  .then(function(res) {
+    if (res.ok) return res.json();
+    return res.json().then(function(d) { throw new Error(d.error || 'Signup failed'); });
+  })
+  .then(function() {
+    window.location.href = '/onboarding';
+  })
+  .catch(function(e) {
+    err.textContent = e.message;
+    btn.disabled = false;
+    btn.textContent = 'Create Account & Continue';
+  });
+});
+</script>
+</body>
+</html>

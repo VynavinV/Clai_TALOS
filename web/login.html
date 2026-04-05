@@ -3,10 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{{BOT_NAME}} — Login</title>
+<title>{{BOT_NAME}} — Sign In</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-
   body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     background: #0a0a0f;
@@ -16,55 +15,46 @@
     align-items: center;
     justify-content: center;
   }
-
   .login-box {
     width: 100%;
     max-width: 380px;
     padding: 2.5rem;
-    background: rgba(255,255,255,0.02);
-    border: 1px solid rgba(255,255,255,0.06);
-    border-radius: 16px;
   }
-
-  .login-logo {
-    width: 64px;
-    height: 64px;
+  .logo-wrap {
+    text-align: center;
+    margin-bottom: 1.5rem;
+  }
+  .logo-wrap img {
+    width: 64px; height: 64px;
     border-radius: 50%;
-    margin: 0 auto 1.2rem;
-    display: block;
-    border: 2px solid rgba(99, 179, 237, 0.4);
-    box-shadow: 0 0 20px rgba(99, 179, 237, 0.15);
+    border: 2px solid rgba(99,179,237,0.3);
+    box-shadow: 0 0 24px rgba(99,179,237,0.1);
   }
-
-  .login-box h1 {
+  h1 {
     font-size: 1.3rem;
     font-weight: 600;
     color: #fff;
-    margin-bottom: 0.3rem;
     text-align: center;
+    margin-bottom: 0.3rem;
   }
-
-  .login-box .sub {
+  .sub {
     font-size: 0.8rem;
     color: #555;
-    margin-bottom: 2rem;
     text-align: center;
+    margin-bottom: 2rem;
   }
-
   .field {
     margin-bottom: 1rem;
   }
-
   .field label {
     display: block;
-    font-size: 0.75rem;
+    font-size: 0.72rem;
     font-weight: 500;
     color: #888;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     margin-bottom: 0.4rem;
   }
-
   .field input {
     width: 100%;
     padding: 0.7rem 0.9rem;
@@ -76,23 +66,18 @@
     outline: none;
     transition: border-color 0.2s;
   }
-
-  .field input:focus {
-    border-color: rgba(99, 179, 237, 0.5);
-  }
-
+  .field input:focus { border-color: rgba(99,179,237,0.5); }
   .error {
     color: #f56565;
     font-size: 0.8rem;
     margin-bottom: 1rem;
     min-height: 1.2em;
   }
-
   .btn {
     width: 100%;
     padding: 0.75rem;
-    background: rgba(99, 179, 237, 0.15);
-    border: 1px solid rgba(99, 179, 237, 0.3);
+    background: rgba(99,179,237,0.15);
+    border: 1px solid rgba(99,179,237,0.3);
     border-radius: 8px;
     color: #63b3ed;
     font-size: 0.9rem;
@@ -100,30 +85,17 @@
     cursor: pointer;
     transition: all 0.2s;
   }
-
-  .btn:hover {
-    background: rgba(99, 179, 237, 0.25);
-  }
-
-  .btn:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
-
-  .footer {
-    text-align: center;
-    margin-top: 2rem;
-    font-size: 0.65rem;
-    color: #2a2a2a;
-    letter-spacing: 0.1em;
-  }
+  .btn:hover { background: rgba(99,179,237,0.25); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 </style>
 </head>
 <body>
 <div class="login-box">
-  <img src="/static/clai-icon.png" alt="Clai" class="login-logo">
+  <div class="logo-wrap">
+    <img src="/static/clai-icon.png" alt="Clai">
+  </div>
   <h1>{{BOT_NAME}}</h1>
-  <p class="sub">Authentication required</p>
+  <p class="sub">Sign in to continue</p>
   <form id="login-form">
     <div class="field">
       <label for="username">Username</label>
@@ -136,7 +108,6 @@
     <div class="error" id="error"></div>
     <button type="submit" class="btn" id="submit-btn">Sign In</button>
   </form>
-  <div class="footer">{{BOT_NAME}}</div>
 </div>
 <script>
 document.getElementById('login-form').addEventListener('submit', function(e) {
@@ -157,13 +128,8 @@ document.getElementById('login-form').addEventListener('submit', function(e) {
     })
   })
   .then(function(res) {
-    if (res.ok) {
-      window.location.href = '/dashboard';
-    } else {
-      return res.json().then(function(data) {
-        throw new Error(data.error || 'Login failed');
-      });
-    }
+    if (res.ok) window.location.href = '/dashboard';
+    else return res.json().then(function(d) { throw new Error(d.error || 'Login failed'); });
   })
   .catch(function(e) {
     err.textContent = e.message;

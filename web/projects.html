@@ -6,248 +6,107 @@
 <title>{{BOT_NAME}} — Projects</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0a0a0f; color: #e0e0e0; min-height: 100vh; display: flex; }
+  .sidebar { width: 220px; background: rgba(255,255,255,0.02); border-right: 1px solid rgba(255,255,255,0.06); padding: 1.5rem 0; display: flex; flex-direction: column; position: fixed; top: 0; left: 0; bottom: 0; z-index: 10; }
+  .sidebar-brand { display: flex; align-items: center; gap: 0.7rem; padding: 0 1.2rem; margin-bottom: 2rem; }
+  .sidebar-brand img { width: 36px; height: 36px; border-radius: 50%; border: 1px solid rgba(99,179,237,0.3); }
+  .sidebar-brand span { font-size: 1rem; font-weight: 600; color: #fff; }
+  .nav-items { flex: 1; }
+  .nav-item { display: flex; align-items: center; gap: 0.7rem; padding: 0.65rem 1.2rem; font-size: 0.85rem; color: #888; text-decoration: none; transition: all 0.15s; border-left: 3px solid transparent; }
+  .nav-item:hover { color: #ccc; background: rgba(255,255,255,0.03); }
+  .nav-item.active { color: #63b3ed; background: rgba(99,179,237,0.06); border-left-color: #63b3ed; }
+  .nav-item .icon { width: 18px; text-align: center; font-size: 0.9rem; }
+  .nav-bottom { padding: 0 1.2rem; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 1rem; }
+  .main { margin-left: 220px; flex: 1; padding: 2rem 2.5rem; max-width: 1000px; }
+  .page-title { font-size: 1.5rem; font-weight: 600; color: #fff; margin-bottom: 0.3rem; }
+  .page-sub { font-size: 0.85rem; color: #666; margin-bottom: 0.5rem; }
+  .count { font-size: 0.8rem; color: #444; margin-bottom: 1.5rem; }
 
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background: #0a0a0f;
-    color: #e0e0e0;
-    min-height: 100vh;
-    padding: 2rem;
-  }
+  .projects-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 0.75rem; }
+  .project-card { padding: 1.2rem; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; transition: all 0.2s; display: flex; flex-direction: column; gap: 0.6rem; }
+  .project-card:hover { border-color: rgba(99,179,237,0.25); background: rgba(255,255,255,0.05); }
+  .project-name { font-size: 1rem; font-weight: 600; color: #fff; }
+  .project-desc { font-size: 0.8rem; color: #888; line-height: 1.4; }
+  .project-meta { display: flex; align-items: center; gap: 0.5rem; margin-top: auto; }
+  .sdot { width: 7px; height: 7px; border-radius: 50%; }
+  .sdot.ready { background: #48bb78; box-shadow: 0 0 5px rgba(72,187,120,0.5); }
+  .sdot.empty { background: #ed8936; }
+  .stext { font-size: 0.72rem; color: #666; }
+  .plink { display: inline-block; margin-top: 0.4rem; padding: 0.4rem 0.8rem; background: rgba(99,179,237,0.1); border: 1px solid rgba(99,179,237,0.2); border-radius: 6px; color: #63b3ed; font-size: 0.78rem; text-decoration: none; transition: all 0.2s; }
+  .plink:hover { background: rgba(99,179,237,0.2); }
+  .plink.off { opacity: 0.3; pointer-events: none; }
+  .empty-state { text-align: center; padding: 3rem 2rem; color: #444; }
+  .empty-state p { margin-bottom: 0.3rem; }
 
-  .container {
-    max-width: 900px;
-    margin: 0 auto;
-  }
-
-  h1 {
-    font-size: 1.6rem;
-    font-weight: 600;
-    margin-bottom: 0.3rem;
-    color: #fff;
-  }
-
-  .subtitle {
-    font-size: 0.85rem;
-    color: #666;
-    margin-bottom: 2rem;
-  }
-
-  .nav {
-    display: flex;
-    gap: 1rem;
-    margin-bottom: 2rem;
-  }
-
-  .nav a {
-    font-size: 0.85rem;
-    color: #555;
-    text-decoration: none;
-    transition: color 0.2s;
-  }
-
-  .nav a:hover { color: #999; }
-  .nav a.active { color: #63b3ed; }
-
-  .projects-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-    gap: 1rem;
-  }
-
-  .project-card {
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 12px;
-    padding: 1.5rem;
-    transition: all 0.3s ease;
-    display: flex;
-    flex-direction: column;
-    gap: 0.8rem;
-  }
-
-  .project-card:hover {
-    background: rgba(255, 255, 255, 0.06);
-    border-color: rgba(99, 179, 237, 0.3);
-    transform: translateY(-2px);
-  }
-
-  .project-name {
-    font-size: 1.1rem;
-    font-weight: 600;
-    color: #fff;
-  }
-
-  .project-desc {
-    font-size: 0.85rem;
-    color: #888;
-    line-height: 1.4;
-  }
-
-  .project-meta {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-top: auto;
-  }
-
-  .status-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-  }
-
-  .status-dot.ready {
-    background: #48bb78;
-    box-shadow: 0 0 6px rgba(72, 187, 120, 0.5);
-  }
-
-  .status-dot.empty {
-    background: #ed8936;
-    box-shadow: 0 0 6px rgba(237, 137, 54, 0.5);
-  }
-
-  .status-text {
-    font-size: 0.75rem;
-    color: #666;
-  }
-
-  .project-link {
-    display: inline-block;
-    margin-top: 0.5rem;
-    padding: 0.45rem 1rem;
-    background: rgba(99, 179, 237, 0.12);
-    border: 1px solid rgba(99, 179, 237, 0.25);
-    border-radius: 8px;
-    color: #63b3ed;
-    font-size: 0.8rem;
-    font-weight: 500;
-    text-decoration: none;
-    transition: all 0.2s;
-    align-self: flex-start;
-  }
-
-  .project-link:hover {
-    background: rgba(99, 179, 237, 0.22);
-  }
-
-  .project-link.disabled {
-    opacity: 0.3;
-    pointer-events: none;
-  }
-
-  .empty-state {
-    text-align: center;
-    padding: 4rem 2rem;
-    color: #444;
-  }
-
-  .empty-state p {
-    font-size: 0.95rem;
-    margin-bottom: 0.5rem;
-  }
-
-  .empty-state .hint {
-    font-size: 0.8rem;
-    color: #333;
-  }
-
-  .logout-btn {
-    position: fixed;
-    top: 1rem;
-    right: 1rem;
-    padding: 0.4rem 0.8rem;
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 6px;
-    color: #666;
-    font-size: 0.75rem;
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-
-  .logout-btn:hover {
-    background: rgba(255,255,255,0.08);
-    color: #999;
-  }
-
-  .project-count {
-    font-size: 0.8rem;
-    color: #444;
-    margin-bottom: 1.5rem;
+  .mobile-header { display: none; position: fixed; top: 0; left: 0; right: 0; height: 56px; background: #0a0a0f; border-bottom: 1px solid rgba(255,255,255,0.06); z-index: 20; align-items: center; padding: 0 1rem; gap: 0.7rem; }
+  .mobile-header img { width: 28px; height: 28px; border-radius: 50%; }
+  .mobile-header span { font-weight: 600; color: #fff; font-size: 0.95rem; }
+  .hamburger { background: none; border: none; color: #888; font-size: 1.4rem; cursor: pointer; margin-left: auto; }
+  .sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 9; }
+  @media (max-width: 768px) {
+    .sidebar { transform: translateX(-100%); transition: transform 0.2s; }
+    .sidebar.open { transform: translateX(0); }
+    .sidebar-overlay.open { display: block; }
+    .mobile-header { display: flex; }
+    .main { margin-left: 0; padding: 72px 1rem 2rem; }
   }
 </style>
 </head>
 <body>
-<button class="logout-btn" onclick="logout()">Sign Out</button>
-<div class="container">
-  <div class="nav">
-    <a href="/dashboard">&larr; Dashboard</a>
-    <a href="/keys">API Keys</a>
-    <a href="/tools">Tools</a>
-    <a href="/settings">Settings</a>
-    <a href="/projects" class="active">Projects</a>
+<div class="mobile-header"><img src="/static/clai-icon.png" alt=""><span>{{BOT_NAME}}</span><button class="hamburger" onclick="toggleSidebar()">&#9776;</button></div>
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
+<nav class="sidebar" id="sidebar">
+  <div class="sidebar-brand"><img src="/static/clai-icon.png" alt="Clai"><span>{{BOT_NAME}}</span></div>
+  <div class="nav-items">
+    <a href="/dashboard" class="nav-item"><span class="icon">&#9632;</span> Dashboard</a>
+    <a href="/keys" class="nav-item"><span class="icon">&#9919;</span> API Keys</a>
+    <a href="/tools" class="nav-item"><span class="icon">&#9881;</span> Tools</a>
+    <a href="/settings" class="nav-item"><span class="icon">&#9881;</span> Settings</a>
+    <a href="/projects" class="nav-item active"><span class="icon">&#9830;</span> Projects</a>
+    <a href="/static/chat.html" class="nav-item"><span class="icon">&#9993;</span> Chat</a>
   </div>
+  <div class="nav-bottom"><a href="#" class="nav-item" onclick="logout(); return false;"><span class="icon">&#10140;</span> Sign Out</a></div>
+</nav>
 
-  <h1>Projects</h1>
-  <p class="subtitle">Websites, presentations, and apps created by {{BOT_NAME}}</p>
-  <div class="project-count" id="count"></div>
+<main class="main">
+  <h1 class="page-title">Projects</h1>
+  <p class="page-sub">Websites, presentations, and apps</p>
+  <div class="count" id="count"></div>
   <div class="projects-grid" id="grid"></div>
-</div>
+</main>
 
 <script>
-async function loadProjects() {
+function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+async function load() {
   try {
     var res = await fetch('/api/projects');
     if (res.status === 401) { window.location.href = '/'; return; }
     var projects = await res.json();
-
-    var countEl = document.getElementById('count');
     var grid = document.getElementById('grid');
+    var cnt = document.getElementById('count');
 
     if (!projects.length) {
-      countEl.textContent = '';
-      grid.innerHTML = '<div class="empty-state"><p>No projects yet</p><p class="hint">Ask the bot to create a website or presentation</p></div>';
+      cnt.textContent = '';
+      grid.innerHTML = '<div class="empty-state"><p>No projects yet</p><p style="font-size:0.8rem;">Ask the bot to create a website or presentation</p></div>';
       return;
     }
-
-    countEl.textContent = projects.length + ' project' + (projects.length === 1 ? '' : 's');
-
+    cnt.textContent = projects.length + ' project' + (projects.length === 1 ? '' : 's');
     grid.innerHTML = projects.map(function(p) {
-      var ready = p.has_index;
-      var statusClass = ready ? 'ready' : 'empty';
-      var statusText = ready ? 'Live' : 'No index.html';
-      var linkClass = ready ? 'project-link' : 'project-link disabled';
-      var desc = p.description || 'No description';
-
-      return '<div class="project-card">' +
-        '<div class="project-name">' + escapeHtml(p.name) + '</div>' +
-        '<div class="project-desc">' + escapeHtml(desc) + '</div>' +
-        '<div class="project-meta">' +
-          '<div class="status-dot ' + statusClass + '"></div>' +
-          '<span class="status-text">' + statusText + '</span>' +
-        '</div>' +
-        '<a href="' + escapeHtml(p.url) + '" target="_blank" class="' + linkClass + '">Open &rarr;</a>' +
-      '</div>';
+      var ok = p.has_index;
+      return '<div class="project-card">'
+        + '<div class="project-name">' + esc(p.name) + '</div>'
+        + '<div class="project-desc">' + esc(p.description || 'No description') + '</div>'
+        + '<div class="project-meta"><div class="sdot ' + (ok ? 'ready' : 'empty') + '"></div><span class="stext">' + (ok ? 'Live' : 'No index.html') + '</span></div>'
+        + '<a href="' + esc(p.url) + '" target="_blank" class="plink' + (ok ? '' : ' off') + '">Open</a>'
+        + '</div>';
     }).join('');
-  } catch (e) {
-    console.error(e);
-  }
+  } catch (e) {}
 }
 
-function escapeHtml(str) {
-  var div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
-}
-
-function logout() {
-  fetch('/logout', { method: 'POST' }).then(function() {
-    window.location.href = '/';
-  });
-}
-
-loadProjects();
+function logout() { fetch('/logout', { method: 'POST' }).then(function() { window.location.href = '/'; }); }
+function toggleSidebar() { document.getElementById('sidebar').classList.toggle('open'); document.getElementById('sidebar-overlay').classList.toggle('open'); }
+load();
 </script>
 </body>
 </html>

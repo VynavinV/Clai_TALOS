@@ -23,6 +23,7 @@ def init():
             CREATE TABLE IF NOT EXISTS user_settings (
                 user_id INTEGER PRIMARY KEY,
                 model TEXT NOT NULL DEFAULT 'glm-5',
+                image_model TEXT,
                 summary TEXT
             );
 
@@ -54,6 +55,7 @@ def init():
                 user_id INTEGER NOT NULL,
                 role TEXT NOT NULL CHECK(role IN ('user', 'assistant')),
                 content TEXT NOT NULL,
+                image_b64 TEXT,
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
 
@@ -63,6 +65,12 @@ def init():
         cols = [r["name"] for r in conn.execute("PRAGMA table_info(user_settings)").fetchall()]
         if "summary" not in cols:
             conn.execute("ALTER TABLE user_settings ADD COLUMN summary TEXT")
+        if "image_model" not in cols:
+            conn.execute("ALTER TABLE user_settings ADD COLUMN image_model TEXT")
+        
+        chat_cols = [r["name"] for r in conn.execute("PRAGMA table_info(chat_history)").fetchall()]
+        if "image_b64" not in chat_cols:
+            conn.execute("ALTER TABLE chat_history ADD COLUMN image_b64 TEXT")
 
 
 def has_user_profile(user_id: int) -> bool:
@@ -200,7 +208,28 @@ def get_model(user_id: int) -> str:
             "SELECT model FROM user_settings WHERE user_id = ?",
             (user_id,),
         ).fetchone()
-        return row["model"] if row else "glm-5"
+        if row and row["model"]:
+            return row["model"]
+    env_model = os.getenv("MAIN_MODEL", "").strip()
+    if env_model:
+        return env_model
+    import model_router
+    return model_router.best_main_model()
+
+
+def get_image_model(user_id: int) -> str:
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT image_model FROM user_settings WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+        if row and row["image_model"]:
+            return row["image_model"]
+    env_model = os.getenv("IMAGE_MODEL", "").strip()
+    if env_model:
+        return env_model
+    import model_router
+    return model_router.best_image_model()
 
 
 def set_model(user_id: int, model: str) -> None:
@@ -209,6 +238,15 @@ def set_model(user_id: int, model: str) -> None:
             """INSERT INTO user_settings (user_id, model) VALUES (?, ?)
                ON CONFLICT(user_id) DO UPDATE SET model = excluded.model""",
             (user_id, model),
+        )
+
+
+def set_image_model(user_id: int, image_model: str) -> None:
+    with _conn() as conn:
+        conn.execute(
+            """INSERT INTO user_settings (user_id, image_model) VALUES (?, ?)
+               ON CONFLICT(user_id) DO UPDATE SET image_model = excluded.image_model""",
+            (user_id, image_model),
         )
 
 
@@ -232,11 +270,11 @@ def set_summary(user_id: int, summary: str) -> None:
         )
 
 
-def add_message(user_id: int, role: str, content: str) -> None:
+def add_message(user_id: int, role: str, content: str, image_b64: str | None = None) -> None:
     with _conn() as conn:
         conn.execute(
-            "INSERT INTO chat_history (user_id, role, content) VALUES (?, ?, ?)",
-            (user_id, role, content),
+            "INSERT INTO chat_history (user_id, role, content, image_b64) VALUES (?, ?, ?, ?)",
+            (user_id, role, content, image_b64),
         )
 
 
@@ -252,13 +290,13 @@ def count_messages(user_id: int) -> int:
 def get_history(user_id: int, limit: int = HISTORY_WINDOW) -> list[dict]:
     with _conn() as conn:
         rows = conn.execute(
-            """SELECT role, content FROM chat_history
+            """SELECT role, content, image_b64 FROM chat_history
                WHERE user_id = ?
                ORDER BY created_at DESC
                LIMIT ?""",
             (user_id, limit),
         ).fetchall()
-    return [{"role": r["role"], "content": r["content"]} for r in reversed(rows)]
+    return [{"role": r["role"], "content": r["content"], "image_b64": r["image_b64"]} for r in reversed(rows)]
 
 
 def get_older_messages(user_id: int, keep_recent: int = HISTORY_WINDOW) -> list[dict]:
@@ -268,13 +306,37 @@ def get_older_messages(user_id: int, keep_recent: int = HISTORY_WINDOW) -> list[
             return []
         offset = total - keep_recent
         rows = conn.execute(
-            """SELECT role, content FROM chat_history
+            """SELECT role, content, image_b64 FROM chat_history
                WHERE user_id = ?
                ORDER BY created_at ASC
                LIMIT ?""",
             (user_id, offset),
         ).fetchall()
-    return [{"role": r["role"], "content": r["content"]} for r in rows]
+    return [{"role": r["role"], "content": r["content"], "image_b64": r["image_b64"]} for r in rows]
+
+
+def compact_history(user_id: int, keep_recent: int = HISTORY_WINDOW) -> int:
+    keep = max(0, int(keep_recent))
+    with _conn() as conn:
+        if keep == 0:
+            cur = conn.execute(
+                "DELETE FROM chat_history WHERE user_id = ?",
+                (user_id,),
+            )
+            return int(cur.rowcount or 0)
+
+        cur = conn.execute(
+            """DELETE FROM chat_history
+               WHERE user_id = ?
+                 AND id NOT IN (
+                     SELECT id FROM chat_history
+                     WHERE user_id = ?
+                     ORDER BY id DESC
+                     LIMIT ?
+                 )""",
+            (user_id, user_id, keep),
+        )
+        return int(cur.rowcount or 0)
 
 
 def clear_history(user_id: int) -> int:

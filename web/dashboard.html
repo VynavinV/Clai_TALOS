@@ -3,293 +3,289 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{{BOT_NAME}} Status</title>
+<title>{{BOT_NAME}} — Dashboard</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-
   body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     background: #0a0a0f;
     color: #e0e0e0;
     min-height: 100vh;
     display: flex;
+  }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    width: 220px;
+    background: rgba(255,255,255,0.02);
+    border-right: 1px solid rgba(255,255,255,0.06);
+    padding: 1.5rem 0;
+    display: flex;
     flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    z-index: 10;
   }
-
-  .container {
-    text-align: center;
-    padding: 2rem;
-    max-width: 500px;
-    width: 100%;
-  }
-
-  .pulse-wrapper {
-    position: relative;
+  .sidebar-brand {
     display: flex;
     align-items: center;
-    justify-content: center;
+    gap: 0.7rem;
+    padding: 0 1.2rem;
     margin-bottom: 2rem;
   }
-
-  .pulse-ring {
-    position: absolute;
-    width: 120px;
-    height: 120px;
+  .sidebar-brand img {
+    width: 36px; height: 36px;
     border-radius: 50%;
-    border: 2px solid rgba(99, 179, 237, 0.4);
-    animation: pulse-expand 2s ease-out infinite;
+    border: 1px solid rgba(99,179,237,0.3);
   }
-
-  .pulse-ring:nth-child(2) { animation-delay: 0.5s; }
-  .pulse-ring:nth-child(3) { animation-delay: 1s; }
-
-  .pulse-core {
-    width: 100px;
-    height: 100px;
-    border-radius: 50%;
-    border: 2px solid rgba(99, 179, 237, 0.6);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    animation: pulse-glow 2s ease-in-out infinite;
-    overflow: hidden;
-  }
-
-  .pulse-core img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    border-radius: 50%;
-  }
-
-  @keyframes pulse-expand {
-    0% { transform: scale(1); opacity: 0.6; }
-    100% { transform: scale(2.2); opacity: 0; }
-  }
-
-  @keyframes pulse-glow {
-    0%, 100% { box-shadow: 0 0 20px rgba(99, 179, 237, 0.2); }
-    50% { box-shadow: 0 0 40px rgba(99, 179, 237, 0.4); }
-  }
-
-  .standby-text {
-    font-size: 1.1rem;
-    font-weight: 300;
-    letter-spacing: 0.3em;
-    text-transform: uppercase;
-    color: rgba(99, 179, 237, 0.7);
-    margin-bottom: 2.5rem;
-    animation: text-fade 2s ease-in-out infinite;
-  }
-
-  @keyframes text-fade {
-    0%, 100% { opacity: 0.5; }
-    50% { opacity: 1; }
-  }
-
-  h1 {
-    font-size: 1.4rem;
+  .sidebar-brand span {
+    font-size: 1rem;
     font-weight: 600;
-    margin-bottom: 0.5rem;
     color: #fff;
   }
+  .nav-items { flex: 1; }
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    padding: 0.65rem 1.2rem;
+    font-size: 0.85rem;
+    color: #888;
+    text-decoration: none;
+    transition: all 0.15s;
+    border-left: 3px solid transparent;
+  }
+  .nav-item:hover { color: #ccc; background: rgba(255,255,255,0.03); }
+  .nav-item.active {
+    color: #63b3ed;
+    background: rgba(99,179,237,0.06);
+    border-left-color: #63b3ed;
+  }
+  .nav-item .icon { width: 18px; text-align: center; font-size: 0.9rem; }
+  .nav-bottom {
+    padding: 0 1.2rem;
+    border-top: 1px solid rgba(255,255,255,0.06);
+    padding-top: 1rem;
+  }
+  .nav-bottom .nav-item { padding-left: 1.2rem; }
 
-  .subtitle {
+  /* ── Main ── */
+  .main {
+    margin-left: 220px;
+    flex: 1;
+    padding: 2rem 2.5rem;
+    max-width: 900px;
+  }
+  .page-title {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: #fff;
+    margin-bottom: 0.3rem;
+  }
+  .page-sub {
     font-size: 0.85rem;
     color: #666;
     margin-bottom: 2rem;
   }
 
+  /* ── Status Cards ── */
   .status-grid {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-bottom: 2rem;
   }
-
-  .status-item {
+  .status-card {
+    padding: 1.2rem;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 12px;
+    transition: all 0.2s;
+  }
+  .status-card:hover { border-color: rgba(255,255,255,0.1); }
+  .status-card .card-label {
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: #666;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 0.6rem;
+  }
+  .status-card .card-value {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 0.85rem 1.2rem;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 10px;
-    transition: all 0.3s ease;
+    gap: 0.5rem;
   }
-
-  .status-item:hover {
-    background: rgba(255, 255, 255, 0.05);
-    border-color: rgba(255, 255, 255, 0.1);
+  .status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
   }
-
-  .status-label {
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
+  .dot-ok { background: #48bb78; box-shadow: 0 0 6px rgba(72,187,120,0.5); }
+  .dot-warn { background: #ed8936; box-shadow: 0 0 6px rgba(237,137,54,0.5); }
+  .dot-err { background: #f56565; box-shadow: 0 0 6px rgba(245,101,101,0.5); }
+  .status-card .card-text {
     font-size: 0.9rem;
     font-weight: 500;
   }
 
-  .status-icon {
-    width: 28px;
-    height: 28px;
-    border-radius: 8px;
+  /* ── Quick Actions ── */
+  .quick-actions {
     display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.8rem;
-    background: rgba(255, 255, 255, 0.05);
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-bottom: 2rem;
   }
-
-  .status-badge {
-    font-size: 0.75rem;
-    font-weight: 500;
-    padding: 0.25rem 0.7rem;
-    border-radius: 20px;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-
-  .badge-ok {
-    background: rgba(72, 187, 120, 0.15);
-    color: #48bb78;
-    border: 1px solid rgba(72, 187, 120, 0.3);
-  }
-
-  .badge-warn {
-    background: rgba(237, 137, 54, 0.15);
-    color: #ed8936;
-    border: 1px solid rgba(237, 137, 54, 0.3);
-  }
-
-  .badge-err {
-    background: rgba(245, 101, 101, 0.15);
-    color: #f56565;
-    border: 1px solid rgba(245, 101, 101, 0.3);
-  }
-
-  .footer {
-    margin-top: 2.5rem;
-    font-size: 0.7rem;
-    color: #333;
-    letter-spacing: 0.1em;
-  }
-
-  .uptime {
-    font-size: 0.75rem;
-    color: #444;
-    margin-top: 0.3rem;
-  }
-
-  .logout-btn {
-    position: fixed;
-    top: 1rem;
-    right: 1rem;
-    padding: 0.4rem 0.8rem;
-    background: rgba(255,255,255,0.04);
+  .quick-btn {
+    padding: 0.6rem 1.2rem;
+    background: rgba(255,255,255,0.03);
     border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 6px;
-    color: #666;
-    font-size: 0.75rem;
+    border-radius: 8px;
+    color: #999;
+    font-size: 0.8rem;
     cursor: pointer;
     transition: all 0.2s;
-  }
-
-  .logout-btn:hover {
-    background: rgba(255,255,255,0.08);
-    color: #999;
-  }
-
-  .nav-link {
-    display: inline-block;
-    margin-top: 1.5rem;
-    font-size: 0.75rem;
-    color: #555;
     text-decoration: none;
-    transition: color 0.2s;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .quick-btn:hover { background: rgba(255,255,255,0.06); color: #ccc; }
+
+  .uptime-bar {
+    font-size: 0.75rem;
+    color: #444;
+    margin-top: 1rem;
   }
 
-  .nav-link:hover { color: #999; }
+  /* ── Mobile ── */
+  .mobile-header {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: 56px;
+    background: #0a0a0f;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    z-index: 20;
+    align-items: center;
+    padding: 0 1rem;
+    gap: 0.7rem;
+  }
+  .mobile-header img { width: 28px; height: 28px; border-radius: 50%; }
+  .mobile-header span { font-weight: 600; color: #fff; font-size: 0.95rem; }
+  .hamburger {
+    background: none; border: none; color: #888; font-size: 1.4rem;
+    cursor: pointer; margin-left: auto; padding: 0.3rem;
+  }
+  .sidebar-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 9;
+  }
+
+  @media (max-width: 768px) {
+    .sidebar {
+      transform: translateX(-100%);
+      transition: transform 0.2s;
+    }
+    .sidebar.open { transform: translateX(0); }
+    .sidebar-overlay.open { display: block; }
+    .mobile-header { display: flex; }
+    .main { margin-left: 0; padding: 72px 1rem 2rem; }
+  }
 </style>
 </head>
 <body>
-<button class="logout-btn" onclick="logout()">Sign Out</button>
-<div class="container">
-  <div class="pulse-wrapper">
-    <div class="pulse-ring"></div>
-    <div class="pulse-ring"></div>
-    <div class="pulse-ring"></div>
-    <div class="pulse-core"><img src="/static/clai-icon.png" alt="Clai"></div>
-  </div>
-  <div class="standby-text">Standby</div>
-  <h1>{{BOT_NAME}}</h1>
-  <p class="subtitle">System Status Dashboard</p>
-  <div class="status-grid" id="status-grid"></div>
-  <div class="uptime" id="uptime"></div>
-  <div class="footer">{{BOT_NAME}} &mdash; Telegram Bot</div>
-  <div style="margin-top: 1.5rem;">
-    <a href="/keys" class="nav-link">API Keys &rarr;</a>
-    <a href="/tools" class="nav-link">Tools &rarr;</a>
-    <a href="/settings" class="nav-link">Settings &rarr;</a>
-    <a href="/projects" class="nav-link">Projects &rarr;</a>
-  </div>
+
+<div class="mobile-header">
+  <img src="/static/clai-icon.png" alt="">
+  <span>{{BOT_NAME}}</span>
+  <button class="hamburger" onclick="toggleSidebar()">&#9776;</button>
 </div>
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
+
+<nav class="sidebar" id="sidebar">
+  <div class="sidebar-brand">
+    <img src="/static/clai-icon.png" alt="Clai">
+    <span>{{BOT_NAME}}</span>
+  </div>
+  <div class="nav-items">
+    <a href="/dashboard" class="nav-item active"><span class="icon">&#9632;</span> Dashboard</a>
+    <a href="/keys" class="nav-item"><span class="icon">&#9919;</span> API Keys</a>
+    <a href="/tools" class="nav-item"><span class="icon">&#9881;</span> Tools</a>
+    <a href="/settings" class="nav-item"><span class="icon">&#9881;</span> Settings</a>
+    <a href="/projects" class="nav-item"><span class="icon">&#9830;</span> Projects</a>
+    <a href="/static/chat.html" class="nav-item"><span class="icon">&#9993;</span> Chat</a>
+  </div>
+  <div class="nav-bottom">
+    <a href="#" class="nav-item" onclick="logout(); return false;"><span class="icon">&#10140;</span> Sign Out</a>
+  </div>
+</nav>
+
+<main class="main">
+  <h1 class="page-title">Dashboard</h1>
+  <p class="page-sub">System status overview</p>
+
+  <div class="status-grid" id="status-grid"></div>
+
+  <div class="quick-actions">
+    <a href="/static/chat.html" class="quick-btn">&#9993; Open Chat</a>
+    <a href="/keys" class="quick-btn">&#9919; Manage Keys</a>
+    <a href="/settings" class="quick-btn">&#9881; Settings</a>
+    <button class="quick-btn" onclick="hotReload()">&#8635; Hot Reload</button>
+  </div>
+
+  <div class="uptime-bar" id="uptime"></div>
+</main>
+
 <script>
-const SERVICES = [
-  { id: 'bot',         label: 'Telegram Bot', icon: '&#9993;' },
-  { id: 'tailscale',   label: 'Tailscale',     icon: '&#9830;' },
-  { id: 'funnel',      label: 'Funnel',        icon: '&#9711;' },
-  { id: 'venv',        label: 'Environment',   icon: '&#9881;' },
-  { id: 'credentials', label: 'Credentials',   icon: '&#9919;' },
+var SERVICES = [
+  { id: 'bot', label: 'Telegram Bot' },
+  { id: 'tailscale', label: 'Tailscale' },
+  { id: 'funnel', label: 'Funnel' },
+  { id: 'venv', label: 'Environment' },
+  { id: 'credentials', label: 'Credentials' },
 ];
 
-function badgeClass(ok, detail) {
-  if (ok) return 'badge-ok';
-  if (detail === 'not configured' || detail === 'not installed' || detail === 'not created') return 'badge-err';
-  return 'badge-warn';
+function dotClass(ok, detail) {
+  if (ok) return 'dot-ok';
+  if (detail === 'not configured' || detail === 'not installed' || detail === 'not created') return 'dot-err';
+  return 'dot-warn';
 }
 
 function render(data) {
-  const grid = document.getElementById('status-grid');
-  grid.innerHTML = SERVICES.map(s => {
-    const item = data[s.id] || { ok: false, detail: 'unknown' };
-    const cls = badgeClass(item.ok, item.detail);
-    return '<div class="status-item">' +
-      '<div class="status-label">' +
-        '<div class="status-icon">' + s.icon + '</div>' +
-        s.label +
-      '</div>' +
-      '<span class="status-badge ' + cls + '">' + item.detail + '</span>' +
-    '</div>';
+  var grid = document.getElementById('status-grid');
+  grid.innerHTML = SERVICES.map(function(s) {
+    var item = data[s.id] || { ok: false, detail: 'unknown' };
+    return '<div class="status-card">'
+      + '<div class="card-label">' + s.label + '</div>'
+      + '<div class="card-value">'
+      + '<div class="status-dot ' + dotClass(item.ok, item.detail) + '"></div>'
+      + '<span class="card-text">' + item.detail + '</span>'
+      + '</div></div>';
   }).join('');
-
-  if (data.uptime) {
-    document.getElementById('uptime').textContent = 'Uptime: ' + data.uptime;
-  }
+  if (data.uptime) document.getElementById('uptime').textContent = 'Uptime: ' + data.uptime;
 }
 
 async function poll() {
   try {
-    const res = await fetch('/api/status');
-    if (res.status === 401) {
-      window.location.href = '/';
-      return;
-    }
-    const data = await res.json();
-    render(data);
-  } catch (e) {
-    console.error('poll error', e);
-  }
+    var res = await fetch('/api/status');
+    if (res.status === 401) { window.location.href = '/'; return; }
+    render(await res.json());
+  } catch (e) {}
+}
+
+async function hotReload() {
+  try {
+    await fetch('/api/reload', { method: 'POST' });
+  } catch (e) {}
 }
 
 function logout() {
-  fetch('/logout', { method: 'POST' }).then(() => {
-    window.location.href = '/';
-  });
+  fetch('/logout', { method: 'POST' }).then(function() { window.location.href = '/'; });
+}
+
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('open');
+  document.getElementById('sidebar-overlay').classList.toggle('open');
 }
 
 poll();
