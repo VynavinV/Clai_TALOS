@@ -155,7 +155,13 @@ def _build_system(user_id: int, current_message: str = "", include_memories: boo
         "For browser tasks, stay in the current tab unless the user explicitly asks for new tabs/windows. "
         "You can spawn multiple subagents in a single response - they will run in PARALLEL. "
         "After all subagents complete, synthesize their results into a final coherent response. "
-        "Keep the user informed: if spawning subagents, tell the user what you're delegating and why."
+        "Keep the user informed: if spawning subagents, tell the user what you're delegating and why.\n\n"
+        "CRITICAL — Command Loop Prevention:\n"
+        "Many shell commands (cp, mv, mkdir, chmod, ln, etc.) succeed SILENTLY with no output. "
+        "An empty stdout with exit code 0 means SUCCESS, not failure. Do NOT re-run a command "
+        "that already succeeded. If a tool result shows exit_code 0, move on immediately.\n"
+        "If you already ran a command and got a result, do not run it again. Check the conversation "
+        "history before calling any tool — if you already have the answer, use it."
     )
 
     summary = db.get_summary(user_id)
@@ -192,7 +198,11 @@ def _build_subagent_system(user_id: int, role: str, task: str, context: str = ""
         "Do not run passive wait commands like sleep/timeout/checking-in loops.\n"
         "Never end on a 'still working' update without later sending an explicit completion or failure update.\n"
         "Keep messages concise and useful. Sign off with your role in brackets so the user "
-        "knows which subagent is talking, e.g. [researcher] or [executor]."
+        "knows which subagent is talking, e.g. [researcher] or [executor].\n\n"
+        "CRITICAL — Command Loop Prevention:\n"
+        "Many shell commands (cp, mv, mkdir, chmod, ln, etc.) succeed SILENTLY with no output. "
+        "An empty stdout with exit_code 0 means SUCCESS. Do NOT re-run a command that succeeded. "
+        "If you already ran a command and got a result, do not run it again. Move on."
     )
     parts.append(f"[Subagent role]\n{role or 'general'}")
     parts.append(f"[Delegated task]\n{task}")
@@ -1186,7 +1196,9 @@ def _get_all_tools(include_subagent: bool = True, include_telegram: bool = False
                     "Create a web project (website, presentation, app) and make it instantly live. "
                     "Pass the full HTML content and this tool handles everything: creates the directory, "
                     "writes index.html, registers it in the gateway, and returns the full public URL. "
-                    "You MUST send the returned url to the user — it is the live clickable link."
+                    "You MUST send the returned url to the user — it is the live clickable link. "
+                    "For existing files on disk, use migrate_project instead — it copies the file directly "
+                    "without needing to read its content first."
                 ),
                 "parameters": {
                     "type": "object",
@@ -1196,6 +1208,28 @@ def _get_all_tools(include_subagent: bool = True, include_telegram: bool = False
                         "description": {"type": "string", "description": "Short description of the project"}
                     },
                     "required": ["name", "html"]
+                }
+            }
+        })
+    tools.append({
+            "type": "function",
+            "function": {
+                "name": "migrate_project",
+                "description": (
+                    "Copy an existing HTML file or directory on disk into the project gateway and make it live. "
+                    "If source_path is a directory, all files are copied recursively. "
+                    "If it's a single HTML file, it becomes index.html in the project. "
+                    "No need to read files first — just pass the source path and a project name. "
+                    "Returns the full public URL. You MUST send the returned url to the user."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Project name (alphanumeric, hyphens, underscores). Used in the URL."},
+                        "source_path": {"type": "string", "description": "Path to an HTML file or a directory to copy into the project"},
+                        "description": {"type": "string", "description": "Short description of the project"}
+                    },
+                    "required": ["name", "source_path"]
                 }
             }
         })
@@ -1758,6 +1792,48 @@ async def _execute_tool_call(
                 "instruction": "Send the url to the user — this is the live clickable link to their project",
             }, indent=2)
 
+        elif tool_name == "migrate_project":
+            import shutil
+            name = str(tool_args.get("name", "")).strip()
+            source_path = str(tool_args.get("source_path", "")).strip()
+            if not name:
+                return json.dumps({"error": "No name provided"})
+            if not source_path:
+                return json.dumps({"error": "No source_path provided"})
+            source_path = source_path if os.path.isabs(source_path) else os.path.join(_SCRIPT_DIR, source_path)
+            source_path = os.path.realpath(source_path)
+            if not os.path.exists(source_path):
+                return json.dumps({"error": f"Source not found: {source_path}"}, indent=2)
+            description = str(tool_args.get("description", "")).strip()
+            reg = gateway.register_project(name, description=description)
+            dest_dir = reg["path"]
+            os.makedirs(dest_dir, exist_ok=True)
+            try:
+                if os.path.isdir(source_path):
+                    for item in os.listdir(source_path):
+                        s = os.path.join(source_path, item)
+                        d = os.path.join(dest_dir, item)
+                        if os.path.isdir(s):
+                            shutil.copytree(s, d, dirs_exist_ok=True)
+                        else:
+                            shutil.copy2(s, d)
+                    file_count = sum(len(files) for _, _, files in os.walk(dest_dir))
+                else:
+                    dest_path = os.path.join(dest_dir, "index.html")
+                    shutil.copy2(source_path, dest_path)
+                    file_count = 1
+            except Exception as e:
+                return json.dumps({"error": f"Failed to copy: {e}"}, indent=2)
+            return json.dumps({
+                "status": "live",
+                "url": reg["url"],
+                "share_this_link": reg["url"],
+                "path": reg["path"],
+                "files_copied": file_count,
+                "source": source_path,
+                "instruction": "Send the url to the user — this is the live clickable link to their project",
+            }, indent=2)
+
         elif tool_name == "list_projects":
             return json.dumps({"projects": gateway.list_projects()}, indent=2)
 
@@ -2007,7 +2083,7 @@ _TOOLCALL_JSON_RE = re.compile(
     re.DOTALL,
 )
 _TOOLCALL_ARTIFACT_RE = re.compile(
-    r"</?(?:toolcall|argvalue|argkey)\s*>",
+    r"</?(?:toolcall|argvalue|argkey|environment_details|thinking|thought)\b[^>]*>",
     re.IGNORECASE,
 )
 _ARGKEY_VALUE_RE = re.compile(
@@ -2050,7 +2126,8 @@ def _sanitize_response(text: str) -> str:
     cleaned = _TOOLCALL_ARTIFACT_RE.sub("", text)
     if cleaned != text:
         logger.warning(f"Stripped tool-call artifacts from response: {text[:200]}")
-    return cleaned.strip()
+    cleaned = cleaned.strip()
+    return cleaned if cleaned else text.strip()
 
 
 def _parse_text_tool_calls(content: str) -> tuple[list[dict], str]:
@@ -2304,9 +2381,12 @@ async def _run_agent(
                 response = await model_router.call_model(model_id, messages, None)
                 final_content = response.get("content", final_content)
 
-        return _sanitize_response(final_content)
+        sanitized = _sanitize_response(final_content)
+        if sanitized and sanitized.strip():
+            return sanitized
+        return "I ran out of processing rounds before finishing. Break the task into smaller pieces and try again."
     except Exception:
-        return "I ran out of processing rounds. Please try again."
+        return "I ran out of processing rounds before finishing. Break the task into smaller pieces and try again."
 
 
 # ---------------------------------------------------------------------------
