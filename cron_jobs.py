@@ -67,60 +67,13 @@ async def _run_self_prompt(user_id: int, job_name: str, command: str) -> str:
     if not prompt_text:
         prompt_text = command.strip()
 
-    import telegram_bot
     import core
 
-    app = telegram_bot._telegram_runtime_app
-    if app is None or not app.bot:
-        msg = "Telegram not running — cannot deliver self-prompt."
-        logger.warning("Skipping self-prompt for job '%s': %s", job_name, msg)
-        return msg
-
-    bot = app.bot
-    chat_id = user_id
-
-    class _CronChat:
-        id = chat_id
-
-    async def _cron_send_func(
-        msg: str = "",
-        voice: bool = False,
-        photo_path: str | None = None,
-        caption: str = "",
-        stream: bool = False,
-    ) -> None:
-        if not msg or not msg.strip():
-            return
-        if photo_path:
-            try:
-                await bot.send_photo(chat_id=chat_id, photo=open(photo_path, "rb"), caption=(caption or msg or None)[:1024])
-            except Exception as exc:
-                logger.warning("Cron send_photo failed: %s", exc)
-            return
-        if voice:
-            try:
-                import voice as v
-                audio_path = v.text_to_speech(msg)
-                if audio_path:
-                    with open(audio_path, "rb") as f:
-                        await bot.send_voice(chat_id=chat_id, voice=f)
-                    v.cleanup_audio_file(audio_path)
-            except Exception as exc:
-                logger.warning("Cron send_voice failed: %s", exc)
-            return
-
-        text = msg
-        max_len = 4096
-        for i in range(0, len(text), max_len):
-            chunk = text[i:i + max_len]
-            try:
-                await bot.send_message(chat_id=chat_id, text=chunk)
-            except Exception as exc:
-                logger.warning("Cron send_message failed: %s", exc)
-                break
+    async def noop(**_):
+        pass
 
     try:
-        await core.process_message(user_id, prompt_text, _cron_send_func)
+        await core.process_message(user_id, prompt_text, noop)
         return f"Self-prompt executed: {prompt_text[:100]}"
     except Exception as exc:
         logger.exception("Self-prompt failed for job '%s'", job_name)
@@ -150,29 +103,6 @@ def _summarize_result(result: dict) -> str:
     return summary or "(no output)"
 
 
-async def _notify_user(user_id: int, job_name: str, summary: str) -> None:
-    try:
-        import telegram_bot
-        app = telegram_bot._telegram_runtime_app
-        if app is None or not app.bot:
-            return
-
-        if not summary or summary == "(no output)":
-            text = f"⏰ {job_name}\n\nJob completed with no output."
-        else:
-            text = f"⏰ {job_name}\n\n{summary}"
-
-        for chunk_start in range(0, len(text), 4096):
-            chunk = text[chunk_start:chunk_start + 4096]
-            try:
-                await app.bot.send_message(chat_id=user_id, text=chunk)
-            except Exception as exc:
-                logger.warning("Failed to send cron notification to %d: %s", user_id, exc)
-                break
-    except Exception:
-        logger.exception("Error in _notify_user for user %d", user_id)
-
-
 async def run_due_jobs() -> list[dict]:
     now_iso = _now_iso()
     due = db.get_due_cron_jobs(now_iso)
@@ -199,9 +129,6 @@ async def run_due_jobs() -> list[dict]:
             "next_run": next_run,
             "result": summary,
         })
-
-        if not _is_self_prompt(job["command"]):
-            await _notify_user(job["user_id"], job["name"], summary)
 
     return results
 
