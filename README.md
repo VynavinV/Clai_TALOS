@@ -114,18 +114,61 @@ docker compose logs -f talos
 docker compose down
 ```
 
-Image mode (pull from GitHub Container Registry):
+Image mode (pull from GitHub Container Registry) aka Docker compose:
 
 ```bash
-# If you are in this repository:
-docker compose -f docker-compose.release.yml up -d
+name: Docker Image Release
 
-# Optional: choose a specific tag (example)
-TALOS_TAG=v0.1.0 docker compose -f docker-compose.release.yml up -d
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
 
-# Or use the compose file directly from GitHub without cloning source:
-curl -L -o docker-compose.yml https://raw.githubusercontent.com/VynavinV/Clai_TALOS/main/docker-compose.release.yml
-docker compose up -d
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/clai-talos
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
+            type=ref,event=tag
+            type=sha,prefix=sha-
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
 ```
 
 Open the dashboard at `http://localhost:8080`.
