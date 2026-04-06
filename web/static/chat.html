@@ -324,6 +324,7 @@ const state = {
   history: [],
   isSending: false,
   pendingAttachment: null,
+  csrfToken: '',
 };
 
 function pickBestMainModel(settings, models) {
@@ -529,8 +530,33 @@ async function ensureAuth() {
   }
 }
 
+async function ensureCsrfToken(force) {
+  if (!force && state.csrfToken) return state.csrfToken;
+
+  const res = await fetch('/api/csrf');
+  if (res.status === 401) {
+    window.location.href = '/';
+    throw new Error('Unauthorized');
+  }
+
+  let data;
+  try {
+    data = await res.json();
+  } catch (e) {
+    throw new Error('Failed to refresh CSRF token');
+  }
+
+  if (!res.ok || !data || !data.csrf_token) {
+    throw new Error((data && data.error) || ('Failed to refresh CSRF token (status ' + res.status + ')'));
+  }
+
+  state.csrfToken = String(data.csrf_token || '');
+  return state.csrfToken;
+}
+
 async function boot() {
   await ensureAuth();
+  await ensureCsrfToken(true);
 
   const settingsRes = await fetch('/api/settings');
   if (settingsRes.status === 401) {
@@ -562,29 +588,48 @@ async function callBackendChat(text, attachment) {
   const payload = {
     message: text,
     attachment: attachment || null,
+    csrf_token: await ensureCsrfToken(false),
   };
-  console.log('callBackendChat: sending', JSON.stringify(payload).slice(0, 200));
-  const res = await fetch('/api/chat', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  console.log('callBackendChat: response status=', res.status);
-  if (res.status === 401) {
-    window.location.href = '/';
-    throw new Error('Unauthorized');
+
+  async function postChat(body) {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (res.status === 401) {
+      window.location.href = '/';
+      throw new Error('Unauthorized');
+    }
+
+    let data;
+    try {
+      data = await res.json();
+    } catch (e) {
+      throw new Error('Server returned invalid JSON (status ' + res.status + ')');
+    }
+
+    return { res: res, data: data };
   }
-  let data;
-  try {
-    data = await res.json();
-    console.log('callBackendChat: response data=', data);
-  } catch (e) {
-    throw new Error('Server returned invalid JSON (status ' + res.status + ')');
+
+  var first = await postChat(payload);
+  if (first.res.ok && first.data && first.data.ok) {
+    return first.data.events || [];
   }
-  if (!res.ok || !data.ok) {
-    throw new Error((data && data.error) || 'Chat request failed (status ' + res.status + ')');
+
+  var firstError = String((first.data && first.data.error) || '').toLowerCase();
+  var csrfExpired = first.res.status === 403 && firstError.indexOf('csrf') !== -1;
+  if (csrfExpired) {
+    payload.csrf_token = await ensureCsrfToken(true);
+    var second = await postChat(payload);
+    if (second.res.ok && second.data && second.data.ok) {
+      return second.data.events || [];
+    }
+    throw new Error((second.data && second.data.error) || ('Chat request failed (status ' + second.res.status + ')'));
   }
-  return data.events || [];
+
+  throw new Error((first.data && first.data.error) || ('Chat request failed (status ' + first.res.status + ')'));
 }
 
 async function sendMessage() {

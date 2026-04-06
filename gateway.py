@@ -13,6 +13,7 @@ import json
 import logging
 import mimetypes
 import html as html_mod
+import sys
 from aiohttp import web
 
 import app_paths
@@ -22,20 +23,49 @@ logger = logging.getLogger("talos.gateway")
 _base_url: str | None = None
 
 
+def _resolve_tailscale_bin() -> str | None:
+    import shutil
+
+    configured = str(os.getenv("TAILSCALE_BIN", "")).strip().strip('"')
+    candidates: list[str] = [configured] if configured else []
+
+    for cmd in ("tailscale", "tailscale.exe"):
+        found = shutil.which(cmd)
+        if found:
+            candidates.append(found)
+
+    if sys.platform == "win32":
+        program_files = os.getenv("ProgramFiles") or r"C:\Program Files"
+        program_files_x86 = os.getenv("ProgramFiles(x86)") or r"C:\Program Files (x86)"
+        local_app_data = os.getenv("LOCALAPPDATA") or os.path.expanduser(r"~\AppData\Local")
+        candidates.extend([
+            os.path.join(program_files, "Tailscale", "tailscale.exe"),
+            os.path.join(program_files_x86, "Tailscale", "tailscale.exe"),
+            os.path.join(local_app_data, "Programs", "Tailscale", "tailscale.exe"),
+            os.path.join(local_app_data, "Tailscale", "tailscale.exe"),
+        ])
+
+    for candidate in candidates:
+        candidate = str(candidate or "").strip().strip('"')
+        if candidate and os.path.isfile(candidate):
+            return candidate
+    return None
+
+
 def _get_base_url() -> str:
     """Return the public base URL (Tailscale Funnel) or fall back to localhost."""
     global _base_url
     if _base_url is not None:
         return _base_url
 
-    import shutil
     import subprocess
 
     # Try Tailscale hostname first
-    if shutil.which("tailscale"):
+    tailscale_bin = _resolve_tailscale_bin()
+    if tailscale_bin:
         try:
             result = subprocess.run(
-                ["tailscale", "status", "--json"],
+                [tailscale_bin, "status", "--json"],
                 capture_output=True, text=True, timeout=5
             )
             if result.returncode == 0:
@@ -45,7 +75,7 @@ def _get_base_url() -> str:
                 if dns_name:
                     # Check if funnel is active
                     fn = subprocess.run(
-                        ["tailscale", "funnel", "status"],
+                        [tailscale_bin, "funnel", "status"],
                         capture_output=True, text=True, timeout=5
                     )
                     port = os.getenv("WEB_PORT", "8080")

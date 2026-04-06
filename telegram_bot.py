@@ -993,7 +993,7 @@ async def handle_api_onboarding_gemini(request):
 async def _download_himalaya() -> str | None:
     import platform as _platform
     import tarfile
-    import tempfile
+    import urllib.request
 
     system = _platform.system().lower()
     machine = _platform.machine().lower()
@@ -1022,6 +1022,7 @@ async def _download_himalaya() -> str | None:
     bin_dir = app_paths.bin_dir()
     os.makedirs(bin_dir, exist_ok=True)
     bin_path = os.path.join(bin_dir, "himalaya" if os_name != "windows" else "himalaya.exe")
+    tgz_path = bin_path + ".tgz"
 
     if os.path.isfile(bin_path):
         try:
@@ -1036,19 +1037,38 @@ async def _download_himalaya() -> str | None:
         except Exception:
             pass
 
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "curl", "-fsSL", "--connect-timeout", "15", "-o", bin_path + ".tgz", download_url,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
-        if proc.returncode != 0:
-            return None
-    except Exception:
+    downloaded = False
+    curl_bin = shutil.which("curl")
+    if curl_bin:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                curl_bin, "-fsSL", "--connect-timeout", "15", "-o", tgz_path, download_url,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await asyncio.wait_for(proc.communicate(), timeout=120)
+            downloaded = proc.returncode == 0
+        except Exception:
+            downloaded = False
+
+    if not downloaded:
+        def _download_with_urllib() -> None:
+            req = urllib.request.Request(
+                download_url,
+                headers={"User-Agent": "Clai-TALOS/1.0"},
+            )
+            with urllib.request.urlopen(req, timeout=30) as src, open(tgz_path, "wb") as dst:
+                shutil.copyfileobj(src, dst)
+
+        try:
+            await asyncio.wait_for(asyncio.to_thread(_download_with_urllib), timeout=120)
+            downloaded = True
+        except Exception:
+            downloaded = False
+
+    if not downloaded:
         return None
 
-    tgz_path = bin_path + ".tgz"
     if not os.path.isfile(tgz_path) or os.path.getsize(tgz_path) < 1000:
         if os.path.isfile(tgz_path):
             os.remove(tgz_path)
@@ -1307,6 +1327,17 @@ def _read_env_keys():
 @require_auth
 async def handle_api_keys_get(request):
     return web.json_response(_read_env_keys())
+
+
+@require_auth
+async def handle_api_csrf(request):
+    cleanup_csrf()
+    token = generate_csrf()
+    return web.json_response({
+        "ok": True,
+        "csrf_token": token,
+        "expires_in": CSRF_MAX_AGE,
+    })
 
 
 @require_auth_csrf
@@ -2041,6 +2072,7 @@ async def main():
     web_app.router.add_post("/login", handle_login)
     web_app.router.add_post("/logout", handle_logout)
     web_app.router.add_get("/api/status", handle_status)
+    web_app.router.add_get("/api/csrf", handle_api_csrf)
     web_app.router.add_get("/api/keys", handle_api_keys_get)
     web_app.router.add_post("/api/keys", handle_api_keys_post)
     web_app.router.add_get("/api/settings", handle_api_settings_get)

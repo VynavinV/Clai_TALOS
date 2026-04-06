@@ -4,6 +4,7 @@ import logging
 import asyncio
 import time
 from typing import Any
+from urllib.parse import urlparse, urlunparse
 from dotenv import load_dotenv
 import app_paths
 
@@ -102,7 +103,51 @@ _cerebras_client = None
 _openrouter_client = None
 _ollama_client = None
 
-_NVIDIA_BASE_URL = os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
+_NVIDIA_DEFAULT_BASE_URL = "https://integrate.api.nvidia.com/v1"
+_NVIDIA_OPENAI_API_PATH = "/v1"
+_NVIDIA_MODELS_PATH = "/models"
+
+
+def _normalize_nvidia_base_url(base_url: str | None) -> str:
+    value = str(base_url or "").strip().strip('"').strip("'")
+    if not value:
+        return _NVIDIA_DEFAULT_BASE_URL
+
+    if "://" not in value:
+        value = f"https://{value}"
+
+    parsed = urlparse(value)
+    host = (parsed.netloc or "").lower()
+    if not host:
+        return _NVIDIA_DEFAULT_BASE_URL
+
+    # Users sometimes paste docs URLs by mistake; force the real API host.
+    if "docs.api.nvidia.com" in host:
+        return _NVIDIA_DEFAULT_BASE_URL
+
+    path = (parsed.path or "").strip()
+    if path.endswith(_NVIDIA_MODELS_PATH):
+        path = path[: -len(_NVIDIA_MODELS_PATH)]
+    if path.endswith("/chat/completions"):
+        path = path[: -len("/chat/completions")]
+
+    parts = [p for p in path.split("/") if p]
+    if "v1" in parts:
+        v1_index = parts.index("v1")
+        normalized_path = "/" + "/".join(parts[: v1_index + 1])
+    else:
+        normalized_path = _NVIDIA_OPENAI_API_PATH
+
+    return urlunparse((parsed.scheme or "https", parsed.netloc, normalized_path, "", "", ""))
+
+
+def _nvidia_endpoint(path: str) -> str:
+    base = _normalize_nvidia_base_url(_NVIDIA_BASE_URL).rstrip("/")
+    suffix = path if path.startswith("/") else f"/{path}"
+    return f"{base}{suffix}"
+
+
+_NVIDIA_BASE_URL = _normalize_nvidia_base_url(os.getenv("NVIDIA_BASE_URL", _NVIDIA_DEFAULT_BASE_URL))
 _CEREBRAS_BASE_URL = os.getenv("CEREBRAS_BASE_URL", "https://api.cerebras.ai/v1")
 _OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 _OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
@@ -172,7 +217,7 @@ def reload_clients():
     _ollama_client = None
     load_dotenv(dotenv_path=app_paths.env_file_path(), override=True)
     _CLIENT_BASE_URL = os.getenv("CLIENT_BASE_URL", "https://api.z.ai/api/coding/paas/v4")
-    _NVIDIA_BASE_URL = os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
+    _NVIDIA_BASE_URL = _normalize_nvidia_base_url(os.getenv("NVIDIA_BASE_URL", _NVIDIA_DEFAULT_BASE_URL))
     _CEREBRAS_BASE_URL = os.getenv("CEREBRAS_BASE_URL", "https://api.cerebras.ai/v1")
     _OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
     _OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
@@ -237,7 +282,7 @@ def _get_nvidia_client():
         api_key = os.getenv("NVIDIA_API_KEY")
         if not api_key:
             raise RuntimeError("NVIDIA_API_KEY not set")
-        _nvidia_client = AsyncOpenAI(api_key=api_key, base_url=_NVIDIA_BASE_URL)
+        _nvidia_client = AsyncOpenAI(api_key=api_key, base_url=_normalize_nvidia_base_url(_NVIDIA_BASE_URL))
     return _nvidia_client
 
 
@@ -306,7 +351,12 @@ def _tools_to_anthropic(tools: list[dict] | None) -> list[dict] | None:
     return anthropic_tools
 
 
-async def call_openai(model_id: str, messages: list[dict], tools: list[dict] | None) -> dict:
+async def call_openai(
+    model_id: str,
+    messages: list[dict],
+    tools: list[dict] | None,
+    runtime_profile: dict[str, Any] | None = None,
+) -> dict:
     client = _get_openai_client()
     kwargs: dict[str, Any] = {
         "model": model_id,
@@ -343,7 +393,12 @@ async def call_openai(model_id: str, messages: list[dict], tools: list[dict] | N
     }
 
 
-async def call_anthropic(model_id: str, messages: list[dict], tools: list[dict] | None) -> dict:
+async def call_anthropic(
+    model_id: str,
+    messages: list[dict],
+    tools: list[dict] | None,
+    runtime_profile: dict[str, Any] | None = None,
+) -> dict:
     client = _get_anthropic_client()
 
     system_text = None
@@ -417,7 +472,12 @@ async def call_anthropic(model_id: str, messages: list[dict], tools: list[dict] 
     }
 
 
-async def call_gemini(model_id: str, messages: list[dict], tools: list[dict] | None) -> dict:
+async def call_gemini(
+    model_id: str,
+    messages: list[dict],
+    tools: list[dict] | None,
+    runtime_profile: dict[str, Any] | None = None,
+) -> dict:
     client = _get_gemini_client()
 
     contents = []
@@ -530,7 +590,12 @@ async def call_gemini(model_id: str, messages: list[dict], tools: list[dict] | N
     }
 
 
-async def call_zhipu(model_id: str, messages: list[dict], tools: list[dict] | None) -> dict:
+async def call_zhipu(
+    model_id: str,
+    messages: list[dict],
+    tools: list[dict] | None,
+    runtime_profile: dict[str, Any] | None = None,
+) -> dict:
     client = _get_zhipu_client()
 
     response = await asyncio.to_thread(
@@ -571,28 +636,71 @@ async def call_zhipu(model_id: str, messages: list[dict], tools: list[dict] | No
     }
 
 
-async def call_nvidia(model_id: str, messages: list[dict], tools: list[dict] | None) -> dict:
+async def call_nvidia(
+    model_id: str,
+    messages: list[dict],
+    tools: list[dict] | None,
+    runtime_profile: dict[str, Any] | None = None,
+) -> dict:
     client = _get_nvidia_client()
     model_id = _normalize_nvidia_model_id(model_id)
+    runtime = runtime_profile or {}
+    speed_mode = _normalize_speed_mode(runtime.get("speed_mode"))
+    reasoning_enabled = bool(runtime.get("reasoning_enabled", True))
+
+    max_tokens_by_speed = {
+        "quick": 1024,
+        "fast": 2048,
+        "normal": 4096,
+    }
+
     kwargs: dict[str, Any] = {
         "model": model_id,
         "messages": messages,
         "temperature": 1,
         "top_p": 1,
-        "max_tokens": 16384,
+        "max_tokens": max_tokens_by_speed.get(speed_mode, 4096),
     }
     if model_id.startswith("z-ai/glm4"):
         kwargs["extra_body"] = {
             "chat_template_kwargs": {
-                "enable_thinking": True,
-                "clear_thinking": False,
+                "enable_thinking": reasoning_enabled,
+                "clear_thinking": not reasoning_enabled,
             }
         }
     if tools:
         kwargs["tools"] = _tools_to_openai(tools)
         kwargs["tool_choice"] = "auto"
 
-    response = await client.chat.completions.create(**kwargs)
+    try:
+        response = await client.chat.completions.create(**kwargs)
+    except Exception as exc:
+        lowered = str(exc).lower()
+        if "404" not in lowered and "not found" not in lowered:
+            raise
+
+        last_exc = exc
+        for fallback_model in _pick_nvidia_fallback_models(model_id):
+            retry_kwargs = dict(kwargs)
+            retry_kwargs["model"] = fallback_model
+            if fallback_model.startswith("z-ai/glm4"):
+                retry_kwargs["extra_body"] = {
+                    "chat_template_kwargs": {
+                        "enable_thinking": reasoning_enabled,
+                        "clear_thinking": not reasoning_enabled,
+                    }
+                }
+            else:
+                retry_kwargs.pop("extra_body", None)
+            try:
+                response = await client.chat.completions.create(**retry_kwargs)
+                model_id = fallback_model
+                break
+            except Exception as retry_exc:
+                last_exc = retry_exc
+        else:
+            raise last_exc
+
     choice = response.choices[0]
     reply_text = choice.message.content or ""
 
@@ -619,7 +727,12 @@ async def call_nvidia(model_id: str, messages: list[dict], tools: list[dict] | N
     }
 
 
-async def call_cerebras(model_id: str, messages: list[dict], tools: list[dict] | None) -> dict:
+async def call_cerebras(
+    model_id: str,
+    messages: list[dict],
+    tools: list[dict] | None,
+    runtime_profile: dict[str, Any] | None = None,
+) -> dict:
     client = _get_cerebras_client()
     kwargs: dict[str, Any] = {
         "model": model_id,
@@ -656,7 +769,12 @@ async def call_cerebras(model_id: str, messages: list[dict], tools: list[dict] |
     }
 
 
-async def call_openrouter(model_id: str, messages: list[dict], tools: list[dict] | None) -> dict:
+async def call_openrouter(
+    model_id: str,
+    messages: list[dict],
+    tools: list[dict] | None,
+    runtime_profile: dict[str, Any] | None = None,
+) -> dict:
     client = _get_openrouter_client()
     kwargs: dict[str, Any] = {
         "model": model_id,
@@ -693,7 +811,12 @@ async def call_openrouter(model_id: str, messages: list[dict], tools: list[dict]
     }
 
 
-async def call_ollama(model_id: str, messages: list[dict], tools: list[dict] | None) -> dict:
+async def call_ollama(
+    model_id: str,
+    messages: list[dict],
+    tools: list[dict] | None,
+    runtime_profile: dict[str, Any] | None = None,
+) -> dict:
     client = _get_ollama_client()
     kwargs: dict[str, Any] = {
         "model": model_id,
@@ -816,7 +939,39 @@ def _pick_preferred(preferences: list[str], candidates: list[str], fallback: str
 
 _MODEL_CALL_TIMEOUT_S = int(os.getenv("MODEL_CALL_TIMEOUT_S", "120"))
 
-async def call_model(model: str, messages: list[dict], tools: list[dict] | None) -> dict:
+
+def _normalize_speed_mode(speed_mode: str | None) -> str:
+    mode = str(speed_mode or "").strip().lower()
+    if mode in {"quick", "fast", "normal"}:
+        return mode
+    return "normal"
+
+
+def _normalize_runtime_profile(
+    speed_mode: str | None = None,
+    reasoning_enabled: bool | None = None,
+) -> dict[str, Any]:
+    return {
+        "speed_mode": _normalize_speed_mode(speed_mode),
+        "reasoning_enabled": True if reasoning_enabled is None else bool(reasoning_enabled),
+    }
+
+
+def _model_timeout_for_speed(speed_mode: str) -> int:
+    base = max(30, min(_MODEL_CALL_TIMEOUT_S, 600))
+    if speed_mode == "quick":
+        return max(30, min(base, 70))
+    if speed_mode == "fast":
+        return max(30, min(base, 85))
+    return base
+
+async def call_model(
+    model: str,
+    messages: list[dict],
+    tools: list[dict] | None,
+    speed_mode: str | None = None,
+    reasoning_enabled: bool | None = None,
+) -> dict:
     provider, model_id = resolve_model(model)
     caller = _CALLERS.get(provider)
     if not caller:
@@ -825,23 +980,51 @@ async def call_model(model: str, messages: list[dict], tools: list[dict] | None)
         cfg = _PROVIDERS.get(provider, {})
         env_key = cfg.get("env_key", "API_KEY")
         return {"content": f"Model \"{model}\" requires provider \"{provider}\", but {env_key} is not set. Add your API key in Settings to use this model.", "tool_calls": [], "message": None}
+
+    runtime_profile = _normalize_runtime_profile(speed_mode=speed_mode, reasoning_enabled=reasoning_enabled)
     try:
-        timeout = max(30, min(_MODEL_CALL_TIMEOUT_S, 600))
-        return await asyncio.wait_for(caller(model_id, messages, tools), timeout=timeout)
+        timeout = _model_timeout_for_speed(runtime_profile["speed_mode"])
+        return await asyncio.wait_for(caller(model_id, messages, tools, runtime_profile), timeout=timeout)
     except asyncio.TimeoutError:
-        logger.error(f"{provider} call timed out after {timeout}s for model {model_id}")
+        logger.error(
+            f"{provider} call timed out after {timeout}s for model {model_id} "
+            f"(speed={runtime_profile['speed_mode']}, reasoning={runtime_profile['reasoning_enabled']})"
+        )
         return {"content": f"Model call to {provider}/{model_id} timed out after {timeout}s. The API may be overloaded.", "tool_calls": [], "message": None}
     except Exception as e:
         logger.exception(f"{provider} call failed for model {model_id}")
+        if provider == "nvidia":
+            err = str(e)
+            if "404" in err.lower() or "not found" in err.lower():
+                return {
+                    "content": (
+                        "NVIDIA returned 404 for the current model/request. "
+                        "Use `nvidia/z-ai/glm4.7` and keep `NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1`."
+                    ),
+                    "tool_calls": [],
+                    "message": None,
+                }
         return {"content": f"Error communicating with {provider}: {e}", "tool_calls": [], "message": None}
 
 
-async def call_model_simple(model: str, system: str, prompt: str) -> str:
+async def call_model_simple(
+    model: str,
+    system: str,
+    prompt: str,
+    speed_mode: str | None = None,
+    reasoning_enabled: bool | None = None,
+) -> str:
     messages = []
     if system:
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
-    result = await call_model(model, messages, None)
+    result = await call_model(
+        model,
+        messages,
+        None,
+        speed_mode=speed_mode,
+        reasoning_enabled=reasoning_enabled,
+    )
     return result.get("content", "")
 
 
@@ -926,7 +1109,7 @@ def _fetch_nvidia_models(api_key: str) -> list[str]:
     models = []
     try:
         r = httpx.get(
-            f"{_NVIDIA_BASE_URL}/models",
+            _nvidia_endpoint(_NVIDIA_MODELS_PATH),
             headers={"Authorization": f"Bearer {api_key}"},
             timeout=10,
         )
@@ -937,6 +1120,30 @@ def _fetch_nvidia_models(api_key: str) -> list[str]:
     except Exception:
         pass
     return models if models else list(_PROVIDERS["nvidia"]["models"].values())
+
+
+def _pick_nvidia_fallback_models(current_model_id: str) -> list[str]:
+    current = _normalize_nvidia_model_id(current_model_id)
+    preferred = ["z-ai/glm4.7", "z-ai/glm5"]
+
+    api_key = os.getenv("NVIDIA_API_KEY", "").strip()
+    available: list[str] = []
+    if api_key:
+        try:
+            available = _fetch_nvidia_models(api_key)
+        except Exception:
+            available = []
+
+    out: list[str] = []
+    for model in preferred:
+        if model != current and (not available or model in available):
+            out.append(model)
+
+    for model in available:
+        if model != current and model not in out:
+            out.append(model)
+
+    return out
 
 
 def _fetch_cerebras_models(api_key: str) -> list[str]:
@@ -1086,7 +1293,7 @@ def list_provider_models() -> list[str]:
     if os.getenv("NVIDIA_API_KEY"):
         try:
             r = httpx.get(
-                f"{_NVIDIA_BASE_URL}/models",
+                _nvidia_endpoint(_NVIDIA_MODELS_PATH),
                 headers={"Authorization": f"Bearer {os.getenv('NVIDIA_API_KEY')}"},
                 timeout=10,
             )
@@ -1179,7 +1386,7 @@ def list_models_with_provider() -> list[str]:
     if os.getenv("NVIDIA_API_KEY"):
         try:
             import httpx
-            r = httpx.get(f"{_NVIDIA_BASE_URL}/models", headers={"Authorization": f"Bearer {os.getenv('NVIDIA_API_KEY')}"}, timeout=10)
+            r = httpx.get(_nvidia_endpoint(_NVIDIA_MODELS_PATH), headers={"Authorization": f"Bearer {os.getenv('NVIDIA_API_KEY')}"}, timeout=10)
             r.raise_for_status()
             for m in r.json().get("data", []):
                 mid = m["id"]
