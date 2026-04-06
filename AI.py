@@ -62,7 +62,7 @@ def reload_clients():
     _tools_guide_cache = None
     model_router.reload_clients()
     load_dotenv(override=True)
-    _MAX_TOOL_ROUNDS = int(os.getenv("MAX_TOOL_ROUNDS", "5"))
+_MAX_TOOL_ROUNDS = int(os.getenv("MAX_TOOL_ROUNDS", "20"))
     _MAX_TOOL_CALLS_PER_ROUND = int(os.getenv("MAX_TOOL_CALLS_PER_ROUND", "20"))
     _MAX_COMMAND_TIMEOUT = int(os.getenv("MAX_COMMAND_TIMEOUT", "120"))
     _MAX_WORKFLOW_STEPS = int(os.getenv("MAX_WORKFLOW_STEPS", "12"))
