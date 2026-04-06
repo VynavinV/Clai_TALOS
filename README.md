@@ -99,7 +99,9 @@ Go to `http://localhost:8080` and complete signup + onboarding.
 
 ### Use Docker
 
-From the repository root:
+Use either local build mode (for development) or image mode (no source build).
+
+Local build mode (from repository root):
 
 ```bash
 # Build and start
@@ -112,6 +114,20 @@ docker compose logs -f talos
 docker compose down
 ```
 
+Image mode (pull from GitHub Container Registry):
+
+```bash
+# If you are in this repository:
+docker compose -f docker-compose.release.yml up -d
+
+# Optional: choose a specific tag (example)
+TALOS_TAG=v0.1.0 docker compose -f docker-compose.release.yml up -d
+
+# Or use the compose file directly from GitHub without cloning source:
+curl -L -o docker-compose.yml https://raw.githubusercontent.com/VynavinV/Clai_TALOS/main/docker-compose.release.yml
+docker compose up -d
+```
+
 Open the dashboard at `http://localhost:8080`.
 
 Notes:
@@ -122,6 +138,12 @@ Notes:
 
 ```bash
 WEB_PORT=8090 docker compose up -d --build
+```
+
+In image mode, use:
+
+```bash
+WEB_PORT=8090 docker compose -f docker-compose.release.yml up -d
 ```
 
 If `docker: command not found` appears:
@@ -925,6 +947,23 @@ CI release build:
 - Workflow: `.github/workflows/windows-exe-release.yml`
 - Trigger: manual dispatch or git tags matching `v*`
 - Tagged builds publish EXE zip + checksums to GitHub Releases
+
+### Build/Publish Docker Image
+
+Docker release image workflow:
+
+- Workflow: `.github/workflows/docker-image-release.yml`
+- Registry: `ghcr.io/vynavinv/clai-talos`
+- Triggers:
+      - Push to `main` (updates `latest`)
+      - Tags matching `v*` (publishes version tags)
+      - Manual dispatch
+
+Use the image with:
+
+```bash
+docker compose -f docker-compose.release.yml up -d
+```
 
 ### Build macOS PKG
 
