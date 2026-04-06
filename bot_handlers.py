@@ -31,6 +31,8 @@ HELP_TEXT = (
     "Commands:\n"
     "/start - Start or restart\n"
     "/model - Change AI model\n"
+    "/speed - Set response speed (quick|fast|normal)\n"
+    "/reasoning - Toggle deep reasoning (on|off)\n"
     "/fast - Use Cerebras for next message\n"
     "/clear - Clear chat history\n"
     "/help - Show this message\n"
@@ -46,6 +48,15 @@ _user_process_locks: dict[int, asyncio.Lock] = {}
 _STREAM_MIN_CHARS = max(60, int(os.getenv("TALOS_STREAM_MIN_CHARS", "120")))
 _STREAM_MAX_EDITS = max(4, int(os.getenv("TALOS_STREAM_MAX_EDITS", "18")))
 _STREAM_EDIT_DELAY_S = max(0.08, float(os.getenv("TALOS_STREAM_EDIT_DELAY_S", "0.16")))
+
+_LOW_VALUE_PROGRESS_RE = re.compile(
+    r"^(?:ok(?:ay)?|got it|on it|working on it|one sec|one second|sure|understood)[.!]?$",
+    re.IGNORECASE,
+)
+_LEADING_ACK_RE = re.compile(
+    r"^(?:ok(?:ay)?|got it|on it|sure|understood|sounds good)[.!]?\s+",
+    re.IGNORECASE,
+)
 
 _ONBOARDING_STEP_KEY = "onboarding_step"
 _ONBOARDING_NAME_KEY = "onboarding_name"
@@ -83,7 +94,25 @@ def _get_user_process_lock(user_id: int) -> asyncio.Lock:
 def _sanitize_outgoing(text: str) -> str:
     normalized = unicodedata.normalize("NFKC", text or "")
     normalized = normalized.replace("\r\n", "\n").replace("\r", "\n")
-    normalized = re.sub(r"<toolcall>.*?</(?:toolcall|argvalue)>", "", normalized, flags=re.DOTALL).strip()
+    normalized = re.sub(
+        r"<toolcall\b[^>]*>.*?(?:</toolcall>|$)",
+        "",
+        normalized,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    normalized = re.sub(
+        r"<argkey\b[^>]*>\s*[^<]*\s*</argkey>\s*<argvalue\b[^>]*>.*?</argvalue>",
+        "",
+        normalized,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    normalized = re.sub(
+        r"<argvalue\b[^>]*>.*?</argvalue>",
+        "",
+        normalized,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    normalized = re.sub(r"</?(?:argkey|argvalue|toolcall)\b[^>]*>", "", normalized, flags=re.IGNORECASE)
     cleaned = []
     for ch in normalized:
         if ch in ("\n", "\t"):
@@ -93,7 +122,11 @@ def _sanitize_outgoing(text: str) -> str:
             cleaned.append(ch)
     out = "".join(cleaned)
     out = re.sub(r"\n{3,}", "\n\n", out)
-    return out.strip()
+    out = out.strip()
+    out = _LEADING_ACK_RE.sub("", out).strip()
+    if _LOW_VALUE_PROGRESS_RE.match(out):
+        return ""
+    return out
 
 
 def _make_send_func(chat):
@@ -133,10 +166,18 @@ def _make_send_func(chat):
                         return
 
                 if cleaned:
+                    sent = False
                     if stream:
-                        await _stream_send(chat, cleaned, locked=True)
+                        sent = await _stream_send(chat, cleaned, locked=True)
                     else:
-                        await _safe_send(chat, cleaned, locked=True)
+                        sent = await _safe_send(chat, cleaned, locked=True)
+
+                    # Avoid silent final replies when sanitization strips everything.
+                    if stream and not sent:
+                        await _send_message_with_retry(
+                            chat,
+                            "I could not produce a clear final response for that request. Please try again.",
+                        )
         except Exception:
             logger.exception("Failed to send message to Telegram")
     return send_func
@@ -155,6 +196,43 @@ def _model_keyboard(current: str, models: list[str]) -> InlineKeyboardMarkup:
         label = f"{'✓ ' if model_id == current else ''}{model_id}"
         buttons.append([InlineKeyboardButton(label, callback_data=f"model:{model_id}")])
     return InlineKeyboardMarkup(buttons)
+
+
+def _performance_keyboard(speed_mode: str, reasoning_enabled: bool) -> InlineKeyboardMarkup:
+    mode = str(speed_mode or "normal").lower()
+    buttons = [
+        [
+            InlineKeyboardButton(f"{'✓ ' if mode == 'quick' else ''}Quick", callback_data="speed:quick"),
+            InlineKeyboardButton(f"{'✓ ' if mode == 'fast' else ''}Fast", callback_data="speed:fast"),
+            InlineKeyboardButton(f"{'✓ ' if mode == 'normal' else ''}Normal", callback_data="speed:normal"),
+        ],
+        [
+            InlineKeyboardButton(f"{'✓ ' if reasoning_enabled else ''}Reasoning On", callback_data="reasoning:on"),
+            InlineKeyboardButton(f"{'✓ ' if not reasoning_enabled else ''}Reasoning Off", callback_data="reasoning:off"),
+        ],
+    ]
+    return InlineKeyboardMarkup(buttons)
+
+
+def _performance_status_text(speed_mode: str, reasoning_enabled: bool) -> str:
+    mode = str(speed_mode or "normal").capitalize()
+    reasoning = "On" if reasoning_enabled else "Off"
+    return (
+        f"Speed mode: **{mode}**\n"
+        f"Reasoning: **{reasoning}**\n\n"
+        "Use /speed quick|fast|normal or /reasoning on|off"
+    )
+
+
+def _parse_reasoning_value(value: str, current: bool) -> bool | None:
+    lowered = str(value or "").strip().lower()
+    if lowered in {"on", "true", "1", "yes", "y"}:
+        return True
+    if lowered in {"off", "false", "0", "no", "n"}:
+        return False
+    if lowered == "toggle":
+        return not current
+    return None
 
 
 async def _ensure_onboarding(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str) -> bool:
@@ -235,6 +313,71 @@ async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+async def cmd_speed(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    uid = update.effective_user.id
+    if not db.has_user_profile(uid):
+        context.user_data[_ONBOARDING_STEP_KEY] = "name"
+        await update.message.reply_text("Please complete onboarding first. What's your name?")
+        return
+
+    current_mode = db.get_speed_mode(uid)
+    current_reasoning = db.get_reasoning_enabled(uid)
+
+    if context.args:
+        requested = str(context.args[0]).strip().lower()
+        if requested not in {"quick", "fast", "normal"}:
+            await update.message.reply_text(
+                "Usage: /speed quick|fast|normal\n"
+                + _performance_status_text(current_mode, current_reasoning),
+                parse_mode="Markdown",
+            )
+            return
+
+        new_mode = db.set_speed_mode(uid, requested)
+        current_reasoning = db.get_reasoning_enabled(uid)
+        await update.message.reply_text(
+            _performance_status_text(new_mode, current_reasoning),
+            reply_markup=_performance_keyboard(new_mode, current_reasoning),
+            parse_mode="Markdown",
+        )
+        return
+
+    await update.message.reply_text(
+        _performance_status_text(current_mode, current_reasoning),
+        reply_markup=_performance_keyboard(current_mode, current_reasoning),
+        parse_mode="Markdown",
+    )
+
+
+async def cmd_reasoning(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    uid = update.effective_user.id
+    if not db.has_user_profile(uid):
+        context.user_data[_ONBOARDING_STEP_KEY] = "name"
+        await update.message.reply_text("Please complete onboarding first. What's your name?")
+        return
+
+    current_mode = db.get_speed_mode(uid)
+    current_reasoning = db.get_reasoning_enabled(uid)
+
+    if context.args:
+        parsed = _parse_reasoning_value(str(context.args[0]), current_reasoning)
+        if parsed is None:
+            await update.message.reply_text(
+                "Usage: /reasoning on|off|toggle\n"
+                + _performance_status_text(current_mode, current_reasoning),
+                parse_mode="Markdown",
+            )
+            return
+
+        current_reasoning = db.set_reasoning_enabled(uid, parsed)
+
+    await update.message.reply_text(
+        _performance_status_text(current_mode, current_reasoning),
+        reply_markup=_performance_keyboard(current_mode, current_reasoning),
+        parse_mode="Markdown",
+    )
+
+
 async def callback_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     uid = update.effective_user.id
     if not db.has_user_profile(uid):
@@ -253,6 +396,57 @@ async def callback_model(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await query.edit_message_text(
         f"Model set to **{model_id}**",
         reply_markup=_model_keyboard(model_id, models),
+        parse_mode="Markdown",
+    )
+
+
+async def callback_speed(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    uid = update.effective_user.id
+    query = update.callback_query
+    await query.answer()
+
+    if not db.has_user_profile(uid):
+        await query.edit_message_text("Complete onboarding first.")
+        return
+
+    mode = "normal"
+    if query.data and ":" in query.data:
+        mode = query.data.split(":", 1)[1].strip().lower()
+    if mode not in {"quick", "fast", "normal"}:
+        mode = db.get_speed_mode(uid)
+
+    mode = db.set_speed_mode(uid, mode)
+    reasoning_enabled = db.get_reasoning_enabled(uid)
+    await query.edit_message_text(
+        _performance_status_text(mode, reasoning_enabled),
+        reply_markup=_performance_keyboard(mode, reasoning_enabled),
+        parse_mode="Markdown",
+    )
+
+
+async def callback_reasoning(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    uid = update.effective_user.id
+    query = update.callback_query
+    await query.answer()
+
+    if not db.has_user_profile(uid):
+        await query.edit_message_text("Complete onboarding first.")
+        return
+
+    current_mode = db.get_speed_mode(uid)
+    current_reasoning = db.get_reasoning_enabled(uid)
+
+    requested = "toggle"
+    if query.data and ":" in query.data:
+        requested = query.data.split(":", 1)[1].strip().lower()
+    parsed = _parse_reasoning_value(requested, current_reasoning)
+    if parsed is None:
+        parsed = current_reasoning
+
+    new_reasoning = db.set_reasoning_enabled(uid, parsed)
+    await query.edit_message_text(
+        _performance_status_text(current_mode, new_reasoning),
+        reply_markup=_performance_keyboard(current_mode, new_reasoning),
         parse_mode="Markdown",
     )
 
@@ -356,10 +550,10 @@ async def _edit_message_with_retry(message, text: str, max_attempts: int = 5) ->
             backoff = min(backoff * 2, 6)
 
 
-async def _stream_send(chat, text: str, locked: bool = False) -> None:
+async def _stream_send(chat, text: str, locked: bool = False) -> bool:
     sanitized = _sanitize_outgoing(text)
     if not sanitized:
-        return
+        return False
 
     async def _send_stream_chunks() -> None:
         remaining = sanitized
@@ -379,11 +573,12 @@ async def _stream_send(chat, text: str, locked: bool = False) -> None:
 
     if locked:
         await _send_stream_chunks()
-        return
+        return True
 
     lock = _get_chat_lock(chat.id)
     async with lock:
         await _send_stream_chunks()
+    return True
 
 
 async def _send_voice_with_retry(chat, audio_file, max_attempts: int = 4) -> None:
@@ -426,10 +621,10 @@ async def _send_photo_with_retry(chat, photo_file, caption: str | None = None, m
             backoff = min(backoff * 2, 6)
 
 
-async def _safe_send(chat, text: str, locked: bool = False) -> None:
+async def _safe_send(chat, text: str, locked: bool = False) -> bool:
     sanitized = _sanitize_outgoing(text)
     if not sanitized:
-        return
+        return False
 
     async def _send_chunks() -> None:
         remaining = sanitized
@@ -441,11 +636,12 @@ async def _safe_send(chat, text: str, locked: bool = False) -> None:
 
     if locked:
         await _send_chunks()
-        return
+        return True
 
     lock = _get_chat_lock(chat.id)
     async with lock:
         await _send_chunks()
+    return True
 
 
 async def _run_with_user_lock(user_id: int, chat, runner_coro):
@@ -498,7 +694,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     async def _runner():
         await core.process_message(uid, text, send_func, model_override=model_override)
 
-    await _run_with_user_lock(uid, chat, _runner)
+    try:
+        await _run_with_user_lock(uid, chat, _runner)
+    except Exception:
+        logger.exception("Error handling text message")
+        await update.message.reply_text("An internal error occurred while processing your message.")
 
 
 def _get_whisper_model():
@@ -621,10 +821,14 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("model", cmd_model))
+    app.add_handler(CommandHandler("speed", cmd_speed))
+    app.add_handler(CommandHandler("reasoning", cmd_reasoning))
     app.add_handler(CommandHandler("clear", cmd_clear))
     app.add_handler(CommandHandler("fast", cmd_fast))
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CallbackQueryHandler(callback_model, pattern=r"^model:"))
+    app.add_handler(CallbackQueryHandler(callback_speed, pattern=r"^speed:"))
+    app.add_handler(CallbackQueryHandler(callback_reasoning, pattern=r"^reasoning:"))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))

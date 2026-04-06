@@ -156,7 +156,6 @@ async def process_message(user_id: int, text: str, send_func, model_override: st
     try:
         watcher_task = asyncio.create_task(_real_activity_watcher(watchdog_state))
         watchdog_task = asyncio.create_task(_stuck_watchdog(send_func, watchdog_state, interrupt_queue))
-        await _send_with_optional_voice(send_func, "On it.")
         reply = await AI.respond(
             user_id=user_id,
             text=text,
@@ -170,7 +169,10 @@ async def process_message(user_id: int, text: str, send_func, model_override: st
         if reply and reply.strip():
             await _send_with_optional_voice(send_func, reply, stream=True)
         else:
-            await _send_with_optional_voice(send_func, "I ran out of processing rounds before finishing. Try breaking the task into smaller steps.")
+            await _send_with_optional_voice(
+                send_func,
+                "I could not produce a usable final response for that request. Please try again or split it into smaller steps.",
+            )
     except Exception as error:
         await _cancel_task(watchdog_task)
         await _cancel_task(watcher_task)

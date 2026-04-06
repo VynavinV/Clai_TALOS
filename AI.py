@@ -53,8 +53,66 @@ _MAX_SUBAGENT_WALL_TIMEOUT_S = int(os.getenv("MAX_SUBAGENT_WALL_TIMEOUT_S", "180
 _SUBAGENT_MAX_TELEGRAM_MESSAGES = int(os.getenv("SUBAGENT_MAX_TELEGRAM_MESSAGES", "3"))
 _SUBAGENT_MAX_TELEGRAM_MESSAGE_CHARS = int(os.getenv("SUBAGENT_MAX_TELEGRAM_MESSAGE_CHARS", "260"))
 _SUBAGENT_MIN_UPDATE_INTERVAL_S = float(os.getenv("SUBAGENT_MIN_UPDATE_INTERVAL_S", "30"))
+_VALID_SPEED_MODES = {"quick", "fast", "normal"}
 
 SendFunc = Callable[..., Awaitable[None]]
+
+
+def _normalize_speed_mode(speed_mode: str | None) -> str:
+    mode = str(speed_mode or "").strip().lower()
+    if mode in _VALID_SPEED_MODES:
+        return mode
+    return "normal"
+
+
+def _pick_runtime_model(base_model: str, speed_mode: str) -> str:
+    mode = _normalize_speed_mode(speed_mode)
+    if mode != "quick":
+        return base_model
+
+    fast_model = os.getenv("FAST_MODEL", "").strip()
+    if not fast_model:
+        return base_model
+
+    provider, _ = model_router.resolve_model(fast_model)
+    if model_router._provider_enabled(provider):
+        return fast_model
+    return base_model
+
+
+def _agent_limits_for_speed(speed_mode: str) -> tuple[int, int, int]:
+    mode = _normalize_speed_mode(speed_mode)
+    rounds = max(1, _MAX_TOOL_ROUNDS)
+    calls = max(1, _MAX_TOOL_CALLS_PER_ROUND)
+    timeout = max(60, min(int(_MAX_ORCHESTRATOR_WALL_TIMEOUT_S), 1800))
+
+    if mode == "quick":
+        return (
+            max(1, min(rounds, 2)),
+            max(1, min(calls, 8)),
+            max(60, min(timeout, 120)),
+        )
+
+    if mode == "fast":
+        return (
+            max(1, min(rounds, 3)),
+            max(1, min(calls, 12)),
+            max(60, min(timeout, 180)),
+        )
+
+    return rounds, calls, timeout
+
+
+def _subagent_limits_for_speed(speed_mode: str) -> tuple[int, int]:
+    mode = _normalize_speed_mode(speed_mode)
+    rounds = max(1, _MAX_SUBAGENT_TOOL_ROUNDS)
+    calls = max(1, _MAX_SUBAGENT_TOOL_CALLS_PER_ROUND)
+
+    if mode == "quick":
+        return max(1, min(rounds, 2)), max(1, min(calls, 6))
+    if mode == "fast":
+        return max(1, min(rounds, 3)), max(1, min(calls, 10))
+    return rounds, calls
 
 
 def reload_clients():
@@ -121,6 +179,29 @@ def _now_str() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
+def _is_email_configured() -> bool:
+    config_path = str(os.getenv("HIMALAYA_CONFIG", "")).strip().strip('"')
+    if not config_path:
+        return False
+
+    expanded = os.path.expanduser(config_path)
+    candidates: list[str] = []
+
+    if os.path.isabs(expanded):
+        candidates.append(expanded)
+    else:
+        candidates.extend([
+            os.path.join(os.getcwd(), expanded),
+            os.path.join(app_paths.data_root(), expanded),
+            os.path.join(app_paths.source_root(), expanded),
+        ])
+
+    for candidate in candidates:
+        if os.path.isfile(os.path.realpath(candidate)):
+            return True
+    return False
+
+
 def _build_system(user_id: int, current_message: str = "", include_memories: bool = True) -> str | None:
     parts = []
     prompt = db.read_system_prompt()
@@ -133,8 +214,7 @@ def _build_system(user_id: int, current_message: str = "", include_memories: boo
     if tools_guide:
         parts.append(f"[Available Tools]\n{tools_guide}")
 
-    email_configured = os.getenv("HIMALAYA_CONFIG", "").strip()
-    if email_configured and os.path.isfile(email_configured):
+    if _is_email_configured():
         parts.append("[Email] Email is configured and available. Use the email_execute tool for all email operations (send, read, reply, list). Do NOT tell the user email is not configured — it is.")
 
     env_context = environment.get_environment_context()
@@ -151,6 +231,7 @@ def _build_system(user_id: int, current_message: str = "", include_memories: boo
         "Use at most one optional progress update plus one completion update per subagent, "
         "and never stream step-by-step internal logs. "
         "For action requests (open/click/search/screenshot/send), execute tools first and then report results. "
+        "For send-email tasks, use email_execute/send_message (ask only for missing fields like subject/body) and do not open browser compose URLs. "
         "Do not return a plan-only final reply like 'let me' or 'I will'. "
         "For browser tasks, stay in the current tab unless the user explicitly asks for new tabs/windows. "
         "You can spawn multiple subagents in a single response - they will run in PARALLEL. "
@@ -209,8 +290,7 @@ def _build_subagent_system(user_id: int, role: str, task: str, context: str = ""
     if context.strip():
         parts.append(f"[Delegation context]\n{context.strip()}")
 
-    email_configured = os.getenv("HIMALAYA_CONFIG", "").strip()
-    if email_configured and os.path.isfile(email_configured):
+    if _is_email_configured():
         parts.append("[Email] Email is configured and available. Use the email_execute tool for all email operations.")
 
     env_context = environment.get_environment_context()
@@ -1838,9 +1918,11 @@ async def _execute_tool_call(
             return json.dumps({"projects": gateway.list_projects()}, indent=2)
 
         elif tool_name == "send_telegram_message":
-            message = str(tool_args.get("message", "")).strip()
+            message = _sanitize_response(str(tool_args.get("message", "")).strip())
             if not message:
                 return json.dumps({"error": "No message provided"})
+            if _is_low_value_progress_message(message):
+                return json.dumps({"sent": False, "skipped": "low_value_progress"})
             if send_func:
                 await _send_via_send_func(send_func, message)
                 return json.dumps({"sent": True})
@@ -2071,13 +2153,17 @@ async def _execute_tool_call(
 
 
 _TOOLCALL_TAG_RE = re.compile(
-    r"<toolcall>(.+?)(?:</toolcall>|$)",
-    re.DOTALL,
+    r"<toolcall\b([^>]*)>(.+?)(?:</toolcall>|$)",
+    re.DOTALL | re.IGNORECASE,
 )
 _TOOLCALL_ARG_RE = re.compile(
     r'\$(\w+)=("(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|\[[^\]]*\]|\{[^}]*\}|[^\s<]+)',
 )
 _TOOLCALL_NAME_RE = re.compile(r"^([a-zA-Z_][\w:]*)")
+_TOOLCALL_NAME_ATTR_RE = re.compile(
+    r'name\s*=\s*["\']?([a-zA-Z_][\w:]*)',
+    re.IGNORECASE,
+)
 _TOOLCALL_JSON_RE = re.compile(
     r"`(?:json)?\s*(\{.+?\})\s*$",
     re.DOTALL,
@@ -2119,31 +2205,96 @@ _TEXT_TOOL_ALIASES = {
     "scrape": "scrape_url",
 }
 
+_LEADING_ACK_RE = re.compile(
+    r"^(?:ok(?:ay)?|got it|on it|sure|understood|sounds good)[.!]?\s+",
+    re.IGNORECASE,
+)
+
+_LOW_VALUE_PROGRESS_RE = re.compile(
+    r"^(?:ok(?:ay)?|got it|on it|working on it|one sec|one second|sure|understood)[.!]?$",
+    re.IGNORECASE,
+)
+
+
+def _is_low_value_progress_message(text: str) -> bool:
+    return bool(_LOW_VALUE_PROGRESS_RE.match((text or "").strip()))
+
 
 def _sanitize_response(text: str) -> str:
     if not text:
         return text
-    cleaned = _TOOLCALL_ARTIFACT_RE.sub("", text)
+
+    # Remove full tool-call blocks first so argkey/argvalue payload text is not leaked.
+    cleaned = re.sub(
+        r"<toolcall\b[^>]*>.*?(?:</toolcall>|$)",
+        "",
+        text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    cleaned = re.sub(
+        r"<argkey\b[^>]*>\s*[^<]*\s*</argkey>\s*<argvalue\b[^>]*>.*?</argvalue>",
+        "",
+        cleaned,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    cleaned = re.sub(
+        r"<argvalue\b[^>]*>.*?</argvalue>",
+        "",
+        cleaned,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    cleaned = _TOOLCALL_ARTIFACT_RE.sub("", cleaned)
     if cleaned != text:
         logger.warning(f"Stripped tool-call artifacts from response: {text[:200]}")
+
     cleaned = cleaned.strip()
-    return cleaned if cleaned else text.strip()
+
+    # Avoid repetitive standalone acknowledgement openers in final user-facing replies.
+    stripped = _LEADING_ACK_RE.sub("", cleaned).strip()
+    if stripped:
+        cleaned = stripped
+
+    cleaned = cleaned.strip()
+    if _is_low_value_progress_message(cleaned):
+        return ""
+    if cleaned:
+        return cleaned
+
+    # If the content was purely tool markup, return empty instead of echoing raw tags.
+    if (
+        _TOOLCALL_ARTIFACT_RE.search(text)
+        or "<toolcall" in text.lower()
+        or "<argkey>" in text.lower()
+        or "<argvalue>" in text.lower()
+    ):
+        return ""
+
+    return text.strip()
 
 
 def _parse_text_tool_calls(content: str) -> tuple[list[dict], str]:
     parsed = []
     remaining = _TOOLCALL_TAG_RE.sub("", content)
     for match in _TOOLCALL_TAG_RE.finditer(content):
-        body = match.group(1).strip()
+        attr_blob = (match.group(1) or "").strip()
+        body = (match.group(2) or "").strip()
         if not body:
             continue
+
         name_match = _TOOLCALL_NAME_RE.match(body)
-        if not name_match:
-            continue
-        raw_name = name_match.group(1)
+        raw_name = ""
+        rest = body
+        if name_match:
+            raw_name = name_match.group(1)
+            rest = body[name_match.end():].strip()
+        else:
+            attr_name_match = _TOOLCALL_NAME_ATTR_RE.search(attr_blob)
+            if not attr_name_match:
+                continue
+            raw_name = attr_name_match.group(1)
+
         tool_name = raw_name.split(":", 1)[-1] if ":" in raw_name else raw_name
         tool_name = _TEXT_TOOL_ALIASES.get(tool_name, tool_name)
-        rest = body[name_match.end():].strip()
         rest = re.sub(r"</?argkey\s*>", "", rest)
 
         args: dict = {}
@@ -2204,6 +2355,8 @@ async def _run_agent(
     max_calls_per_round: int = _MAX_TOOL_CALLS_PER_ROUND,
     interrupt_event: asyncio.Event | None = None,
     interrupt_queue: asyncio.Queue | None = None,
+    speed_mode: str = "normal",
+    reasoning_enabled: bool = True,
     _agent_id: str = "orchestrator",
     _parent_agent_id: str | None = None,
 ) -> str:
@@ -2282,7 +2435,13 @@ async def _run_agent(
         await _t.emit("thinking", _agent_id, "Thinking", f"Round {_ + 1}/{max_rounds} — calling model {model_id}", _with_activity_meta())
 
         t0 = time.monotonic()
-        response = await model_router.call_model(model_id, messages, tools)
+        response = await model_router.call_model(
+            model_id,
+            messages,
+            tools,
+            speed_mode=speed_mode,
+            reasoning_enabled=reasoning_enabled,
+        )
         elapsed = (time.monotonic() - t0) * 1000
 
         tool_calls = response.get("tool_calls", [])
@@ -2369,7 +2528,13 @@ async def _run_agent(
             msg = _build_interruption_message(interrupt_texts)
             if msg:
                 messages.append(msg)
-        response = await model_router.call_model(model_id, messages, None)
+        response = await model_router.call_model(
+            model_id,
+            messages,
+            None,
+            speed_mode=speed_mode,
+            reasoning_enabled=reasoning_enabled,
+        )
         final_content = response.get("content", "I could not generate a response right now.")
 
         interrupt_texts = _drain_interrupts()
@@ -2378,7 +2543,13 @@ async def _run_agent(
             if msg:
                 messages.append(response.get("message", {"role": "assistant", "content": final_content}))
                 messages.append(msg)
-                response = await model_router.call_model(model_id, messages, None)
+                response = await model_router.call_model(
+                    model_id,
+                    messages,
+                    None,
+                    speed_mode=speed_mode,
+                    reasoning_enabled=reasoning_enabled,
+                )
                 final_content = response.get("content", final_content)
 
         sanitized = _sanitize_response(final_content)
@@ -2403,6 +2574,9 @@ async def _run_subagent(
     _parent_agent_id: str | None = None,
 ) -> str:
     model = db.get_model(user_id)
+    speed_mode = db.get_speed_mode(user_id)
+    reasoning_enabled = db.get_reasoning_enabled(user_id)
+    subagent_rounds, subagent_calls = _subagent_limits_for_speed(speed_mode)
     system = _build_subagent_system(user_id, role, task, context)
     history = db.get_history(user_id)
     tools = _get_all_tools(include_subagent=False, include_telegram=send_func is not None)
@@ -2415,8 +2589,10 @@ async def _run_subagent(
         user_id=user_id,
         send_func=send_func,
         allow_subagent=False,
-        max_rounds=_MAX_SUBAGENT_TOOL_ROUNDS,
-        max_calls_per_round=_MAX_SUBAGENT_TOOL_CALLS_PER_ROUND,
+        max_rounds=subagent_rounds,
+        max_calls_per_round=subagent_calls,
+        speed_mode=speed_mode,
+        reasoning_enabled=reasoning_enabled,
         _agent_id=_agent_id,
         _parent_agent_id=_parent_agent_id,
     )
@@ -2426,7 +2602,12 @@ async def _run_subagent(
 # Summarize (async)
 # ---------------------------------------------------------------------------
 
-async def _maybe_summarize(user_id: int, model: str) -> None:
+async def _maybe_summarize(
+    user_id: int,
+    model: str,
+    speed_mode: str = "normal",
+    reasoning_enabled: bool = True,
+) -> None:
     if db.count_messages(user_id) <= db.SUMMARY_THRESHOLD:
         return
     older = db.get_older_messages(user_id)
@@ -2441,10 +2622,39 @@ async def _maybe_summarize(user_id: int, model: str) -> None:
         "Do not add commentary or meta-text. Output only the summary."
     )
     try:
-        summary = await model_router.call_model_simple(model_id, system_msg, f"Summarize this conversation:\n\n{conversation}")
+        summary = await model_router.call_model_simple(
+            model_id,
+            system_msg,
+            f"Summarize this conversation:\n\n{conversation}",
+            speed_mode=speed_mode,
+            reasoning_enabled=reasoning_enabled,
+        )
         db.set_summary(user_id, summary)
+        db.compact_history(user_id, db.HISTORY_WINDOW)
     except Exception:
         logger.exception("Summarization failed")
+
+
+def _schedule_summary(
+    user_id: int,
+    model: str,
+    speed_mode: str,
+    reasoning_enabled: bool,
+) -> None:
+    async def _task() -> None:
+        await _maybe_summarize(
+            user_id,
+            model,
+            speed_mode=speed_mode,
+            reasoning_enabled=reasoning_enabled,
+        )
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+
+    loop.create_task(_task())
 
 
 # ---------------------------------------------------------------------------
@@ -2461,7 +2671,11 @@ async def respond(
 ) -> str:
     _t = activity_tracker.get_tracker()
     await _t.emit("receive", "orchestrator", "Message received", text[:200])
-    model = model_override or db.get_model(user_id)
+    speed_mode = db.get_speed_mode(user_id)
+    reasoning_enabled = db.get_reasoning_enabled(user_id)
+    base_model = model_override or db.get_model(user_id)
+    model = base_model if model_override else _pick_runtime_model(base_model, speed_mode)
+    agent_rounds, agent_calls, orchestrator_timeout = _agent_limits_for_speed(speed_mode)
     history = db.get_history(user_id)
     system = _build_system(user_id, text)
     
@@ -2507,7 +2721,13 @@ Please re-analyze the image in light of this new question, then respond to their
         messages.append(user_message)
         
         try:
-            response = await model_router.call_model(vision_model_id, messages, None)
+            response = await model_router.call_model(
+                vision_model_id,
+                messages,
+                None,
+                speed_mode=speed_mode,
+                reasoning_enabled=reasoning_enabled,
+            )
             image_analysis = response.get("content") or "I could not analyze the image."
         except Exception as e:
             logger.exception(f"Image re-analysis failed for user {user_id}")
@@ -2523,7 +2743,6 @@ Here is my re-analysis of the image based on the new question:
 
 Based on this analysis and the user's current request, proceed with any tasks needed."""
         
-        orchestrator_timeout = max(60, min(int(_MAX_ORCHESTRATOR_WALL_TIMEOUT_S), 1800))
         try:
             reply = await asyncio.wait_for(
                 _run_agent(
@@ -2534,8 +2753,12 @@ Based on this analysis and the user's current request, proceed with any tasks ne
                     user_id=user_id,
                     send_func=send_func,
                     allow_subagent=True,
+                    max_rounds=agent_rounds,
+                    max_calls_per_round=agent_calls,
                     interrupt_event=interrupt_event,
                     interrupt_queue=interrupt_queue,
+                    speed_mode=speed_mode,
+                    reasoning_enabled=reasoning_enabled,
                 ),
                 timeout=orchestrator_timeout,
             )
@@ -2551,7 +2774,6 @@ Based on this analysis and the user's current request, proceed with any tasks ne
         if not reply:
             reply = image_analysis
     else:
-        orchestrator_timeout = max(60, min(int(_MAX_ORCHESTRATOR_WALL_TIMEOUT_S), 1800))
         try:
             reply = await asyncio.wait_for(
                 _run_agent(
@@ -2562,8 +2784,12 @@ Based on this analysis and the user's current request, proceed with any tasks ne
                     user_id=user_id,
                     send_func=send_func,
                     allow_subagent=True,
+                    max_rounds=agent_rounds,
+                    max_calls_per_round=agent_calls,
                     interrupt_event=interrupt_event,
                     interrupt_queue=interrupt_queue,
+                    speed_mode=speed_mode,
+                    reasoning_enabled=reasoning_enabled,
                 ),
                 timeout=orchestrator_timeout,
             )
@@ -2575,13 +2801,18 @@ Based on this analysis and the user's current request, proceed with any tasks ne
 
     db.add_message(user_id, "user", text)
     db.add_message(user_id, "assistant", reply)
-    await _maybe_summarize(user_id, model)
+    _schedule_summary(user_id, model, speed_mode=speed_mode, reasoning_enabled=reasoning_enabled)
     return _sanitize_response(reply)
 
 
 async def respond_with_image(user_id: int, text: str, image_b64: str, send_func: SendFunc | None = None) -> str:
+    speed_mode = db.get_speed_mode(user_id)
+    reasoning_enabled = db.get_reasoning_enabled(user_id)
+    agent_rounds, agent_calls, orchestrator_timeout = _agent_limits_for_speed(speed_mode)
+
     vision_model = db.get_image_model(user_id)
-    main_model = db.get_model(user_id)
+    base_main_model = db.get_model(user_id)
+    main_model = _pick_runtime_model(base_main_model, speed_mode)
     system = _build_system(user_id, text, include_memories=True)
 
     image_content = {
@@ -2610,13 +2841,18 @@ async def respond_with_image(user_id: int, text: str, image_b64: str, send_func:
     vision_model_id = _MODELS.get(vision_model.lower(), vision_model)
 
     try:
-        response = await model_router.call_model(vision_model_id, messages, None)
+        response = await model_router.call_model(
+            vision_model_id,
+            messages,
+            None,
+            speed_mode=speed_mode,
+            reasoning_enabled=reasoning_enabled,
+        )
         image_analysis = response.get("content") or "I could not analyze the image."
     except Exception as e:
         logger.exception(f"Image analysis failed for user {user_id}")
         image_analysis = f"Error analyzing image: {e}"
 
-    orchestrator_timeout = max(60, min(int(_MAX_ORCHESTRATOR_WALL_TIMEOUT_S), 1800))
     try:
         agent_prompt = f"""The user sent an image with the message: "{text}"
 
@@ -2634,6 +2870,10 @@ Based on this analysis and the user's request, proceed with any tasks needed. If
                 user_id=user_id,
                 send_func=send_func,
                 allow_subagent=True,
+                max_rounds=agent_rounds,
+                max_calls_per_round=agent_calls,
+                speed_mode=speed_mode,
+                reasoning_enabled=reasoning_enabled,
             ),
             timeout=orchestrator_timeout,
         )
@@ -2651,5 +2891,5 @@ Based on this analysis and the user's request, proceed with any tasks needed. If
 
     db.add_message(user_id, "user", f"[Image] {text}", image_b64=image_b64)
     db.add_message(user_id, "assistant", reply)
-    await _maybe_summarize(user_id, main_model)
+    _schedule_summary(user_id, main_model, speed_mode=speed_mode, reasoning_enabled=reasoning_enabled)
     return _sanitize_response(reply)

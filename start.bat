@@ -4,6 +4,17 @@ setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
 set "WEB_PORT=8080"
+set "HEADLESS=0"
+
+if /I "%~1"=="--headless" set "HEADLESS=1"
+
+if exist ".env" (
+    for /f "usebackq tokens=1,* delims==" %%A in (".env") do (
+        if /I "%%A"=="WEB_PORT" set "WEB_PORT=%%B"
+    )
+)
+set "WEB_PORT=%WEB_PORT:\"=%"
+set "WEB_PORT=%WEB_PORT: =%"
 
 set "PORT_IN_USE="
 for /f "tokens=*" %%L in ('netstat -ano ^| findstr /R /C:":%WEB_PORT% .*LISTENING"') do (
@@ -136,7 +147,11 @@ echo   Ready!
 echo   Dashboard: http://localhost:%WEB_PORT%
 echo.
 
-start "" "http://localhost:%WEB_PORT%"
+if "%HEADLESS%"=="1" (
+    echo [ info] Headless mode enabled. Browser auto-open skipped.
+) else (
+    start "" "http://localhost:%WEB_PORT%"
+)
 
 venv\Scripts\python telegram_bot.py
 pause

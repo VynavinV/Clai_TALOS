@@ -8,6 +8,7 @@ SYSTEM_PROMPT_PATH = app_paths.system_prompt_resource_path()
 
 HISTORY_WINDOW = 20
 SUMMARY_THRESHOLD = 30
+_VALID_SPEED_MODES = {"quick", "fast", "normal"}
 
 
 def _conn() -> sqlite3.Connection:
@@ -26,7 +27,9 @@ def init():
                 user_id INTEGER PRIMARY KEY,
                 model TEXT NOT NULL DEFAULT 'glm-5',
                 image_model TEXT,
-                summary TEXT
+                summary TEXT,
+                speed_mode TEXT NOT NULL DEFAULT 'normal',
+                reasoning_enabled INTEGER NOT NULL DEFAULT 1
             );
 
             CREATE TABLE IF NOT EXISTS user_profiles (
@@ -69,6 +72,13 @@ def init():
             conn.execute("ALTER TABLE user_settings ADD COLUMN summary TEXT")
         if "image_model" not in cols:
             conn.execute("ALTER TABLE user_settings ADD COLUMN image_model TEXT")
+        if "speed_mode" not in cols:
+            conn.execute("ALTER TABLE user_settings ADD COLUMN speed_mode TEXT NOT NULL DEFAULT 'normal'")
+        if "reasoning_enabled" not in cols:
+            conn.execute("ALTER TABLE user_settings ADD COLUMN reasoning_enabled INTEGER NOT NULL DEFAULT 1")
+
+        conn.execute("UPDATE user_settings SET speed_mode = COALESCE(speed_mode, 'normal')")
+        conn.execute("UPDATE user_settings SET reasoning_enabled = COALESCE(reasoning_enabled, 1)")
         
         chat_cols = [r["name"] for r in conn.execute("PRAGMA table_info(chat_history)").fetchall()]
         if "image_b64" not in chat_cols:
@@ -204,6 +214,13 @@ def read_system_prompt() -> str | None:
     return content if content else None
 
 
+def _normalize_speed_mode(speed_mode: str | None) -> str:
+    mode = str(speed_mode or "").strip().lower()
+    if mode not in _VALID_SPEED_MODES:
+        return "normal"
+    return mode
+
+
 def get_model(user_id: int) -> str:
     with _conn() as conn:
         row = conn.execute(
@@ -232,6 +249,53 @@ def get_image_model(user_id: int) -> str:
         return env_model
     import model_router
     return model_router.best_image_model()
+
+
+def get_speed_mode(user_id: int) -> str:
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT speed_mode FROM user_settings WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+        if row and row["speed_mode"]:
+            return _normalize_speed_mode(row["speed_mode"])
+
+    return _normalize_speed_mode(os.getenv("TALOS_SPEED_MODE", "normal"))
+
+
+def set_speed_mode(user_id: int, speed_mode: str) -> str:
+    normalized = _normalize_speed_mode(speed_mode)
+    with _conn() as conn:
+        conn.execute(
+            """INSERT INTO user_settings (user_id, model, speed_mode) VALUES (?, ?, ?)
+               ON CONFLICT(user_id) DO UPDATE SET speed_mode = excluded.speed_mode""",
+            (user_id, get_model(user_id), normalized),
+        )
+    return normalized
+
+
+def get_reasoning_enabled(user_id: int) -> bool:
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT reasoning_enabled FROM user_settings WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+        if row and row["reasoning_enabled"] is not None:
+            return bool(int(row["reasoning_enabled"]))
+
+    raw = os.getenv("TALOS_REASONING_ENABLED", "1").strip().lower()
+    return raw not in {"0", "false", "off", "no", "n"}
+
+
+def set_reasoning_enabled(user_id: int, enabled: bool) -> bool:
+    value = 1 if bool(enabled) else 0
+    with _conn() as conn:
+        conn.execute(
+            """INSERT INTO user_settings (user_id, model, reasoning_enabled) VALUES (?, ?, ?)
+               ON CONFLICT(user_id) DO UPDATE SET reasoning_enabled = excluded.reasoning_enabled""",
+            (user_id, get_model(user_id), value),
+        )
+    return bool(value)
 
 
 def set_model(user_id: int, model: str) -> None:

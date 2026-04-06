@@ -262,8 +262,14 @@ async def _session_tabs(session: BrowserSession, limit: int = 20) -> tuple[list[
 def _playwright_not_available_error() -> dict:
     if PLAYWRIGHT_AVAILABLE:
         return {}
+
+    if sys.platform == "win32":
+        install_cmd = ".\\venv\\Scripts\\pip install playwright"
+    else:
+        install_cmd = "./venv/bin/pip install playwright"
+
     return {
-        "error": "Playwright is not installed. Install with: ./venv/bin/pip install playwright",
+        "error": f"Playwright is not installed. Install with: {install_cmd}",
         "detail": PLAYWRIGHT_IMPORT_ERROR,
         "hint": "You can connect to your existing logged-in Chrome after installing Playwright.",
     }

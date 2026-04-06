@@ -34,8 +34,8 @@ Windows:
 start.bat
 ```
 
-> **Windows status:** Experimental support.
-> Linux/macOS are currently the recommended and most-tested platforms.
+> **Windows status:** Supported for local runtime and EXE preview builds.
+> Linux/macOS remain the most-tested platforms.
 
 ### 3. Open the dashboard
 
@@ -47,6 +47,12 @@ For servers or remote machines without a browser:
 
 ```bash
 ./start.sh --headless
+```
+
+Windows also supports headless mode:
+
+```cmd
+start.bat --headless
 ```
 
 When no config exists, headless mode offers:
