@@ -167,7 +167,7 @@ async def process_message(user_id: int, text: str, send_func, model_override: st
         )
         await _cancel_task(watchdog_task)
         await _cancel_task(watcher_task)
-        if reply:
+        if reply and reply.strip():
             await _send_with_optional_voice(send_func, reply, stream=True)
         else:
             await _send_with_optional_voice(send_func, "I ran out of processing rounds before finishing. Try breaking the task into smaller steps.")
@@ -215,10 +215,10 @@ async def process_image_message(user_id: int, text: str, image_b64: str, send_fu
         )
         await _cancel_task(watchdog_task)
         await _cancel_task(watcher_task)
-        if reply:
+        if reply and reply.strip():
             await _send_with_optional_voice(send_func, f"Execution complete. {reply}")
         else:
-            await _send_with_optional_voice(send_func, "Execution complete.")
+            await _send_with_optional_voice(send_func, "Execution complete but no summary was generated.")
     except Exception as error:
         await _cancel_task(watchdog_task)
         await _cancel_task(watcher_task)

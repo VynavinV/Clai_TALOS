@@ -146,7 +146,13 @@ def _build_system(user_id: int, current_message: str = "", include_memories: boo
         "For browser tasks, stay in the current tab unless the user explicitly asks for new tabs/windows. "
         "You can spawn multiple subagents in a single response - they will run in PARALLEL. "
         "After all subagents complete, synthesize their results into a final coherent response. "
-        "Keep the user informed: if spawning subagents, tell the user what you're delegating and why."
+        "Keep the user informed: if spawning subagents, tell the user what you're delegating and why.\n\n"
+        "CRITICAL — Command Loop Prevention:\n"
+        "Many shell commands (cp, mv, mkdir, chmod, ln, etc.) succeed SILENTLY with no output. "
+        "An empty stdout with exit code 0 means SUCCESS, not failure. Do NOT re-run a command "
+        "that already succeeded. If a tool result shows exit_code 0, move on immediately.\n"
+        "If you already ran a command and got a result, do not run it again. Check the conversation "
+        "history before calling any tool — if you already have the answer, use it."
     )
 
     summary = db.get_summary(user_id)
@@ -183,7 +189,11 @@ def _build_subagent_system(user_id: int, role: str, task: str, context: str = ""
         "Do not run passive wait commands like sleep/timeout/checking-in loops.\n"
         "Never end on a 'still working' update without later sending an explicit completion or failure update.\n"
         "Keep messages concise and useful. Sign off with your role in brackets so the user "
-        "knows which subagent is talking, e.g. [researcher] or [executor]."
+        "knows which subagent is talking, e.g. [researcher] or [executor].\n\n"
+        "CRITICAL — Command Loop Prevention:\n"
+        "Many shell commands (cp, mv, mkdir, chmod, ln, etc.) succeed SILENTLY with no output. "
+        "An empty stdout with exit_code 0 means SUCCESS. Do NOT re-run a command that succeeded. "
+        "If you already ran a command and got a result, do not run it again. Move on."
     )
     parts.append(f"[Subagent role]\n{role or 'general'}")
     parts.append(f"[Delegated task]\n{task}")
@@ -2066,7 +2076,8 @@ def _sanitize_response(text: str) -> str:
     cleaned = _TOOLCALL_ARTIFACT_RE.sub("", text)
     if cleaned != text:
         logger.warning(f"Stripped tool-call artifacts from response: {text[:200]}")
-    return cleaned.strip()
+    cleaned = cleaned.strip()
+    return cleaned if cleaned else text.strip()
 
 
 def _parse_text_tool_calls(content: str) -> tuple[list[dict], str]:
@@ -2320,7 +2331,10 @@ async def _run_agent(
                 response = await model_router.call_model(model_id, messages, None)
                 final_content = response.get("content", final_content)
 
-        return _sanitize_response(final_content)
+        sanitized = _sanitize_response(final_content)
+        if sanitized and sanitized.strip():
+            return sanitized
+        return "I ran out of processing rounds before finishing. Break the task into smaller pieces and try again."
     except Exception:
         return "I ran out of processing rounds before finishing. Break the task into smaller pieces and try again."
 
