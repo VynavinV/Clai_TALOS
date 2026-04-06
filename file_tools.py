@@ -9,9 +9,11 @@ import tempfile
 import shutil
 from enum import Enum
 
+import app_paths
+
 logger = logging.getLogger("talos.file_tools")
 
-_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_SCRIPT_DIR = app_paths.data_root()
 
 MAX_FILE_SIZE = 2 * 1024 * 1024
 MAX_READ_LINES = 2000

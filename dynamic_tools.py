@@ -5,12 +5,13 @@ import re
 import shlex
 from datetime import datetime, timezone
 
+import app_paths
+
 logger = logging.getLogger("talos.dynamic_tools")
 
-_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-_REGISTRY_DIR = os.path.join(_SCRIPT_DIR, "projects")
-_REGISTRY_PATH = os.path.join(_REGISTRY_DIR, "dynamic_tools.json")
-_TOOLS_DOCS_DIR = os.path.join(_SCRIPT_DIR, "tools")
+_REGISTRY_DIR = app_paths.projects_dir()
+_REGISTRY_PATH = app_paths.dynamic_registry_path()
+_TOOLS_DOCS_DIR = app_paths.dynamic_tools_docs_dir()
 
 _NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_]{2,63}$")
 _PARAM_NAME_PATTERN = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")

@@ -803,6 +803,35 @@ Current core packages include:
 - pandas
 - openpyxl
 
+### Build Windows EXE (preview)
+
+Local build (PowerShell):
+
+```powershell
+./scripts/build_windows_exe.ps1
+```
+
+Each run creates a new versioned artifact using `timestamp-gitsha[-dirty]`.
+You can also set your own label:
+
+```powershell
+./scripts/build_windows_exe.ps1 -Version "v0.2.1"
+```
+
+This generates:
+
+- `dist/ClaiTALOS-windows-x64-<version>.zip`
+- `dist/ClaiTALOS-windows-x64-latest.zip`
+- `dist/SHA256SUMS.txt`
+- `dist/SHA256SUMS-<version>.txt`
+- `dist/build-manifest.json`
+
+CI release build:
+
+- Workflow: `.github/workflows/windows-exe-release.yml`
+- Trigger: manual dispatch or git tags matching `v*`
+- Tagged builds publish EXE zip + checksums to GitHub Releases
+
 ### Extending tools
 
 Two paths (see [MAKING_TOOLS.md](MAKING_TOOLS.md) for full guide):

@@ -1,0 +1,73 @@
+name: Windows EXE Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows-exe:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Build EXE
+        shell: pwsh
+        run: |
+          python -m PyInstaller --noconfirm --clean talos_exe.spec
+
+      - name: Package artifacts
+        id: package
+        shell: pwsh
+        run: |
+          $distDir = Join-Path $PWD "dist"
+          $outDir = Join-Path $distDir "ClaiTALOS"
+          if (!(Test-Path $outDir)) { throw "Build output not found: $outDir" }
+
+          $zipName = "ClaiTALOS-windows-x64.zip"
+          $zipPath = Join-Path $distDir $zipName
+          if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
+
+          Compress-Archive -Path (Join-Path $outDir "*") -DestinationPath $zipPath -CompressionLevel Optimal
+
+          $hashFile = Join-Path $distDir "SHA256SUMS.txt"
+          $hash = Get-FileHash -Path $zipPath -Algorithm SHA256
+          "$($hash.Hash.ToLower())  $zipName" | Set-Content -Path $hashFile -Encoding UTF8
+
+          "zip_path=$zipPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "hash_path=$hashFile" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Upload workflow artifact
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: clai-talos-windows-exe
+          path: |
+            ${{ steps.package.outputs.zip_path }}
+            ${{ steps.package.outputs.hash_path }}
+
+      - name: Publish GitHub Release assets
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ steps.package.outputs.zip_path }}
+            ${{ steps.package.outputs.hash_path }}
+          generate_release_notes: true

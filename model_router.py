@@ -5,8 +5,9 @@ import asyncio
 import time
 from typing import Any
 from dotenv import load_dotenv
+import app_paths
 
-load_dotenv()
+load_dotenv(dotenv_path=app_paths.env_file_path())
 
 logger = logging.getLogger("talos.router")
 
@@ -57,6 +58,8 @@ _PROVIDERS = {
     "nvidia": {
         "models": {
             "glm47": "z-ai/glm4.7",
+            "glm4_7": "z-ai/glm4.7",
+            "glm4.7": "z-ai/glm4.7",
         },
         "patterns": ["nvidia"],
         "env_key": "NVIDIA_API_KEY",
@@ -106,16 +109,40 @@ _OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
 
 _CLIENT_BASE_URL = os.getenv("CLIENT_BASE_URL", "https://api.z.ai/api/coding/paas/v4")
 
+_NVIDIA_MODEL_ALIASES = {
+    "z-ai/glm4_7": "z-ai/glm4.7",
+    "z-ai/glm4.7": "z-ai/glm4.7",
+    "glm4_7": "z-ai/glm4.7",
+    "glm4.7": "z-ai/glm4.7",
+}
+
+_PROVIDER_HINT_ALIASES = {
+    "z-ai": "nvidia",
+    "nim": "nvidia",
+}
+
+
+def _normalize_nvidia_model_id(model_id: str) -> str:
+    return _NVIDIA_MODEL_ALIASES.get(str(model_id).lower(), model_id)
+
 
 def resolve_model(model: str) -> tuple[str, str]:
     if "/" in model and not model.startswith("http"):
         provider_hint, model_id = model.split("/", 1)
         provider_hint = provider_hint.lower().strip()
+        provider_hint = _PROVIDER_HINT_ALIASES.get(provider_hint, provider_hint)
+        if provider_hint == "nvidia":
+            model_id = _normalize_nvidia_model_id(model_id)
         for provider_name in _PROVIDERS:
             if provider_name == provider_hint:
                 return provider_name, model_id
 
     model_lower = model.lower().strip()
+    if model_lower in _NVIDIA_MODEL_ALIASES:
+        return "nvidia", _normalize_nvidia_model_id(model_lower)
+    if model_lower.startswith("z-ai/"):
+        return "nvidia", _normalize_nvidia_model_id(model_lower)
+
     for provider_name, provider_cfg in _PROVIDERS.items():
         if model_lower in provider_cfg["models"]:
             return provider_name, provider_cfg["models"][model_lower]
@@ -143,7 +170,7 @@ def reload_clients():
     _cerebras_client = None
     _openrouter_client = None
     _ollama_client = None
-    load_dotenv(override=True)
+    load_dotenv(dotenv_path=app_paths.env_file_path(), override=True)
     _CLIENT_BASE_URL = os.getenv("CLIENT_BASE_URL", "https://api.z.ai/api/coding/paas/v4")
     _NVIDIA_BASE_URL = os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
     _CEREBRAS_BASE_URL = os.getenv("CEREBRAS_BASE_URL", "https://api.cerebras.ai/v1")
@@ -546,6 +573,7 @@ async def call_zhipu(model_id: str, messages: list[dict], tools: list[dict] | No
 
 async def call_nvidia(model_id: str, messages: list[dict], tools: list[dict] | None) -> dict:
     client = _get_nvidia_client()
+    model_id = _normalize_nvidia_model_id(model_id)
     kwargs: dict[str, Any] = {
         "model": model_id,
         "messages": messages,
@@ -553,6 +581,13 @@ async def call_nvidia(model_id: str, messages: list[dict], tools: list[dict] | N
         "top_p": 1,
         "max_tokens": 16384,
     }
+    if model_id.startswith("z-ai/glm4"):
+        kwargs["extra_body"] = {
+            "chat_template_kwargs": {
+                "enable_thinking": True,
+                "clear_thinking": False,
+            }
+        }
     if tools:
         kwargs["tools"] = _tools_to_openai(tools)
         kwargs["tool_choice"] = "auto"

@@ -12,6 +12,8 @@ from urllib.parse import urljoin, urldefrag
 import httpx
 from dotenv import load_dotenv
 
+import app_paths
+
 try:
     from scrapy import Selector
 
@@ -20,12 +22,12 @@ except Exception:
     Selector = None
     SCRAPY_AVAILABLE = False
 
-load_dotenv()
+load_dotenv(dotenv_path=app_paths.env_file_path())
 
 logger = logging.getLogger("talos.scrapy_scraper")
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-_CACHE_DIR = os.path.join(_SCRIPT_DIR, "logs", "scrape_cache")
+_CACHE_DIR = app_paths.scrape_cache_dir()
 _CACHE_INDEX_PATH = os.path.join(_CACHE_DIR, "index.json")
 
 
@@ -64,7 +66,7 @@ _WS_RE = re.compile(r"\s+")
 
 
 def reload_client():
-    load_dotenv(override=True)
+    load_dotenv(dotenv_path=app_paths.env_file_path(), override=True)
 
 
 def _now_ms() -> int:

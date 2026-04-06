@@ -2,8 +2,9 @@ import os
 import platform
 import json
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-CONFIG_FILE = os.path.join(SCRIPT_DIR, "terminal_config.json")
+import app_paths
+
+CONFIG_FILE = app_paths.terminal_config_path()
 
 _env_context: str | None = None
 

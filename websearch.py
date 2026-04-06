@@ -2,8 +2,9 @@ import os
 import logging
 from dotenv import load_dotenv
 from google import genai
+import app_paths
 
-load_dotenv()
+load_dotenv(dotenv_path=app_paths.env_file_path())
 
 logger = logging.getLogger("talos.websearch")
 
@@ -33,7 +34,7 @@ def reload_client():
     global _client, _search_model
     _client = None
     _search_model = None
-    load_dotenv(override=True)
+    load_dotenv(dotenv_path=app_paths.env_file_path(), override=True)
 
 
 def _find_search_model() -> str | None:

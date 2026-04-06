@@ -10,9 +10,10 @@ import urllib.request
 import urllib.error
 from datetime import datetime, timezone
 
+import app_paths
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-GOOGLE_TOKENS_FILE = os.path.join(SCRIPT_DIR, ".google_oauth.json")
+
+GOOGLE_TOKENS_FILE = app_paths.oauth_tokens_path()
 
 AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
@@ -48,6 +49,7 @@ def _safe_json_load(path: str) -> dict:
 
 
 def _safe_json_save(path: str, data: dict) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = f"{path}.tmp"
     with open(tmp, "w") as f:
         json.dump(data, f, indent=2)

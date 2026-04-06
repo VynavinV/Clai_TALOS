@@ -13,6 +13,8 @@ from datetime import datetime, timezone
 from urllib import request, error
 from urllib.parse import urlparse
 
+import app_paths
+
 logger = logging.getLogger("talos.browser")
 
 try:
@@ -29,8 +31,7 @@ except Exception as exc:
     PLAYWRIGHT_AVAILABLE = False
     PLAYWRIGHT_IMPORT_ERROR = str(exc)
 
-_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-_ARTIFACT_DIR = os.path.join(_SCRIPT_DIR, "logs", "browser")
+_ARTIFACT_DIR = app_paths.browser_artifacts_dir()
 os.makedirs(_ARTIFACT_DIR, exist_ok=True)
 
 _DEFAULT_ENDPOINT = os.getenv("BROWSER_CDP_ENDPOINT", "http://127.0.0.1:9222")
@@ -225,7 +226,7 @@ def _artifact_path(path: str | None, suffix: str = ".png") -> str:
         if os.path.isabs(raw):
             out = raw
         else:
-            out = os.path.join(_SCRIPT_DIR, raw)
+            out = os.path.join(app_paths.data_root(), raw)
         parent = os.path.dirname(out)
         if parent:
             os.makedirs(parent, exist_ok=True)

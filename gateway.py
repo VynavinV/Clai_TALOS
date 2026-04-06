@@ -15,9 +15,9 @@ import mimetypes
 import html as html_mod
 from aiohttp import web
 
-logger = logging.getLogger("talos.gateway")
+import app_paths
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+logger = logging.getLogger("talos.gateway")
 
 _base_url: str | None = None
 
@@ -72,7 +72,7 @@ def _get_projects_dir() -> str:
     from_env = os.getenv("PROJECTS_DIR", "").strip()
     if from_env:
         return os.path.expanduser(from_env)
-    return os.path.join(SCRIPT_DIR, "projects")
+    return app_paths.projects_dir()
 
 
 def _get_config_path() -> str:

@@ -1,15 +1,17 @@
-import os
 import sqlite3
+import os
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(SCRIPT_DIR, "talos.db")
-SYSTEM_PROMPT_PATH = os.path.join(SCRIPT_DIR, "system_prompt.md")
+import app_paths
+
+DB_PATH = app_paths.db_path()
+SYSTEM_PROMPT_PATH = app_paths.system_prompt_resource_path()
 
 HISTORY_WINDOW = 20
 SUMMARY_THRESHOLD = 30
 
 
 def _conn() -> sqlite3.Connection:
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")

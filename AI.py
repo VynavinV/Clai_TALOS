@@ -10,6 +10,7 @@ import unicodedata
 from datetime import datetime, timezone
 from typing import Callable, Awaitable
 from dotenv import load_dotenv
+import app_paths
 import db
 import memory
 import terminal_tools
@@ -28,12 +29,15 @@ import google_integration
 import email_tools
 import activity_tracker
 
-load_dotenv()
+app_paths.ensure_runtime_dirs()
+load_dotenv(dotenv_path=app_paths.env_file_path())
 
 logger = logging.getLogger("talos.ai")
 
-_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-_TOOLS_DIR = os.path.join(_SCRIPT_DIR, "tools")
+_RESOURCE_DIR = app_paths.resource_root()
+_DATA_DIR = app_paths.data_root()
+_TOOLS_DIR = app_paths.tools_resource_dir()
+_DYNAMIC_TOOLS_DIR = app_paths.dynamic_tools_docs_dir()
 _tools_guide_cache: str | None = None
 
 _MODELS = model_router.get_all_model_aliases()
@@ -61,7 +65,7 @@ def reload_clients():
     global _SUBAGENT_MAX_TELEGRAM_MESSAGES, _SUBAGENT_MAX_TELEGRAM_MESSAGE_CHARS, _SUBAGENT_MIN_UPDATE_INTERVAL_S
     _tools_guide_cache = None
     model_router.reload_clients()
-    load_dotenv(override=True)
+    load_dotenv(dotenv_path=app_paths.env_file_path(), override=True)
     _MAX_TOOL_ROUNDS = int(os.getenv("MAX_TOOL_ROUNDS", "5"))
     _MAX_TOOL_CALLS_PER_ROUND = int(os.getenv("MAX_TOOL_CALLS_PER_ROUND", "20"))
     _MAX_COMMAND_TIMEOUT = int(os.getenv("MAX_COMMAND_TIMEOUT", "120"))
@@ -84,23 +88,28 @@ def _load_tools_guide() -> str:
     if _tools_guide_cache is not None:
         return _tools_guide_cache
     lines = []
-    if os.path.isdir(_TOOLS_DIR):
-        for filename in sorted(os.listdir(_TOOLS_DIR)):
+    seen_tools: set[str] = set()
+    for docs_dir in [_TOOLS_DIR, _DYNAMIC_TOOLS_DIR]:
+        if not os.path.isdir(docs_dir):
+            continue
+        for filename in sorted(os.listdir(docs_dir)):
             if not filename.endswith(".md"):
                 continue
-            filepath = os.path.join(_TOOLS_DIR, filename)
+            tool_name = filename[:-3]
+            if tool_name in seen_tools:
+                continue
+            filepath = os.path.join(docs_dir, filename)
             try:
                 with open(filepath, "r") as f:
                     first_lines = [f.readline() for _ in range(5)]
-                title = first_lines[0].strip().lstrip("# ").strip()
                 desc = ""
                 for line in first_lines[1:]:
                     stripped = line.strip()
                     if stripped and not stripped.startswith("#"):
                         desc = stripped
                         break
-                tool_name = filename[:-3]
                 lines.append(f"- {tool_name}: {desc}" if desc else f"- {tool_name}")
+                seen_tools.add(tool_name)
             except Exception:
                 pass
     summary = "You have access to the following tools. Use `read_tool_guide` to read the full usage guide for any tool before using it.\n\n" + "\n".join(lines) if lines else ""
@@ -306,17 +315,18 @@ async def _send_photo_via_send_func(send_func: SendFunc, path: str, caption: str
 
 def _default_image_artifact_path(prefix: str) -> str:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    out_dir = os.path.join(_SCRIPT_DIR, "logs", "browser")
+    out_dir = app_paths.browser_artifacts_dir()
     os.makedirs(out_dir, exist_ok=True)
     return os.path.join(out_dir, f"{prefix}_{stamp}.png")
 
 
 def _resolve_output_image_path(path: str | None, prefix: str) -> str:
     raw = str(path or "").strip()
+    data_root = os.path.realpath(_DATA_DIR)
     if raw:
-        resolved = raw if os.path.isabs(raw) else os.path.join(_SCRIPT_DIR, raw)
+        resolved = raw if os.path.isabs(raw) else os.path.join(_DATA_DIR, raw)
         resolved = os.path.realpath(resolved)
-        if not resolved.startswith(os.path.realpath(_SCRIPT_DIR) + os.sep) and resolved != os.path.realpath(_SCRIPT_DIR):
+        if not resolved.startswith(data_root + os.sep) and resolved != data_root:
             return _default_image_artifact_path(prefix)
         parent = os.path.dirname(resolved)
         if parent:
@@ -329,9 +339,10 @@ def _resolve_existing_image_path(path: str) -> str:
     raw = str(path or "").strip()
     if not raw:
         return ""
-    resolved = raw if os.path.isabs(raw) else os.path.join(_SCRIPT_DIR, raw)
+    resolved = raw if os.path.isabs(raw) else os.path.join(_DATA_DIR, raw)
     resolved = os.path.realpath(resolved)
-    if not resolved.startswith(os.path.realpath(_SCRIPT_DIR) + os.sep) and resolved != os.path.realpath(_SCRIPT_DIR):
+    roots = [os.path.realpath(_DATA_DIR), os.path.realpath(_RESOURCE_DIR)]
+    if not any(resolved.startswith(root + os.sep) or resolved == root for root in roots):
         return ""
     return resolved if os.path.isfile(resolved) else ""
 
@@ -737,21 +748,42 @@ def _get_all_tools(include_subagent: bool = True, include_telegram: bool = False
                             "type": "string",
                             "description": (
                                 "Email action to run: list_accounts, list_folders, list_messages, read_message, "
-                                "thread_message, send_message, reply_message, forward_message, move_messages, "
-                                "copy_messages, delete_messages"
+                                "thread_message, send_message, download_attachments, extract_message, export_message, "
+                                "reply_message, forward_message, move_messages, copy_messages, delete_messages"
                             ),
                         },
                         "account": {"type": "string", "description": "Optional Himalaya account name"},
                         "folder": {"type": "string", "description": "Optional source folder (defaults to inbox)"},
                         "page": {"type": "number", "description": "Optional page number for list_messages"},
-                        "message_id": {"type": "number", "description": "Single message/envelope id for read/reply/forward/thread"},
+                        "message_id": {
+                            "description": "Single message/envelope id for read/reply/forward/thread",
+                            "oneOf": [{"type": "number"}, {"type": "string"}],
+                        },
                         "message_ids": {
                             "type": "array",
-                            "items": {"type": "number"},
+                            "items": {
+                                "oneOf": [{"type": "number"}, {"type": "string"}],
+                            },
                             "description": "List of ids for bulk actions (move/copy/delete)",
                         },
                         "target_folder": {"type": "string", "description": "Target folder for move/copy"},
                         "preview": {"type": "boolean", "description": "Read/thread in preview mode (avoid marking seen). Default true."},
+                        "output_path": {
+                            "type": "string",
+                            "description": "Optional file path for read_message/thread_message output. Relative paths are saved under data/email_exports.",
+                        },
+                        "download_dir": {
+                            "type": "string",
+                            "description": "Optional directory for download_attachments. Relative paths are saved under data/email_exports.",
+                        },
+                        "destination_path": {
+                            "type": "string",
+                            "description": "Optional destination path for extract_message/export_message. For extract_message, prefer a directory.",
+                        },
+                        "full": {
+                            "type": "boolean",
+                            "description": "For extract_message/export_message: true exports a single raw .eml message, false exports MIME parts.",
+                        },
                         "reply_all": {"type": "boolean", "description": "For reply_message: include all recipients"},
                         "to": {
                             "type": "array",
@@ -770,6 +802,11 @@ def _get_all_tools(include_subagent: bool = True, include_telegram: bool = False
                         },
                         "subject": {"type": "string", "description": "Subject for send_message"},
                         "body": {"type": "string", "description": "Body for send/reply/forward"},
+                        "attachments": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Optional file paths to attach for send_message. Non-absolute paths are resolved against workspace/data roots.",
+                        },
                         "headers": {
                             "type": "object",
                             "description": "Optional custom headers as key-value pairs",
@@ -1560,12 +1597,17 @@ async def _execute_tool_call(
                 message_ids=tool_args.get("message_ids"),
                 target_folder=tool_args.get("target_folder"),
                 preview=tool_args.get("preview"),
+                output_path=tool_args.get("output_path"),
+                download_dir=tool_args.get("download_dir"),
+                destination_path=tool_args.get("destination_path"),
+                full=tool_args.get("full"),
                 reply_all=tool_args.get("reply_all"),
                 to=tool_args.get("to"),
                 cc=tool_args.get("cc"),
                 bcc=tool_args.get("bcc"),
                 subject=tool_args.get("subject"),
                 body=tool_args.get("body"),
+                attachments=tool_args.get("attachments"),
                 headers=tool_args.get("headers"),
             )
             return json.dumps(result, indent=2)
@@ -1891,10 +1933,18 @@ async def _execute_tool_call(
             name = str(tool_args.get("tool_name", "")).strip()
             if not name:
                 return json.dumps({"error": "tool_name is required"}, indent=2)
-            filepath = os.path.join(_TOOLS_DIR, f"{name}.md")
-            if not os.path.isfile(filepath):
-                available = [f[:-3] for f in os.listdir(_TOOLS_DIR) if f.endswith(".md")] if os.path.isdir(_TOOLS_DIR) else []
-                return json.dumps({"error": f"Unknown tool: {name}", "available_tools": available}, indent=2)
+            filepath = ""
+            for docs_dir in [_TOOLS_DIR, _DYNAMIC_TOOLS_DIR]:
+                candidate = os.path.join(docs_dir, f"{name}.md")
+                if os.path.isfile(candidate):
+                    filepath = candidate
+                    break
+            if not filepath:
+                available = set()
+                for docs_dir in [_TOOLS_DIR, _DYNAMIC_TOOLS_DIR]:
+                    if os.path.isdir(docs_dir):
+                        available.update(f[:-3] for f in os.listdir(docs_dir) if f.endswith(".md"))
+                return json.dumps({"error": f"Unknown tool: {name}", "available_tools": sorted(available)}, indent=2)
             with open(filepath, "r") as f:
                 content = f.read().strip()
             return content

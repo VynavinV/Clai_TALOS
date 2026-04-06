@@ -5,6 +5,19 @@ cd /d "%~dp0"
 
 set "WEB_PORT=8080"
 
+set "PORT_IN_USE="
+for /f "tokens=*" %%L in ('netstat -ano ^| findstr /R /C:":%WEB_PORT% .*LISTENING"') do (
+    set "PORT_IN_USE=1"
+)
+
+if defined PORT_IN_USE (
+    echo [warn] Port %WEB_PORT% is already in use.
+    echo [warn] Another TALOS instance is likely running already.
+    echo [ info] Open this URL in your browser: http://localhost:%WEB_PORT%
+    start "" "http://localhost:%WEB_PORT%"
+    exit /b 0
+)
+
 echo.
 echo   ======================================
 echo            Clai  TALOS
@@ -93,17 +106,26 @@ echo [  OK] Configuration checked
 
 :: ── Step 5: Tailscale Funnel (best-effort) ───────────────────────────
 
+set "TAILSCALE_BIN="
 where tailscale >nul 2>nul
-if %ERRORLEVEL% equ 0 (
-    tailscale status >nul 2>nul
+if %ERRORLEVEL% equ 0 set "TAILSCALE_BIN=tailscale"
+
+if not defined TAILSCALE_BIN if exist "%ProgramFiles%\Tailscale\tailscale.exe" set "TAILSCALE_BIN=%ProgramFiles%\Tailscale\tailscale.exe"
+if not defined TAILSCALE_BIN if exist "%ProgramFiles(x86)%\Tailscale\tailscale.exe" set "TAILSCALE_BIN=%ProgramFiles(x86)%\Tailscale\tailscale.exe"
+if not defined TAILSCALE_BIN if exist "%LOCALAPPDATA%\Programs\Tailscale\tailscale.exe" set "TAILSCALE_BIN=%LOCALAPPDATA%\Programs\Tailscale\tailscale.exe"
+if not defined TAILSCALE_BIN if exist "%LOCALAPPDATA%\Tailscale\tailscale.exe" set "TAILSCALE_BIN=%LOCALAPPDATA%\Tailscale\tailscale.exe"
+
+if defined TAILSCALE_BIN (
+    "%TAILSCALE_BIN%" status >nul 2>nul
     if %ERRORLEVEL% equ 0 (
-        tailscale funnel --bg %WEB_PORT% >nul 2>nul
+        "%TAILSCALE_BIN%" funnel --bg %WEB_PORT% >nul 2>nul
         if %ERRORLEVEL% equ 0 (
             echo [  OK] Tailscale Funnel active
         )
     )
 ) else (
     echo [ info] Tailscale not installed. Install from: https://tailscale.com/download
+    echo [ info] If you just installed it, restart this terminal and run start.bat again.
     echo [ info] You can set this up later from the dashboard.
 )
 

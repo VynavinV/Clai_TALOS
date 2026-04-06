@@ -28,20 +28,24 @@ import model_router
 import core
 import google_integration
 import activity_tracker
+import app_paths
 from auth_policy import MIN_DASHBOARD_PASSWORD_LENGTH, validate_dashboard_password
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-VENV_DIR = os.path.join(SCRIPT_DIR, "venv")
-WEB_DIR = os.path.join(SCRIPT_DIR, "web")
-STATIC_DIR = os.path.join(WEB_DIR, "static")
-ENV_FILE = os.path.join(SCRIPT_DIR, ".env")
-CREDS_FILE = os.path.join(SCRIPT_DIR, ".credentials")
-SECURITY_LOG = os.path.join(SCRIPT_DIR, ".security.log")
+SCRIPT_DIR = app_paths.resource_root()
+SOURCE_DIR = app_paths.source_root()
+VENV_DIR = os.path.join(SOURCE_DIR, "venv")
+WEB_DIR = app_paths.web_resource_dir()
+STATIC_DIR = app_paths.static_resource_dir()
+ENV_FILE = app_paths.env_file_path()
+CREDS_FILE = app_paths.credentials_file_path()
+SECURITY_LOG = app_paths.security_log_path()
 
-if not hasattr(sys, 'real_prefix') and not (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix):
+if not app_paths.is_frozen() and not hasattr(sys, 'real_prefix') and not (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix):
     print("[warn] Not running in virtual environment. Use start.sh or start.bat.")
 
-load_dotenv()
+app_paths.ensure_runtime_dirs()
+_migrated_runtime_items = app_paths.migrate_legacy_runtime_data()
+load_dotenv(dotenv_path=ENV_FILE)
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 BOT_NAME = os.getenv("BOT_NAME", "Clai-TALOS")
@@ -69,7 +73,7 @@ LOCKOUT_SECONDS = 300
 CSRF_MAX_AGE = 3600
 WEB_CHAT_MAX_INLINE_IMAGE_BYTES = 2 * 1024 * 1024
 WEB_CHAT_MAX_UPLOAD_BYTES = 10 * 1024 * 1024
-WEB_UPLOAD_DIR = os.path.join(SCRIPT_DIR, "logs", "web_uploads")
+WEB_UPLOAD_DIR = app_paths.web_upload_dir()
 GOOGLE_OAUTH_PENDING_MAX_AGE = 900
 google_oauth_pending: dict[str, dict] = {}
 start_time = None
@@ -82,6 +86,9 @@ security_logger.setLevel(logging.INFO)
 handler = logging.FileHandler(SECURITY_LOG)
 handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
 security_logger.addHandler(handler)
+
+if _migrated_runtime_items:
+    print(f"[info] Migrated legacy runtime data to {app_paths.data_root()}: {', '.join(_migrated_runtime_items)}")
 
 
 def _build_telegram_application(token: str) -> Application:
@@ -126,6 +133,14 @@ async def _start_telegram_application(token: str, retries: int = 3) -> tuple[App
     initialized = False
     started = False
 
+    def _polling_error_callback(exc: Exception) -> None:
+        msg = str(exc or "")
+        if "terminated by other getUpdates request" in msg:
+            print("[warn] Telegram polling conflict detected. Another bot instance is already running with this token.")
+            print("[info] Keeping web dashboard online; stop other bot instances to restore Telegram polling here.")
+            return
+        print(f"[warn] Telegram polling error: {msg}")
+
     try:
         for attempt in range(1, retries + 1):
             try:
@@ -139,7 +154,7 @@ async def _start_telegram_application(token: str, retries: int = 3) -> tuple[App
 
         await app.start()
         started = True
-        await app.updater.start_polling()
+        await app.updater.start_polling(error_callback=_polling_error_callback)
         return app, ""
     except Exception as exc:
         if started:
@@ -296,11 +311,49 @@ def _is_secure(request):
     return proto.lower() == "https"
 
 
+def _resolve_tailscale_bin() -> str | None:
+    candidates: list[str] = []
+
+    configured = str(os.getenv("TAILSCALE_BIN", "")).strip().strip('"')
+    if configured:
+        candidates.append(configured)
+
+    for cmd in ("tailscale", "tailscale.exe"):
+        found = shutil.which(cmd)
+        if found:
+            candidates.append(found)
+
+    if sys.platform == "win32":
+        program_files = os.getenv("ProgramFiles") or r"C:\Program Files"
+        program_files_x86 = os.getenv("ProgramFiles(x86)") or r"C:\Program Files (x86)"
+        local_app_data = os.getenv("LOCALAPPDATA") or os.path.expanduser(r"~\AppData\Local")
+        candidates.extend([
+            os.path.join(program_files, "Tailscale", "tailscale.exe"),
+            os.path.join(program_files_x86, "Tailscale", "tailscale.exe"),
+            os.path.join(local_app_data, "Programs", "Tailscale", "tailscale.exe"),
+            os.path.join(local_app_data, "Tailscale", "tailscale.exe"),
+        ])
+
+    for candidate in candidates:
+        candidate = str(candidate or "").strip().strip('"')
+        if not candidate:
+            continue
+        if os.path.isabs(candidate):
+            if os.path.isfile(candidate):
+                return candidate
+            continue
+        found = shutil.which(candidate)
+        if found:
+            return found
+    return None
+
+
 def get_tailscale_ip():
-    if not shutil.which("tailscale"):
+    tailscale_bin = _resolve_tailscale_bin()
+    if not tailscale_bin:
         return None
     result = subprocess.run(
-        ["tailscale", "ip", "-4"],
+        [tailscale_bin, "ip", "-4"],
         capture_output=True, text=True, timeout=5
     )
     if result.returncode == 0 and result.stdout.strip():
@@ -309,10 +362,11 @@ def get_tailscale_ip():
 
 
 def get_tailscale_hostname():
-    if not shutil.which("tailscale"):
+    tailscale_bin = _resolve_tailscale_bin()
+    if not tailscale_bin:
         return None
     result = subprocess.run(
-        ["tailscale", "status", "--json"],
+        [tailscale_bin, "status", "--json"],
         capture_output=True, text=True, timeout=5
     )
     if result.returncode != 0:
@@ -442,10 +496,11 @@ def _google_redirect_uri(request) -> str:
 
 
 def check_tailscale():
-    if not shutil.which("tailscale"):
+    tailscale_bin = _resolve_tailscale_bin()
+    if not tailscale_bin:
         return False, "not installed"
     result = subprocess.run(
-        ["tailscale", "status", "--json"],
+        [tailscale_bin, "status", "--json"],
         capture_output=True, text=True, timeout=5
     )
     if result.returncode != 0:
@@ -459,16 +514,17 @@ def check_tailscale():
 
 
 def check_funnel():
-    if not shutil.which("tailscale"):
+    tailscale_bin = _resolve_tailscale_bin()
+    if not tailscale_bin:
         return False, "tailscale not installed"
     result = subprocess.run(
-        ["tailscale", "funnel", "status"],
+        [tailscale_bin, "funnel", "status"],
         capture_output=True, text=True, timeout=5
     )
     if result.returncode == 0 and str(WEB_PORT) in result.stdout:
         return True, "active"
     result2 = subprocess.run(
-        ["tailscale", "serve", "status"],
+        [tailscale_bin, "serve", "status"],
         capture_output=True, text=True, timeout=5
     )
     if result2.returncode == 0 and str(WEB_PORT) in result2.stdout:
@@ -543,6 +599,9 @@ def _resolve_image_path(path: str) -> str:
     expanded = os.path.expanduser(path)
     if os.path.isabs(expanded):
         return expanded
+    data_candidate = os.path.join(app_paths.data_root(), expanded)
+    if os.path.exists(data_candidate):
+        return data_candidate
     return os.path.join(SCRIPT_DIR, expanded)
 
 
@@ -610,7 +669,7 @@ def _save_web_upload(attachment: dict) -> dict:
     with open(saved_path, "wb") as f:
         f.write(content)
 
-    relative_path = os.path.relpath(saved_path, SCRIPT_DIR).replace("\\", "/")
+    relative_path = os.path.relpath(saved_path, app_paths.data_root()).replace("\\", "/")
     return {
         "name": name,
         "path": saved_path,
@@ -818,7 +877,7 @@ async def handle_api_onboarding_telegram(request):
         for k, v in env_vars.items():
             f.write(f"{k}={v}\n")
 
-    load_dotenv(override=True)
+    load_dotenv(dotenv_path=ENV_FILE, override=True)
     BOT_NAME = bot_name
 
     start_result = await _start_telegram_runtime(token)
@@ -837,7 +896,7 @@ async def handle_api_onboarding_telegram(request):
 @require_auth
 async def handle_api_onboarding_tailscale(request):
     """Check Tailscale status for onboarding."""
-    installed = bool(shutil.which("tailscale"))
+    installed = bool(_resolve_tailscale_bin())
     connected = False
     hostname = ""
 
@@ -902,7 +961,7 @@ async def handle_api_onboarding_model(request):
         for k, v in env_vars.items():
             f.write(f"{k}={v}\n")
 
-    load_dotenv(override=True)
+    load_dotenv(dotenv_path=ENV_FILE, override=True)
     AI.reload_clients()
 
     return web.json_response({"ok": True})
@@ -927,7 +986,7 @@ async def handle_api_onboarding_gemini(request):
         for k, v in env_vars.items():
             f.write(f"{k}={v}\n")
 
-    load_dotenv(override=True)
+    load_dotenv(dotenv_path=ENV_FILE, override=True)
     return web.json_response({"ok": True})
 
 
@@ -960,7 +1019,7 @@ async def _download_himalaya() -> str | None:
     asset_name = f"himalaya.{arch}-{os_name}.tgz"
     download_url = f"https://github.com/pimalaya/himalaya/releases/latest/download/{asset_name}"
 
-    bin_dir = os.path.join(SCRIPT_DIR, "bin")
+    bin_dir = app_paths.bin_dir()
     os.makedirs(bin_dir, exist_ok=True)
     bin_path = os.path.join(bin_dir, "himalaya" if os_name != "windows" else "himalaya.exe")
 
@@ -1000,7 +1059,10 @@ async def _download_himalaya() -> str | None:
             for member in tf.getmembers():
                 if member.isfile():
                     member.name = os.path.basename(member.name)
-                    tf.extract(member, bin_dir)
+                    try:
+                        tf.extract(member, bin_dir, filter="data")
+                    except TypeError:
+                        tf.extract(member, bin_dir)
                     extracted = os.path.join(bin_dir, member.name)
                     os.chmod(extracted, 0o755)
                     if os.path.isfile(extracted):
@@ -1027,7 +1089,7 @@ async def handle_api_onboarding_email(request):
         return web.json_response({"error": "Invalid request."}, status=400)
 
     email_addr = str(body.get("email", "")).strip()
-    app_password = str(body.get("app_password", "")).strip()
+    app_password = "".join(str(body.get("app_password", "")).split())
 
     if not email_addr or not app_password:
         return web.json_response({"error": "Email and app password are required."}, status=400)
@@ -1044,9 +1106,10 @@ async def handle_api_onboarding_email(request):
                 "error": "Failed to download Himalaya. Install manually from github.com/pimalaya/himalaya and set HIMALAYA_BIN in Settings."
             }, status=500)
 
-    config_dir = os.path.join(SCRIPT_DIR, ".himalaya")
+    config_dir = app_paths.himalaya_dir()
     os.makedirs(config_dir, exist_ok=True)
     config_path = os.path.join(config_dir, "config.toml")
+    config_cli_path = os.path.relpath(config_path, app_paths.data_root()).replace("\\", "/")
 
     username = email_addr.split("@")[0]
     account_alias = "gmail"
@@ -1089,20 +1152,21 @@ auth.raw = "{safe_password}"
 
     env_vars = _read_env_file()
     env_vars["HIMALAYA_BIN"] = himalaya_bin
-    env_vars["HIMALAYA_CONFIG"] = config_path
+    env_vars["HIMALAYA_CONFIG"] = config_cli_path
     env_vars["HIMALAYA_DEFAULT_ACCOUNT"] = account_alias
 
     with open(ENV_FILE, "w") as f:
         for k, v in env_vars.items():
             f.write(f"{k}={v}\n")
 
-    load_dotenv(override=True)
+    load_dotenv(dotenv_path=ENV_FILE, override=True)
 
     try:
         proc = await asyncio.create_subprocess_exec(
-            himalaya_bin, "--config", config_path, "account", "list",
+            himalaya_bin, "--config", config_cli_path, "account", "list",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            cwd=app_paths.data_root(),
         )
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
         if proc.returncode != 0:
@@ -1145,7 +1209,7 @@ async def handle_api_onboarding_google(request):
         for k, v in env_vars.items():
             f.write(f"{k}={v}\n")
 
-    load_dotenv(override=True)
+    load_dotenv(dotenv_path=ENV_FILE, override=True)
     return web.json_response({"ok": True})
 
 
@@ -1263,7 +1327,7 @@ async def handle_api_keys_post(request):
         for k, v in env_vars.items():
             f.write(f"{k}={v}\n")
 
-    load_dotenv(override=True)
+    load_dotenv(dotenv_path=ENV_FILE, override=True)
     AI.reload_clients()
     import websearch
     websearch.reload_client()
@@ -1556,7 +1620,7 @@ async def handle_api_settings_post(request):
         for k, v in env_vars.items():
             f.write(f"{k}={v}\n")
 
-    load_dotenv(override=True)
+    load_dotenv(dotenv_path=ENV_FILE, override=True)
     AI.reload_clients()
 
     new_bot_name = str(env_vars.get("BOT_NAME", "")).strip()
@@ -1642,7 +1706,7 @@ async def handle_api_ollama_setup(request):
         for k, v in env_vars.items():
             f.write(f"{k}={v}\n")
 
-    load_dotenv(override=True)
+    load_dotenv(dotenv_path=ENV_FILE, override=True)
     model_router.reload_clients()
 
     pull_result = subprocess.run(
@@ -1834,7 +1898,7 @@ async def handle_api_chat(request):
 
 @require_auth
 async def handle_api_tools_get(request):
-    config_file = os.path.join(SCRIPT_DIR, ".tools_config")
+    config_file = app_paths.tools_config_path()
     enabled_tools = {}
 
     if os.path.isfile(config_file):
@@ -1893,7 +1957,7 @@ async def handle_api_tools_get(request):
 async def handle_api_tools_post(request):
     body = request._json_body
 
-    config_file = os.path.join(SCRIPT_DIR, ".tools_config")
+    config_file = app_paths.tools_config_path()
 
     with open(config_file, "w") as f:
         json.dump(body, f, indent=2)
@@ -1904,7 +1968,7 @@ async def handle_api_tools_post(request):
 @require_auth_csrf
 async def handle_api_reload(request):
     try:
-        load_dotenv(override=True)
+        load_dotenv(dotenv_path=ENV_FILE, override=True)
         AI.reload_clients()
         import websearch
         websearch.reload_client()
@@ -1916,11 +1980,15 @@ async def handle_api_reload(request):
 @require_auth_csrf
 async def handle_api_restart(request):
     try:
+        if app_paths.is_frozen():
+            subprocess.Popen([sys.executable])
+            sys.exit(0)
+        target_script = os.path.join(SOURCE_DIR, "telegram_bot.py")
         if sys.platform == "win32":
-            subprocess.Popen([sys.executable, os.path.join(SCRIPT_DIR, "telegram_bot.py")])
+            subprocess.Popen([sys.executable, target_script])
             sys.exit(0)
         else:
-            os.execv(sys.executable, [sys.executable, os.path.join(SCRIPT_DIR, "telegram_bot.py")])
+            os.execv(sys.executable, [sys.executable, target_script])
         return web.json_response({"ok": True})
     except Exception:
         return web.json_response({"error": "Restart failed."}, status=500)
@@ -2000,7 +2068,17 @@ async def main():
     await runner.setup()
 
     site = web.TCPSite(runner, "0.0.0.0", WEB_PORT)
-    await site.start()
+    try:
+        await site.start()
+    except OSError as exc:
+        err_no = getattr(exc, "errno", None)
+        if err_no == 10048 or "10048" in str(exc):
+            print(f"[fail] Port {WEB_PORT} is already in use.")
+            print("[info] Another TALOS instance is likely already running.")
+            print(f"[info] Open http://localhost:{WEB_PORT} or stop the other instance and restart.")
+            await runner.cleanup()
+            return
+        raise
 
     ts_ip = get_tailscale_ip()
     ts_hostname = get_tailscale_hostname()

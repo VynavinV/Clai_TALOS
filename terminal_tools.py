@@ -9,15 +9,16 @@ import shutil
 import time
 from datetime import datetime, timezone
 
+import app_paths
+
 try:
     import docker
     DOCKER_AVAILABLE = True
 except ImportError:
     DOCKER_AVAILABLE = False
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-LOG_DIR = os.path.join(SCRIPT_DIR, "logs")
-CONFIG_FILE = os.path.join(SCRIPT_DIR, "terminal_config.json")
+LOG_DIR = app_paths.logs_dir()
+CONFIG_FILE = app_paths.terminal_config_path()
 
 os.makedirs(LOG_DIR, exist_ok=True)
 
