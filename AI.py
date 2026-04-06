@@ -1945,7 +1945,7 @@ async def _execute_tool_call(
 
 
 _TOOLCALL_TAG_RE = re.compile(
-    r"<toolcall>(.+?)(?:</(?:toolcall|argvalue)>|$)",
+    r"<toolcall>(.+?)(?:</toolcall>|$)",
     re.DOTALL,
 )
 _TOOLCALL_ARG_RE = re.compile(
@@ -1957,9 +1957,41 @@ _TOOLCALL_JSON_RE = re.compile(
     re.DOTALL,
 )
 _TOOLCALL_ARTIFACT_RE = re.compile(
-    r"</?(?:toolcall|argvalue)\s*>",
+    r"</?(?:toolcall|argvalue|argkey)\s*>",
     re.IGNORECASE,
 )
+_ARGKEY_VALUE_RE = re.compile(
+    r"<argkey>\s*(\w+)\s*</argkey>\s*<argvalue>\s*(.+?)\s*</argvalue>",
+    re.DOTALL,
+)
+_ARGVALUE_ONLY_RE = re.compile(
+    r"<argvalue>\s*(.+?)\s*</argvalue>",
+    re.DOTALL,
+)
+_SINGLE_ARG_HINT = {
+    "execute_command": "command",
+    "command": "command",
+    "read_file": "path",
+    "readfile": "path",
+    "write_file": "path",
+    "writefile": "path",
+    "web_search": "query",
+    "scrape_url": "url",
+    "send_telegram_message": "message",
+    "send_voice_message": "text",
+    "read_tool_guide": "tool_name",
+    "search_memories": "query",
+    "list_memories": "category",
+}
+
+_TEXT_TOOL_ALIASES = {
+    "command": "execute_command",
+    "readfile": "read_file",
+    "writefile": "write_file",
+    "editfile": "edit_file",
+    "websearch": "web_search",
+    "scrape": "scrape_url",
+}
 
 
 def _sanitize_response(text: str) -> str:
@@ -1983,7 +2015,9 @@ def _parse_text_tool_calls(content: str) -> tuple[list[dict], str]:
             continue
         raw_name = name_match.group(1)
         tool_name = raw_name.split(":", 1)[-1] if ":" in raw_name else raw_name
+        tool_name = _TEXT_TOOL_ALIASES.get(tool_name, tool_name)
         rest = body[name_match.end():].strip()
+        rest = re.sub(r"</?argkey\s*>", "", rest)
 
         args: dict = {}
 
@@ -1995,6 +2029,20 @@ def _parse_text_tool_calls(content: str) -> tuple[list[dict], str]:
                     args = {}
             except (json.JSONDecodeError, TypeError):
                 logger.warning(f"Failed to parse JSON args in text tool call: {json_match.group(1)[:200]}")
+        elif "<argvalue>" in rest:
+            for kv_match in _ARGKEY_VALUE_RE.finditer(rest):
+                args[kv_match.group(1).strip()] = kv_match.group(2).strip()
+            if not args:
+                values = [m.group(1).strip() for m in _ARGVALUE_ONLY_RE.finditer(rest)]
+                if values:
+                    hint = _SINGLE_ARG_HINT.get(tool_name)
+                    if hint:
+                        args[hint] = values[0]
+                    elif len(values) == 1:
+                        args["arg"] = values[0]
+                    else:
+                        for i, v in enumerate(values):
+                            args[f"arg{i}"] = v
         else:
             for arg_match in _TOOLCALL_ARG_RE.finditer(rest):
                 key = arg_match.group(1)
