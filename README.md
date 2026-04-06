@@ -12,15 +12,36 @@ If you are searching for an easier OpenClaw alternative, a free Claude Cowork al
 
 ## Installation (Fast Start)
 
-### 1. Download or clone this repository
+### Use Releases (.deb)
 
-Then open a terminal in the project folder:
+For Linux/Ubuntu users who want the fastest install from a GitHub Release asset:
+
+```bash
+# Run in the folder where you downloaded the .deb
+sudo apt install ./clai-talos_<version>_amd64.deb
+sudo systemctl enable --now clai-talos
+sudo systemctl status clai-talos --no-pager
+```
+
+Open the dashboard at `http://localhost:8080`.
+
+If install fails with unmet dependencies like `python3-venv` or `python3-pip` not installable:
+
+```bash
+sudo add-apt-repository -y universe
+sudo apt update
+sudo apt install ./clai-talos_<version>_amd64.deb
+```
+
+### Manual (Clone and Run)
+
+Download or clone this repository, then open a terminal in the project folder:
 
 ```bash
 cd Clai_TALOS
 ```
 
-### 2. Run one script
+Run one script:
 
 Linux/macOS:
 
@@ -37,7 +58,7 @@ start.bat
 > **Windows status:** Supported for local runtime and EXE preview builds.
 > Linux/macOS remain the most-tested platforms.
 
-### 3. Open the dashboard
+Open the dashboard:
 
 Go to `http://localhost:8080` and complete signup + onboarding.
 
