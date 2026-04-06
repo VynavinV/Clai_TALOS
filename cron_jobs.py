@@ -69,7 +69,7 @@ async def _run_self_prompt(user_id: int, job_name: str, command: str) -> str:
 
     import core
 
-    async def noop(**_):
+    async def noop(*_, **__):
         pass
 
     try:
