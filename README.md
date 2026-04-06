@@ -1,7 +1,7 @@
 # Clai TALOS
 
 <p align="center">
-      <img src="web/static/clai-icon.png" alt="Clai TALOS logo" width="120">
+      <img src="src/web/static/banner.png" alt="Clai TALOS logo" width="120">
 </p>
 
 Clai TALOS is a free, self-hosted AI assistant focused on practical automation through Telegram and a local web dashboard.
