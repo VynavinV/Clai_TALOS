@@ -3,7 +3,7 @@
 Recalculate an XLSX workbook by forcing a LibreOffice Calc open/save cycle in headless mode.
 
 Usage:
-  python scripts/recalc.py --input model.xlsx [--output model.xlsx] [--timeout 180]
+    python src/scripts/recalc.py --input model.xlsx [--output model.xlsx] [--timeout 180]
 """
 
 import argparse
