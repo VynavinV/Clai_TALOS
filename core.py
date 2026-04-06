@@ -170,7 +170,7 @@ async def process_message(user_id: int, text: str, send_func, model_override: st
         if reply:
             await _send_with_optional_voice(send_func, reply, stream=True)
         else:
-            await _send_with_optional_voice(send_func, "Done.")
+            await _send_with_optional_voice(send_func, "I ran out of processing rounds before finishing. Try breaking the task into smaller steps.")
     except Exception as error:
         await _cancel_task(watchdog_task)
         await _cancel_task(watcher_task)

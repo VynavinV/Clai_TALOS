@@ -1169,16 +1169,17 @@ def _get_all_tools(include_subagent: bool = True, include_telegram: bool = False
             "function": {
                 "name": "migrate_project",
                 "description": (
-                    "Copy an existing HTML file on disk into the project gateway and make it live. "
-                    "Use this when you already have an HTML file and want to serve it — no need to "
-                    "read the file first. Just pass the source path and a project name. "
+                    "Copy an existing HTML file or directory on disk into the project gateway and make it live. "
+                    "If source_path is a directory, all files are copied recursively. "
+                    "If it's a single HTML file, it becomes index.html in the project. "
+                    "No need to read files first — just pass the source path and a project name. "
                     "Returns the full public URL. You MUST send the returned url to the user."
                 ),
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "name": {"type": "string", "description": "Project name (alphanumeric, hyphens, underscores). Used in the URL."},
-                        "source_path": {"type": "string", "description": "Path to the existing HTML file to copy into the project"},
+                        "source_path": {"type": "string", "description": "Path to an HTML file or a directory to copy into the project"},
                         "description": {"type": "string", "description": "Short description of the project"}
                     },
                     "required": ["name", "source_path"]
@@ -1749,21 +1750,34 @@ async def _execute_tool_call(
                 return json.dumps({"error": "No source_path provided"})
             source_path = source_path if os.path.isabs(source_path) else os.path.join(_SCRIPT_DIR, source_path)
             source_path = os.path.realpath(source_path)
-            if not os.path.isfile(source_path):
-                return json.dumps({"error": f"Source file not found: {source_path}"}, indent=2)
+            if not os.path.exists(source_path):
+                return json.dumps({"error": f"Source not found: {source_path}"}, indent=2)
             description = str(tool_args.get("description", "")).strip()
             reg = gateway.register_project(name, description=description)
-            dest_path = os.path.join(reg["path"], "index.html")
-            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+            dest_dir = reg["path"]
+            os.makedirs(dest_dir, exist_ok=True)
             try:
-                shutil.copy2(source_path, dest_path)
+                if os.path.isdir(source_path):
+                    for item in os.listdir(source_path):
+                        s = os.path.join(source_path, item)
+                        d = os.path.join(dest_dir, item)
+                        if os.path.isdir(s):
+                            shutil.copytree(s, d, dirs_exist_ok=True)
+                        else:
+                            shutil.copy2(s, d)
+                    file_count = sum(len(files) for _, _, files in os.walk(dest_dir))
+                else:
+                    dest_path = os.path.join(dest_dir, "index.html")
+                    shutil.copy2(source_path, dest_path)
+                    file_count = 1
             except Exception as e:
-                return json.dumps({"error": f"Failed to copy file: {e}"}, indent=2)
+                return json.dumps({"error": f"Failed to copy: {e}"}, indent=2)
             return json.dumps({
                 "status": "live",
                 "url": reg["url"],
                 "share_this_link": reg["url"],
                 "path": reg["path"],
+                "files_copied": file_count,
                 "source": source_path,
                 "instruction": "Send the url to the user — this is the live clickable link to their project",
             }, indent=2)
@@ -2009,7 +2023,7 @@ _TOOLCALL_JSON_RE = re.compile(
     re.DOTALL,
 )
 _TOOLCALL_ARTIFACT_RE = re.compile(
-    r"</?(?:toolcall|argvalue|argkey)\s*>",
+    r"</?(?:toolcall|argvalue|argkey|environment_details|thinking|thought)\b[^>]*>",
     re.IGNORECASE,
 )
 _ARGKEY_VALUE_RE = re.compile(
@@ -2308,7 +2322,7 @@ async def _run_agent(
 
         return _sanitize_response(final_content)
     except Exception:
-        return "I ran out of processing rounds. Please try again."
+        return "I ran out of processing rounds before finishing. Break the task into smaller pieces and try again."
 
 
 # ---------------------------------------------------------------------------
