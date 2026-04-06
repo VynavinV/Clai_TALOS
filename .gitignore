@@ -35,3 +35,6 @@ dist/
 *.swo
 *~
 .DS_Store
+
+# misc
+todo.txt

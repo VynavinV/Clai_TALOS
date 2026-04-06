@@ -249,7 +249,7 @@ It is not aimed at multi-channel enterprise orchestration, large plugin marketpl
 
 ## Why TALOS Instead of Heavy Platforms
 
-The project philosophy comes from `philosophy.md`: simplicity over features, fail loudly, and avoid architecture that hides failure points.
+The project philosophy comes from `docs/philosophy.md`: simplicity over features, fail loudly, and avoid architecture that hides failure points.
 
 | Common platform pattern | Clai TALOS approach |
 |-------------------------|---------------------|
@@ -1004,7 +1004,7 @@ This generates:
 
 ### Extending tools
 
-Two paths (see [MAKING_TOOLS.md](MAKING_TOOLS.md) for full guide):
+Two paths (see [MAKING_TOOLS.md](docs/MAKING_TOOLS.md) for full guide):
 
 - Add native Python tool implementation and register in `AI.py`.
 - Use dynamic tools (`create_tool`, `list_dynamic_tools`, `delete_tool`) for command-template style tools.
@@ -1019,22 +1019,22 @@ See `SECURITY.md` for vulnerability reporting guidance.
 
 ## Changelog
 
-See `CHANGELOG.md` for release notes and notable changes.
+See `docs/CHANGELOG.md` for release notes and notable changes.
 
 ## Documentation Map
 
 Top-level docs:
 
-- `philosophy.md` - project philosophy and complexity boundaries
+- `docs/philosophy.md` - project philosophy and complexity boundaries
 - `CONTRIBUTING.md` - contribution workflow and standards
 - `SECURITY.md` - vulnerability reporting policy
 - `CODE_OF_CONDUCT.md` - contributor behavior expectations
-- `CHANGELOG.md` - release history
+- `docs/CHANGELOG.md` - release history
 - `tools/*.md` - per-tool usage documentation
 
 Current tool docs:
 
-- `MAKING_TOOLS.md`
+- `docs/MAKING_TOOLS.md`
 - `tools/browser.md`
 - `tools/cron.md`
 - `tools/docx_execute.md`
