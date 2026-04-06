@@ -17,11 +17,11 @@ RUN apt-get update \
         libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt /tmp/requirements.txt
+COPY src/requirements.txt /tmp/requirements.txt
 RUN python -m pip install --upgrade pip \
     && pip install -r /tmp/requirements.txt
 
-COPY . /app
+COPY src/ /app
 
 RUN useradd --create-home --uid 10001 talos \
     && mkdir -p /data \

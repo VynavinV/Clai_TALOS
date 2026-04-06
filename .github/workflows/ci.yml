@@ -27,7 +27,7 @@ jobs:
           python -m pip install pytest
 
       - name: Compile Python files
-        run: python -m compileall -q .
+        run: python -m compileall -q src/
 
       - name: Run tests
-        run: pytest -q tests
+        run: pytest -q src/tests

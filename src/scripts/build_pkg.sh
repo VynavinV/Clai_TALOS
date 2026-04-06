@@ -2,7 +2,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+SRC_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$SRC_DIR/.." && pwd)"
 
 PACKAGE_NAME="clai-talos"
 PKG_IDENTIFIER="com.claitalos.pkg"
@@ -34,7 +35,7 @@ normalize_to_lf() {
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "[fail] macOS package builds are supported on macOS only." >&2
-  echo "[hint] Run this script on a macOS machine: ./scripts/build_pkg.sh" >&2
+  echo "[hint] Run this script on a macOS machine: ./src/scripts/build_pkg.sh" >&2
   exit 1
 fi
 
@@ -53,9 +54,7 @@ rm -rf "$BUILD_DIR"
 mkdir -p "$APP_DIR" "$BIN_DIR" "$LAUNCHD_DIR" "$STATE_DIR" "$PKG_SCRIPTS_DIR"
 
 # Copy repository into /usr/local/lib, excluding local/runtime artifacts.
-tar -C "$REPO_ROOT" -cf - \
-  --exclude=.git \
-  --exclude=.github \
+tar -C "$SRC_DIR" -cf - \
   --exclude=.venv \
   --exclude=venv \
   --exclude=dist \
@@ -78,11 +77,6 @@ tar -C "$REPO_ROOT" -cf - \
 
 find "$APP_DIR" -type d -name "__pycache__" -prune -exec rm -rf {} +
 find "$APP_DIR" -type f -name "*.pyc" -delete
-
-if [[ -f "$APP_DIR/start.sh" ]]; then
-  normalize_to_lf "$APP_DIR/start.sh"
-  chmod 0755 "$APP_DIR/start.sh"
-fi
 
 cat > "$BIN_DIR/clai" <<'EOF'
 #!/usr/bin/env bash

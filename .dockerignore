@@ -1,6 +1,7 @@
 .git
 .github
 .vscode
+.kilo
 .venv
 venv
 __pycache__
@@ -19,4 +20,11 @@ talos.db-shm
 .setup_config
 .tools_config
 .himalaya
-Dockerfile.sandbox
+src/Dockerfile.sandbox
+src/tests
+src/scripts
+src/docs
+src/build_exe.bat
+src/clear_data.bat
+src/clear_data.sh
+src/talos_exe.spec

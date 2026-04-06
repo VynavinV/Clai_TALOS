@@ -24,7 +24,7 @@ datas = [
     (str(project_root / "web"), "web"),
     (str(project_root / "tools"), "tools"),
     (str(project_root / "system_prompt.md"), "."),
-    (str(project_root / "README.md"), "."),
+    (str(project_root.parent / "README.md"), "."),
 ]
 
 

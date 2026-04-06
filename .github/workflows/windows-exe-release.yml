@@ -26,18 +26,19 @@ jobs:
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt pyinstaller
+          pip install -r src/requirements.txt pyinstaller
 
       - name: Build EXE
         shell: pwsh
         run: |
+          cd src
           python -m PyInstaller --noconfirm --clean talos_exe.spec
 
       - name: Package artifacts
         id: package
         shell: pwsh
         run: |
-          $distDir = Join-Path $PWD "dist"
+          $distDir = Join-Path $PWD "src\dist"
           $outDir = Join-Path $distDir "ClaiTALOS"
           if (!(Test-Path $outDir)) { throw "Build output not found: $outDir" }
 

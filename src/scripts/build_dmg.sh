@@ -2,7 +2,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+SRC_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$SRC_DIR/.." && pwd)"
 
 APP_NAME="Clai TALOS.app"
 VERSION="${1:-${TALOS_DMG_VERSION:-0.1.0}}"
@@ -23,7 +24,7 @@ require_cmd() {
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "[fail] macOS DMG builds are supported on macOS only." >&2
-  echo "[hint] Run this script on a macOS machine: ./scripts/build_dmg.sh" >&2
+  echo "[hint] Run this script on a macOS machine: ./src/scripts/build_dmg.sh" >&2
   exit 1
 fi
 

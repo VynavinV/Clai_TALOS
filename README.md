@@ -249,7 +249,7 @@ It is not aimed at multi-channel enterprise orchestration, large plugin marketpl
 
 ## Why TALOS Instead of Heavy Platforms
 
-The project philosophy comes from `docs/philosophy.md`: simplicity over features, fail loudly, and avoid architecture that hides failure points.
+The project philosophy comes from `src/docs/philosophy.md`: simplicity over features, fail loudly, and avoid architecture that hides failure points.
 
 | Common platform pattern | Clai TALOS approach |
 |-------------------------|---------------------|
@@ -278,31 +278,30 @@ TALOS is designed as the practical infrastructure this project needed from the b
 
 | Area | Capability | Main Modules |
 |------|------------|--------------|
-| Conversational interface | Telegram bot + web chat dashboard | `telegram_bot.py`, `bot_handlers.py`, `core.py` |
-| Orchestration | Tool-calling agent loop, subagent delegation | `AI.py` |
-| Persistence | SQLite settings/history/summaries | `db.py` |
-| Memory | Keyword extraction, relevance ranking | `memory.py` |
-| Terminal execution | Commands and workflows with safeguards | `terminal_tools.py` |
-| Scheduling | Cron jobs using croniter | `cron_jobs.py` |
-| Web search/scrape | Search plus local Scrapy scraping | `websearch.py`, `scrapy_scraper.py` |
-| Browser automation | CDP-driven Chrome automation | `browser_automation.py` |
-| Google bridge | OAuth + Google action execution | `google_integration.py` |
-| Email bridge | Himalaya CLI operations | `email_tools.py` |
-| Advanced file support | XLSX and DOCX operations | `spreadsheet_tools.py`, `docx_tools.py` |
-| Live projects | Static project serving + registration | `gateway.py` |
+| Conversational interface | Telegram bot + web chat dashboard | `src/telegram_bot.py`, `src/bot_handlers.py`, `src/core.py` |
+| Orchestration | Tool-calling agent loop, subagent delegation | `src/AI.py` |
+| Persistence | SQLite settings/history/summaries | `src/db.py` |
+| Memory | Keyword extraction, relevance ranking | `src/memory.py` |
+| Terminal execution | Commands and workflows with safeguards | `src/terminal_tools.py` |
+| Scheduling | Cron jobs using croniter | `src/cron_jobs.py` |
+| Web search/scrape | Search plus local Scrapy scraping | `src/websearch.py`, `src/scrapy_scraper.py` |
+| Browser automation | CDP-driven Chrome automation | `src/browser_automation.py` |
+| Google bridge | OAuth + Google action execution | `src/google_integration.py` |
+| Email bridge | Himalaya CLI operations | `src/email_tools.py` |
+| Advanced file support | XLSX and DOCX operations | `src/spreadsheet_tools.py`, `src/docx_tools.py` |
+| Live projects | Static project serving + registration | `src/gateway.py` |
 
 ## Repository Layout
 
-TALOS intentionally keeps a flat Python module layout at repo root. This is a deliberate tradeoff for readability and quick debugging in a single-process system.
+TALOS keeps all source code under `src/` for a clean repository layout. Python modules, tool docs, web assets, and build scripts all live inside `src/`.
 
 Structure overview:
 
-- Runtime and orchestration modules live at repo root (`AI.py`, `core.py`, `telegram_bot.py`, `model_router.py`, etc.).
-- Tool docs and usage references live in `tools/`.
-- Dashboard pages and static assets live in `web/`.
+- Source modules live in `src/` (`AI.py`, `core.py`, `telegram_bot.py`, `model_router.py`, etc.).
+- Tool docs and usage references live in `src/tools/`.
+- Dashboard pages and static assets live in `src/web/`.
+- Additional documentation lives in `src/docs/`.
 - Runtime-generated data stays local and ignored (`logs/`, `projects/`, `talos.db`, `.env`, `.credentials`).
-
-If you prefer package-style layout (`src/` with subpackages), you can refactor there later, but the current structure is intentional and acceptable for this project's goals.
 
 ## Architecture
 
@@ -890,6 +889,7 @@ Recommended:
 Manual:
 
 ```bash
+cd src
 python3 setup.py
 source venv/bin/activate
 python3 telegram_bot.py
@@ -897,7 +897,7 @@ python3 telegram_bot.py
 
 ### Dependency management
 
-Python dependencies are in `requirements.txt`.
+Python dependencies are in `src/requirements.txt`.
 
 Current core packages include:
 
@@ -922,14 +922,14 @@ Current core packages include:
 Local build (PowerShell):
 
 ```powershell
-./scripts/build_windows_exe.ps1
+./src/scripts/build_windows_exe.ps1
 ```
 
 Each run creates a new versioned artifact using `timestamp-gitsha[-dirty]`.
 You can also set your own label:
 
 ```powershell
-./scripts/build_windows_exe.ps1 -Version "v0.2.1"
+./src/scripts/build_windows_exe.ps1 -Version "v0.2.1"
 ```
 
 This generates:
@@ -960,7 +960,7 @@ Docker release image workflow:
 Use the image with:
 
 ```bash
-docker compose -f docker-compose.release.yml up -d
+docker compose -f src/docker-compose.release.yml up -d
 ```
 
 ### Build macOS PKG
@@ -968,8 +968,8 @@ docker compose -f docker-compose.release.yml up -d
 On macOS:
 
 ```bash
-chmod +x scripts/build_pkg.sh
-./scripts/build_pkg.sh 0.1.0
+chmod +x src/scripts/build_pkg.sh
+./src/scripts/build_pkg.sh 0.1.0
 ```
 
 This generates:
@@ -981,8 +981,8 @@ This generates:
 On macOS:
 
 ```bash
-chmod +x scripts/build_app.sh
-./scripts/build_app.sh 0.1.0
+chmod +x src/scripts/build_app.sh
+./src/scripts/build_app.sh 0.1.0
 ```
 
 This generates:
@@ -994,8 +994,8 @@ This generates:
 On macOS:
 
 ```bash
-chmod +x scripts/build_dmg.sh
-./scripts/build_dmg.sh 0.1.0
+chmod +x src/scripts/build_dmg.sh
+./src/scripts/build_dmg.sh 0.1.0
 ```
 
 This generates:
@@ -1004,9 +1004,9 @@ This generates:
 
 ### Extending tools
 
-Two paths (see [MAKING_TOOLS.md](docs/MAKING_TOOLS.md) for full guide):
+Two paths (see [MAKING_TOOLS.md](src/docs/MAKING_TOOLS.md) for full guide):
 
-- Add native Python tool implementation and register in `AI.py`.
+- Add native Python tool implementation and register in `src/AI.py`.
 - Use dynamic tools (`create_tool`, `list_dynamic_tools`, `delete_tool`) for command-template style tools.
 
 ## Contributing
@@ -1019,40 +1019,40 @@ See `SECURITY.md` for vulnerability reporting guidance.
 
 ## Changelog
 
-See `docs/CHANGELOG.md` for release notes and notable changes.
+See `src/docs/CHANGELOG.md` for release notes and notable changes.
 
 ## Documentation Map
 
 Top-level docs:
 
-- `docs/philosophy.md` - project philosophy and complexity boundaries
+- `src/docs/philosophy.md` - project philosophy and complexity boundaries
 - `CONTRIBUTING.md` - contribution workflow and standards
 - `SECURITY.md` - vulnerability reporting policy
 - `CODE_OF_CONDUCT.md` - contributor behavior expectations
-- `docs/CHANGELOG.md` - release history
-- `tools/*.md` - per-tool usage documentation
+- `src/docs/CHANGELOG.md` - release history
+- `src/tools/*.md` - per-tool usage documentation
 
 Current tool docs:
 
-- `docs/MAKING_TOOLS.md`
-- `tools/browser.md`
-- `tools/cron.md`
-- `tools/docx_execute.md`
-- `tools/dynamic_tools.md`
-- `tools/email.md`
-- `tools/file_tools.md`
-- `tools/gateway.md`
-- `tools/google.md`
-- `tools/memory.md`
-- `tools/model_prefs.md`
-- `tools/presentation.md`
-- `tools/scrape_url.md`
-- `tools/spreadsheet_execute.md`
-- `tools/subagent.md`
-- `tools/telegram.md`
-- `tools/terminal.md`
-- `tools/voice.md`
-- `tools/websearch.md`
+- `src/docs/MAKING_TOOLS.md`
+- `src/tools/browser.md`
+- `src/tools/cron.md`
+- `src/tools/docx_execute.md`
+- `src/tools/dynamic_tools.md`
+- `src/tools/email.md`
+- `src/tools/file_tools.md`
+- `src/tools/gateway.md`
+- `src/tools/google.md`
+- `src/tools/memory.md`
+- `src/tools/model_prefs.md`
+- `src/tools/presentation.md`
+- `src/tools/scrape_url.md`
+- `src/tools/spreadsheet_execute.md`
+- `src/tools/subagent.md`
+- `src/tools/telegram.md`
+- `src/tools/terminal.md`
+- `src/tools/voice.md`
+- `src/tools/websearch.md`
 
 ## License
 

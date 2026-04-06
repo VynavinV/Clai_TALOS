@@ -1,7 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
 
-cd /d "%~dp0"
+cd /d "%~dp0src"
 
 set "WEB_PORT=8080"
 set "HEADLESS=0"
