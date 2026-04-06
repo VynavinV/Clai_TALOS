@@ -67,6 +67,12 @@ async def _run_self_prompt(user_id: int, job_name: str, command: str) -> str:
     if not prompt_text:
         prompt_text = command.strip()
 
+    prompt_text = (
+        "[SYSTEM: This is a cron self-prompt. Your send_func is not connected to any chat. "
+        "You MUST use the send_telegram_message tool to deliver your response to the user. "
+        "Do not rely on your normal reply — it will be lost.]\n\n" + prompt_text
+    )
+
     import core
 
     async def noop(*_, **__):
