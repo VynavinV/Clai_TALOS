@@ -1149,7 +1149,9 @@ def _get_all_tools(include_subagent: bool = True, include_telegram: bool = False
                     "Create a web project (website, presentation, app) and make it instantly live. "
                     "Pass the full HTML content and this tool handles everything: creates the directory, "
                     "writes index.html, registers it in the gateway, and returns the full public URL. "
-                    "You MUST send the returned url to the user — it is the live clickable link."
+                    "You MUST send the returned url to the user — it is the live clickable link. "
+                    "For existing files on disk, use migrate_project instead — it copies the file directly "
+                    "without needing to read its content first."
                 ),
                 "parameters": {
                     "type": "object",
@@ -1159,6 +1161,27 @@ def _get_all_tools(include_subagent: bool = True, include_telegram: bool = False
                         "description": {"type": "string", "description": "Short description of the project"}
                     },
                     "required": ["name", "html"]
+                }
+            }
+        })
+    tools.append({
+            "type": "function",
+            "function": {
+                "name": "migrate_project",
+                "description": (
+                    "Copy an existing HTML file on disk into the project gateway and make it live. "
+                    "Use this when you already have an HTML file and want to serve it — no need to "
+                    "read the file first. Just pass the source path and a project name. "
+                    "Returns the full public URL. You MUST send the returned url to the user."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Project name (alphanumeric, hyphens, underscores). Used in the URL."},
+                        "source_path": {"type": "string", "description": "Path to the existing HTML file to copy into the project"},
+                        "description": {"type": "string", "description": "Short description of the project"}
+                    },
+                    "required": ["name", "source_path"]
                 }
             }
         })
@@ -1713,6 +1736,35 @@ async def _execute_tool_call(
                 "url": reg["url"],
                 "share_this_link": reg["url"],
                 "path": reg["path"],
+                "instruction": "Send the url to the user — this is the live clickable link to their project",
+            }, indent=2)
+
+        elif tool_name == "migrate_project":
+            import shutil
+            name = str(tool_args.get("name", "")).strip()
+            source_path = str(tool_args.get("source_path", "")).strip()
+            if not name:
+                return json.dumps({"error": "No name provided"})
+            if not source_path:
+                return json.dumps({"error": "No source_path provided"})
+            source_path = source_path if os.path.isabs(source_path) else os.path.join(_SCRIPT_DIR, source_path)
+            source_path = os.path.realpath(source_path)
+            if not os.path.isfile(source_path):
+                return json.dumps({"error": f"Source file not found: {source_path}"}, indent=2)
+            description = str(tool_args.get("description", "")).strip()
+            reg = gateway.register_project(name, description=description)
+            dest_path = os.path.join(reg["path"], "index.html")
+            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+            try:
+                shutil.copy2(source_path, dest_path)
+            except Exception as e:
+                return json.dumps({"error": f"Failed to copy file: {e}"}, indent=2)
+            return json.dumps({
+                "status": "live",
+                "url": reg["url"],
+                "share_this_link": reg["url"],
+                "path": reg["path"],
+                "source": source_path,
                 "instruction": "Send the url to the user — this is the live clickable link to their project",
             }, indent=2)
 
