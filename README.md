@@ -117,7 +117,7 @@ docker compose down
 Image mode (pull from GitHub Container Registry) aka Docker compose:
 
 ```bash
-name: Docker Image Release
+name: Clai_Talos
 
 on:
   workflow_dispatch:
