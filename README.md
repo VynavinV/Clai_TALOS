@@ -12,9 +12,11 @@ If you are searching for an easier OpenClaw alternative, a free Claude Cowork al
 
 ## Installation (Fast Start)
 
-### Use Releases (.deb)
+### Use Releases (.deb / .pkg / .app / .dmg)
 
-For Linux/Ubuntu users who want the fastest install from a GitHub Release asset:
+For users who want the fastest install from a GitHub Release asset.
+
+Linux/Ubuntu (.deb):
 
 ```bash
 # Run in the folder where you downloaded the .deb
@@ -23,8 +25,6 @@ sudo systemctl enable --now clai-talos
 sudo systemctl status clai-talos --no-pager
 ```
 
-Open the dashboard at `http://localhost:8080`.
-
 If install fails with unmet dependencies like `python3-venv` or `python3-pip` not installable:
 
 ```bash
@@ -32,6 +32,41 @@ sudo add-apt-repository -y universe
 sudo apt update
 sudo apt install ./clai-talos_<version>_amd64.deb
 ```
+
+macOS (.pkg):
+
+```bash
+# Run in the folder where you downloaded the .pkg
+sudo installer -pkg ./clai-talos_<version>.pkg -target /
+
+# Start and check background service
+sudo launchctl kickstart -k system/com.claitalos.service
+sudo launchctl print system/com.claitalos.service
+
+# Optional: stop service
+sudo launchctl bootout system /Library/LaunchDaemons/com.claitalos.service.plist
+
+# Optional: tail logs
+tail -f /usr/local/var/clai-talos/logs/stderr.log
+```
+
+macOS (.app / .dmg):
+
+```bash
+# If you downloaded the .app directly:
+open "./Clai TALOS.app"
+
+# If you downloaded the .dmg:
+hdiutil attach ./clai-talos_<version>.dmg
+cp -R "/Volumes/Clai TALOS <version>/Clai TALOS.app" /Applications/
+hdiutil detach "/Volumes/Clai TALOS <version>"
+open "/Applications/Clai TALOS.app"
+
+# Optional: logs for the app bundle runtime
+tail -f ~/.clai-talos/logs/stderr.log
+```
+
+Open the dashboard at `http://localhost:8080`.
 
 ### Manual (Clone and Run)
 
@@ -858,6 +893,45 @@ CI release build:
 - Workflow: `.github/workflows/windows-exe-release.yml`
 - Trigger: manual dispatch or git tags matching `v*`
 - Tagged builds publish EXE zip + checksums to GitHub Releases
+
+### Build macOS PKG
+
+On macOS:
+
+```bash
+chmod +x scripts/build_pkg.sh
+./scripts/build_pkg.sh 0.1.0
+```
+
+This generates:
+
+- `dist/pkg/clai-talos_<version>.pkg`
+
+### Build macOS APP
+
+On macOS:
+
+```bash
+chmod +x scripts/build_app.sh
+./scripts/build_app.sh 0.1.0
+```
+
+This generates:
+
+- `dist/app/Clai TALOS.app`
+
+### Build macOS DMG
+
+On macOS:
+
+```bash
+chmod +x scripts/build_dmg.sh
+./scripts/build_dmg.sh 0.1.0
+```
+
+This generates:
+
+- `dist/dmg/clai-talos_<version>.dmg`
 
 ### Extending tools
 
