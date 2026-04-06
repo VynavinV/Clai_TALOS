@@ -97,6 +97,38 @@ Open the dashboard:
 
 Go to `http://localhost:8080` and complete signup + onboarding.
 
+### Use Docker
+
+From the repository root:
+
+```bash
+# Build and start
+docker compose up -d --build
+
+# View logs
+docker compose logs -f talos
+
+# Stop
+docker compose down
+```
+
+Open the dashboard at `http://localhost:8080`.
+
+Notes:
+
+- Runtime data is persisted in the Docker volume `talos-data`.
+- The container sets `TALOS_DATA_DIR=/data`.
+- If port `8080` is occupied, set `WEB_PORT` before launch:
+
+```bash
+WEB_PORT=8090 docker compose up -d --build
+```
+
+If `docker: command not found` appears:
+
+- On Windows: install Docker Desktop and enable WSL integration.
+- On Linux: install Docker Engine + Compose plugin, then restart the terminal.
+
 ### Headless / SSH mode
 
 For servers or remote machines without a browser:
