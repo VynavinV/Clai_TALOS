@@ -100,20 +100,24 @@ def _calculate_relevance(message_keywords: list[str], memory_keywords: list[str]
     return intersection / union
 
 
-def save_memory(user_id: int, content: str, category: str | None = None, importance: int = 5) -> dict:
-    keywords = _extract_keywords(content)
+def save_memory(user_id: int, content: str, category: str | None = None, importance: int = 5, description: str | None = None) -> dict:
+    full_content = content
+    if description:
+        full_content = f"{content}\n{description}"
+    keywords = _extract_keywords(full_content)
     
     with _conn() as conn:
         cursor = conn.execute(
             """INSERT INTO memories (user_id, content, keywords, category, importance)
                VALUES (?, ?, ?, ?, ?)""",
-            (user_id, content, json.dumps(keywords), category, importance)
+            (user_id, full_content, json.dumps(keywords), category, importance)
         )
         memory_id = cursor.lastrowid
     
     return {
         "id": memory_id,
         "content": content,
+        "description": description,
         "keywords": keywords,
         "category": category,
         "importance": importance
