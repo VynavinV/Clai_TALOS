@@ -1,9 +1,0 @@
-locall gemma supportIn depth screen and browser control + logins 
-
-Generate Images
-Lyria 3 music
-notebooklm? 
-Google Home support
-IOT Devices control  (Tuya?) (Home assistent?)
-SSH to other devices
-himalaya File support
