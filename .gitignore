@@ -22,7 +22,6 @@ terminal_config.json
 .coverage
 htmlcov/
 build/
-dist/
 
 # temp files
 *.tmp

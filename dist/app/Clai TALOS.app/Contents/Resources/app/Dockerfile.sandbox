@@ -1,0 +1,45 @@
+FROM alpine:latest
+
+LABEL maintainer="TALOS Terminal Agent"
+LABEL description="Sandboxed environment for terminal command execution"
+
+RUN apk add --no-cache \
+    bash \
+    coreutils \
+    grep \
+    sed \
+    gawk \
+    curl \
+    wget \
+    git \
+    vim \
+    nano \
+    htop \
+    procps \
+    net-tools \
+    iputils \
+    openssl \
+    ca-certificates \
+    tar \
+    gzip \
+    bzip2 \
+    xz \
+    unzip \
+    findutils \
+    rsync \
+    tree \
+    file \
+    less \
+    jq \
+    python3 \
+    py3-pip
+
+RUN adduser -D -s /bin/bash talos
+
+USER talos
+WORKDIR /home/talos
+
+ENV HOME=/home/talos
+ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+CMD ["/bin/bash"]
