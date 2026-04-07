@@ -12,6 +12,35 @@ If you are searching for an easier OpenClaw alternative, a free Claude Cowork al
 
 ## Installation (Fast Start)
 
+### Manual (Clone and Run)
+
+Download or clone this repository, then open a terminal in the project folder:
+
+```bash
+cd Clai_TALOS
+```
+
+Run one script:
+
+Linux/macOS:
+
+```bash
+./start.sh
+```
+
+Windows:
+
+```cmd
+start.bat
+```
+
+> **Windows status:** Supported for local runtime and EXE preview builds.
+> Linux/macOS remain the most-tested platforms.
+
+Open the dashboard:
+
+Go to `http://localhost:8080` and complete signup + onboarding.
+
 ### Use Releases (.deb / .pkg / .app / .dmg)
 
 For users who want the fastest install from a GitHub Release asset.
@@ -67,35 +96,6 @@ tail -f ~/.clai-talos/logs/stderr.log
 ```
 
 Open the dashboard at `http://localhost:8080`.
-
-### Manual (Clone and Run)
-
-Download or clone this repository, then open a terminal in the project folder:
-
-```bash
-cd Clai_TALOS
-```
-
-Run one script:
-
-Linux/macOS:
-
-```bash
-./start.sh
-```
-
-Windows:
-
-```cmd
-start.bat
-```
-
-> **Windows status:** Supported for local runtime and EXE preview builds.
-> Linux/macOS remain the most-tested platforms.
-
-Open the dashboard:
-
-Go to `http://localhost:8080` and complete signup + onboarding.
 
 ### Use Docker
 
