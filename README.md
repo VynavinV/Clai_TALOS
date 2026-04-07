@@ -4,7 +4,7 @@
 <img src="Banner.png" alt="Clai TALOS banner">
 </p>
 
-Clai TALOS is a free, self-hosted AI assistant focused on practical automation through Telegram and a local web dashboard.
+Clai (Conversational language Artificial Inteligence) version: TALOS is a free, self-hosted AI assistant focused on practical automation through Telegram and a local web dashboard.
 
 It is intentionally a single-process Python system: easy to run, easy to debug, and easy to modify.
 
