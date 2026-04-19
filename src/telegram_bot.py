@@ -13,6 +13,8 @@ import mimetypes
 import zlib
 import re
 import html
+import io
+import zipfile
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 from aiohttp import web
@@ -24,6 +26,7 @@ import db
 import cron_jobs
 import memory
 import gateway
+import dynamic_tools
 import model_router
 import core
 import google_integration
@@ -83,6 +86,68 @@ COMMUNITY_HUB_MAX_ITEMS = 500
 COMMUNITY_HUB_ALLOWED_EXTENSIONS = frozenset({
     ".zip", ".json", ".md", ".txt", ".yaml", ".yml", ".toml", ".py",
 })
+COMMUNITY_BUILTIN_GUI_SKILL_ID = "builtin_gui_desktop_operator_skill"
+COMMUNITY_BUILTIN_GUI_SKILL_REL_PATH = os.path.join("community", "universal_gui_desktop_operator_skill.md")
+COMMUNITY_BUILTIN_GUI_SKILL_FALLBACK = """# Universal GUI Desktop Access Skill
+
+This community skill helps Clai automate desktop GUI apps on the local computer.
+It is designed for broad app coverage with explicit user approval and safety checks.
+
+## Core capabilities
+- Open and focus desktop applications.
+- Navigate windows, menus, buttons, and form fields.
+- Read screen state with screenshots and OCR.
+- Run repeatable GUI workflows across different applications.
+
+## Safety contract
+- Ask for confirmation before any destructive or irreversible action.
+- Restrict actions to the app and window the user names.
+- Announce planned click and type steps before execution.
+- Stop and ask for help when UI state is uncertain.
+
+## Suggested dependencies
+- pyautogui
+- pygetwindow
+- pillow
+- mss
+- pytesseract
+
+## Recommended flow
+1. Confirm the target app and action boundaries.
+2. Open or focus the target window.
+3. Capture a screenshot to verify controls.
+4. Perform actions step-by-step with checkpoints.
+5. Summarize outcomes and attach evidence.
+"""
+_COMMUNITY_BUILTIN_ITEMS = {
+    COMMUNITY_BUILTIN_GUI_SKILL_ID: {
+        "id": COMMUNITY_BUILTIN_GUI_SKILL_ID,
+        "name": "Universal GUI Desktop Access Skill",
+        "kind": "skill",
+        "description": (
+            "Guided desktop automation skill for operating nearly any GUI app on the host machine "
+            "with explicit user confirmation checkpoints."
+        ),
+        "author": "Clai Community",
+        "file_name": "universal_gui_desktop_operator_skill.md",
+        "mime": "text/markdown; charset=utf-8",
+        "uploaded_at": "2026-04-19T00:00:00+00:00",
+        "downloads": 0,
+        "resource_rel_path": COMMUNITY_BUILTIN_GUI_SKILL_REL_PATH,
+        "fallback_text": COMMUNITY_BUILTIN_GUI_SKILL_FALLBACK,
+    },
+}
+_OPENCLAW_COMPAT_KEYS = frozenset({
+    "openclaw",
+    "openclaw_version",
+    "tools",
+    "tool",
+    "skills",
+    "skill",
+})
+_OPENCLAW_MAX_IMPORT_ITEMS = 64
+_OPENCLAW_ZIP_SCAN_LIMIT = 300
+_OPENCLAW_ZIP_JSON_SIZE_LIMIT = 2 * 1024 * 1024
 GOOGLE_OAUTH_PENDING_MAX_AGE = 900
 google_oauth_pending: dict[str, dict] = {}
 start_time = None
@@ -627,6 +692,480 @@ def _sanitize_text_field(value: str, *, fallback: str = "", max_len: int = 160) 
     if max_len > 0:
         cleaned = cleaned[:max_len]
     return cleaned or fallback
+
+
+def _load_builtin_community_content(item: dict) -> bytes:
+    rel_path = str(item.get("resource_rel_path", "")).strip()
+    if rel_path:
+        try:
+            base = os.path.realpath(SCRIPT_DIR)
+            candidate = os.path.realpath(os.path.join(base, rel_path))
+            if candidate != base and candidate.startswith(base + os.sep) and os.path.isfile(candidate):
+                with open(candidate, "rb") as f:
+                    payload = f.read()
+                if payload:
+                    return payload
+        except Exception:
+            pass
+
+    fallback_text = str(item.get("fallback_text", ""))
+    return fallback_text.encode("utf-8")
+
+
+def _resolve_builtin_community_item(item_id: str) -> tuple[dict, bytes] | None:
+    raw_item = _COMMUNITY_BUILTIN_ITEMS.get(item_id)
+    if not isinstance(raw_item, dict):
+        return None
+
+    item = dict(raw_item)
+    payload = _load_builtin_community_content(item)
+    item["file_name"] = _sanitize_upload_filename(item.get("file_name", "download.bin"))
+    item["mime"] = _sanitize_text_field(
+        item.get("mime", "application/octet-stream"),
+        fallback="application/octet-stream",
+        max_len=120,
+    )
+    item["size_bytes"] = len(payload)
+    item["downloads"] = max(0, int(item.get("downloads", 0) or 0))
+    return item, payload
+
+
+def _community_builtin_public_entries() -> list[dict]:
+    entries: list[dict] = []
+    for item_id in _COMMUNITY_BUILTIN_ITEMS.keys():
+        resolved = _resolve_builtin_community_item(item_id)
+        if resolved is None:
+            continue
+        item, _payload = resolved
+        entries.append(_community_public_entry(item))
+    return entries
+
+
+def _json_from_bytes(payload: bytes) -> object | None:
+    if not isinstance(payload, (bytes, bytearray)) or not payload:
+        return None
+
+    raw = bytes(payload)
+    for encoding in ("utf-8-sig", "utf-16", "utf-16-le", "utf-16-be"):
+        try:
+            text = raw.decode(encoding)
+        except Exception:
+            continue
+        try:
+            return json.loads(text)
+        except Exception:
+            continue
+    return None
+
+
+def _looks_like_openclaw_manifest(payload: object) -> bool:
+    if isinstance(payload, dict):
+        keys = {str(key).strip().lower() for key in payload.keys()}
+        if keys & _OPENCLAW_COMPAT_KEYS:
+            return True
+
+        payload_type = str(payload.get("type", "")).strip().lower()
+        if "openclaw" in payload_type:
+            return True
+
+        has_tool_shape = (
+            any(key in keys for key in {"command", "command_template", "cmd", "script", "shell"})
+            and any(key in keys for key in {"name", "id", "tool_name", "title"})
+        )
+        if has_tool_shape:
+            return True
+
+        has_skill_shape = (
+            any(key in keys for key in {"prompt", "instructions", "content", "text", "guide"})
+            and any(key in keys for key in {"name", "id", "title", "skill_name"})
+        )
+        if has_skill_shape:
+            return True
+
+        return False
+
+    if isinstance(payload, list):
+        for item in payload[:3]:
+            if _looks_like_openclaw_manifest(item):
+                return True
+
+    return False
+
+
+def _collect_openclaw_manifest_candidates(file_name: str, content: bytes) -> list[tuple[str, object]]:
+    candidates: list[tuple[str, object]] = []
+    lower_name = str(file_name or "").strip().lower()
+
+    if lower_name.endswith(".json"):
+        parsed = _json_from_bytes(content)
+        if parsed is not None:
+            candidates.append((file_name, parsed))
+        return candidates
+
+    if not lower_name.endswith(".zip"):
+        return candidates
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(content)) as archive:
+            scanned = 0
+            for info in archive.infolist():
+                scanned += 1
+                if scanned > _OPENCLAW_ZIP_SCAN_LIMIT:
+                    break
+
+                if info.is_dir():
+                    continue
+
+                member_name = str(info.filename or "")
+                member_lower = member_name.lower()
+                if not member_lower.endswith(".json"):
+                    continue
+                if info.file_size <= 0 or info.file_size > _OPENCLAW_ZIP_JSON_SIZE_LIMIT:
+                    continue
+
+                try:
+                    member_payload = archive.read(info)
+                except Exception:
+                    continue
+
+                parsed = _json_from_bytes(member_payload)
+                if parsed is None:
+                    continue
+
+                candidates.append((member_name, parsed))
+    except Exception:
+        return []
+
+    return candidates
+
+
+def _normalize_openclaw_identifier(value: str, *, prefix: str) -> str:
+    raw = re.sub(r"[^a-z0-9_]+", "_", str(value or "").strip().lower())
+    raw = re.sub(r"_+", "_", raw).strip("_")
+    if not raw:
+        raw = prefix
+    if not raw[0].isalpha():
+        raw = f"{prefix}_{raw}"
+    raw = re.sub(r"[^a-z0-9_]", "_", raw)
+    raw = re.sub(r"_+", "_", raw).strip("_")
+    if len(raw) < 3:
+        raw = (raw + "_" + prefix)[:63]
+    return raw[:63]
+
+
+def _normalize_openclaw_param_name(value: str) -> str:
+    raw = re.sub(r"[^A-Za-z0-9_]+", "_", str(value or "").strip())
+    raw = re.sub(r"_+", "_", raw).strip("_")
+    if not raw:
+        return ""
+    if not re.match(r"^[A-Za-z_]", raw):
+        raw = f"arg_{raw}"
+    return raw[:64]
+
+
+def _append_openclaw_candidate(candidates: list[dict], seen_ids: set[int], value: object) -> None:
+    if not isinstance(value, dict):
+        return
+    marker = id(value)
+    if marker in seen_ids:
+        return
+    seen_ids.add(marker)
+    candidates.append(value)
+
+
+def _extract_openclaw_tools(payload: object) -> list[dict]:
+    candidates: list[dict] = []
+    seen_ids: set[int] = set()
+
+    if isinstance(payload, dict):
+        for key in ("tools", "tool_defs", "toolset", "actions"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                for item in value:
+                    _append_openclaw_candidate(candidates, seen_ids, item)
+
+        _append_openclaw_candidate(candidates, seen_ids, payload.get("tool"))
+
+        keys = {str(key).strip().lower() for key in payload.keys()}
+        if (
+            any(key in keys for key in {"command", "command_template", "cmd", "script", "shell"})
+            and any(key in keys for key in {"name", "id", "tool_name", "title"})
+        ):
+            _append_openclaw_candidate(candidates, seen_ids, payload)
+
+    elif isinstance(payload, list):
+        for item in payload:
+            _append_openclaw_candidate(candidates, seen_ids, item)
+
+    return candidates
+
+
+def _extract_openclaw_skills(payload: object) -> list[dict]:
+    candidates: list[dict] = []
+    seen_ids: set[int] = set()
+
+    if isinstance(payload, dict):
+        for key in ("skills", "skill_defs", "prompts"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                for item in value:
+                    _append_openclaw_candidate(candidates, seen_ids, item)
+
+        _append_openclaw_candidate(candidates, seen_ids, payload.get("skill"))
+
+        keys = {str(key).strip().lower() for key in payload.keys()}
+        if (
+            any(key in keys for key in {"prompt", "instructions", "content", "text", "guide"})
+            and any(key in keys for key in {"name", "id", "title", "skill_name"})
+        ):
+            _append_openclaw_candidate(candidates, seen_ids, payload)
+
+    elif isinstance(payload, list):
+        for item in payload:
+            _append_openclaw_candidate(candidates, seen_ids, item)
+
+    return candidates
+
+
+def _openclaw_command_template(tool: dict) -> str:
+    command = (
+        tool.get("command_template")
+        or tool.get("command")
+        or tool.get("cmd")
+        or tool.get("script")
+        or tool.get("shell")
+    )
+
+    if isinstance(command, str):
+        return command.strip()
+
+    if isinstance(command, list):
+        parts = [str(part).strip() for part in command if str(part).strip()]
+        return " ".join(parts).strip()
+
+    if isinstance(command, dict):
+        nested = command.get("command") or command.get("cmd") or command.get("script")
+        if isinstance(nested, str):
+            return nested.strip()
+
+    return ""
+
+
+def _openclaw_parameter_spec(tool: dict) -> tuple[dict, list[str]]:
+    source = tool.get("parameters")
+    if source is None:
+        source = tool.get("args")
+    if source is None:
+        source = tool.get("input_schema")
+
+    properties: dict = {}
+    required: list[str] = []
+
+    if isinstance(source, dict):
+        schema_props = source.get("properties") if isinstance(source.get("properties"), dict) else None
+        raw_props = schema_props if schema_props is not None else source
+        raw_required = source.get("required") if isinstance(source.get("required"), list) else []
+
+        for raw_name, descriptor in raw_props.items():
+            if schema_props is None and raw_name in {"type", "properties", "required", "additionalProperties"}:
+                continue
+
+            param_name = _normalize_openclaw_param_name(raw_name)
+            if not param_name:
+                continue
+
+            if isinstance(descriptor, dict):
+                param_type = str(descriptor.get("type", "string")).strip().lower() or "string"
+                if param_type not in {"string", "number", "integer", "boolean"}:
+                    param_type = "string"
+                prop = {"type": param_type}
+                desc = str(descriptor.get("description", "")).strip()
+                if desc:
+                    prop["description"] = desc
+                properties[param_name] = prop
+            elif isinstance(descriptor, str):
+                text = descriptor.strip()
+                if text:
+                    properties[param_name] = text
+                else:
+                    properties[param_name] = {"type": "string"}
+            else:
+                properties[param_name] = {"type": "string"}
+
+        for raw_req in raw_required:
+            param_name = _normalize_openclaw_param_name(raw_req)
+            if param_name and param_name in properties and param_name not in required:
+                required.append(param_name)
+
+    elif isinstance(source, list):
+        for raw_name in source:
+            param_name = _normalize_openclaw_param_name(raw_name)
+            if not param_name:
+                continue
+            if param_name not in properties:
+                properties[param_name] = {"type": "string"}
+
+    tool_level_required = tool.get("required")
+    if isinstance(tool_level_required, list):
+        for raw_req in tool_level_required:
+            param_name = _normalize_openclaw_param_name(raw_req)
+            if param_name and param_name in properties and param_name not in required:
+                required.append(param_name)
+
+    return properties, required
+
+
+def _openclaw_skill_content(skill: dict) -> str:
+    for key in ("content", "prompt", "instructions", "text", "guide"):
+        value = skill.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    messages = skill.get("messages")
+    if isinstance(messages, list):
+        lines: list[str] = []
+        for item in messages[:30]:
+            if not isinstance(item, dict):
+                continue
+            role = str(item.get("role", "message")).strip() or "message"
+            text = str(item.get("content", "")).strip()
+            if not text:
+                continue
+            lines.append(f"- {role}: {text}")
+        if lines:
+            return "\n".join(lines)
+
+    return ""
+
+
+def _import_openclaw_compatibility(file_name: str, content: bytes) -> dict:
+    report = {
+        "detected": False,
+        "manifest_sources": [],
+        "tools_imported": 0,
+        "skills_imported": 0,
+        "tool_names": [],
+        "skill_docs": [],
+        "errors": [],
+    }
+
+    candidates = _collect_openclaw_manifest_candidates(file_name, content)
+    if not candidates:
+        return report
+
+    docs_dir = app_paths.dynamic_tools_docs_dir()
+    os.makedirs(docs_dir, exist_ok=True)
+
+    for source_name, payload in candidates:
+        if not _looks_like_openclaw_manifest(payload):
+            continue
+
+        report["detected"] = True
+        report["manifest_sources"].append(source_name)
+
+        tool_candidates = _extract_openclaw_tools(payload)[:_OPENCLAW_MAX_IMPORT_ITEMS]
+        skill_candidates = _extract_openclaw_skills(payload)[:_OPENCLAW_MAX_IMPORT_ITEMS]
+
+        for idx, tool in enumerate(tool_candidates, start=1):
+            raw_name = (
+                tool.get("name")
+                or tool.get("tool_name")
+                or tool.get("id")
+                or tool.get("title")
+                or f"openclaw_tool_{idx}"
+            )
+            tool_name = _normalize_openclaw_identifier(raw_name, prefix="openclaw_tool")
+            description = str(
+                tool.get("description")
+                or tool.get("summary")
+                or f"Imported from OpenClaw package ({source_name})."
+            ).strip()
+            command_template = _openclaw_command_template(tool)
+
+            if not command_template:
+                report["errors"].append(f"Skipped OpenClaw tool '{tool_name}' (missing command template)")
+                continue
+
+            parameters, required = _openclaw_parameter_spec(tool)
+            timeout = tool.get("timeout", 60)
+            guide = str(tool.get("guide") or tool.get("instructions") or "").strip()
+
+            create_result = dynamic_tools.create_tool(
+                name=tool_name,
+                description=description,
+                command_template=command_template,
+                parameters=parameters,
+                required=required,
+                timeout=timeout,
+                guide=guide,
+                overwrite=True,
+            )
+
+            if not create_result.get("ok"):
+                fallback_name = _normalize_openclaw_identifier(
+                    f"openclaw_{tool_name}_{idx}",
+                    prefix="openclaw_tool",
+                )
+                if fallback_name != tool_name:
+                    create_result = dynamic_tools.create_tool(
+                        name=fallback_name,
+                        description=description,
+                        command_template=command_template,
+                        parameters=parameters,
+                        required=required,
+                        timeout=timeout,
+                        guide=guide,
+                        overwrite=True,
+                    )
+
+            if create_result.get("ok"):
+                resolved_name = str(create_result.get("tool", {}).get("name", tool_name)).strip() or tool_name
+                if resolved_name not in report["tool_names"]:
+                    report["tool_names"].append(resolved_name)
+            else:
+                err = str(create_result.get("error", "unknown error")).strip() or "unknown error"
+                report["errors"].append(f"Failed to import OpenClaw tool '{tool_name}': {err}")
+
+        for idx, skill in enumerate(skill_candidates, start=1):
+            raw_name = (
+                skill.get("name")
+                or skill.get("skill_name")
+                or skill.get("id")
+                or skill.get("title")
+                or f"openclaw_skill_{idx}"
+            )
+            doc_name = _normalize_openclaw_identifier(raw_name, prefix="openclaw_skill")
+            doc_path = os.path.join(docs_dir, f"{doc_name}.md")
+
+            title = str(skill.get("title") or skill.get("name") or doc_name).strip() or doc_name
+            description = str(skill.get("description") or skill.get("summary") or "").strip()
+            content_text = _openclaw_skill_content(skill)
+
+            if not content_text and not description:
+                report["errors"].append(f"Skipped OpenClaw skill '{doc_name}' (no content)")
+                continue
+
+            lines = [
+                f"# {title}",
+                "",
+                "Imported from OpenClaw compatibility package.",
+            ]
+            if description:
+                lines.extend(["", description])
+            if content_text:
+                lines.extend(["", "## Instructions", content_text])
+
+            try:
+                with open(doc_path, "w", encoding="utf-8") as f:
+                    f.write("\n".join(lines).rstrip() + "\n")
+                if doc_name not in report["skill_docs"]:
+                    report["skill_docs"].append(doc_name)
+            except Exception as exc:
+                report["errors"].append(f"Failed to import OpenClaw skill '{doc_name}': {exc}")
+
+    report["tools_imported"] = len(report["tool_names"])
+    report["skills_imported"] = len(report["skill_docs"])
+    return report
 
 
 def _community_public_entry(item: dict) -> dict:
@@ -2140,9 +2679,10 @@ async def handle_api_tools_post(request):
 @require_auth
 async def handle_api_community_get(request):
     items = _read_community_index()
+    builtin_entries = _community_builtin_public_entries()
     return web.json_response({
         "ok": True,
-        "items": [_community_public_entry(item) for item in items],
+        "items": builtin_entries + [_community_public_entry(item) for item in items],
     })
 
 
@@ -2164,6 +2704,8 @@ async def handle_api_community_upload(request):
         mime, content = _decode_data_url(str(attachment.get("data_url", "")))
     except ValueError as exc:
         return web.json_response({"error": str(exc)}, status=400)
+
+    openclaw_import = _import_openclaw_compatibility(file_name, content)
 
     size = len(content)
     if size <= 0:
@@ -2236,10 +2778,13 @@ async def handle_api_community_upload(request):
         except Exception:
             continue
 
-    return web.json_response({
+    response_payload = {
         "ok": True,
         "item": _community_public_entry(item),
-    })
+    }
+    if openclaw_import.get("detected"):
+        response_payload["openclaw_import"] = openclaw_import
+    return web.json_response(response_payload)
 
 
 @require_auth
@@ -2247,6 +2792,19 @@ async def handle_api_community_download(request):
     item_id = _sanitize_text_field(request.match_info.get("item_id", ""), max_len=64)
     if not item_id:
         return web.json_response({"error": "Not found."}, status=404)
+
+    builtin = _resolve_builtin_community_item(item_id)
+    if builtin is not None:
+        builtin_item, payload = builtin
+        response = web.Response(body=payload)
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Content-Disposition"] = (
+            f'attachment; filename="{_sanitize_upload_filename(builtin_item.get("file_name", "download.bin"))}"'
+        )
+        mime = _sanitize_text_field(builtin_item.get("mime", ""), max_len=120)
+        if mime:
+            response.headers["Content-Type"] = mime
+        return response
 
     items = _read_community_index()
     found_idx = None
