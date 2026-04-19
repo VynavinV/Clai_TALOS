@@ -98,8 +98,18 @@ if not exist "venv" (
 :: Install deps
 if exist "requirements.txt" (
     echo [setup] Installing dependencies...
-    venv\Scripts\pip install -q --upgrade pip 2>nul
-    venv\Scripts\pip install -q -r requirements.txt 2>nul
+    venv\Scripts\python -m pip install --upgrade pip
+    if %ERRORLEVEL% neq 0 (
+        echo [FAIL] Could not upgrade pip.
+        pause
+        exit /b 1
+    )
+    venv\Scripts\python -m pip install -r requirements.txt
+    if %ERRORLEVEL% neq 0 (
+        echo [FAIL] Could not install requirements.
+        pause
+        exit /b 1
+    )
 )
 
 echo [  OK] Virtual environment ready

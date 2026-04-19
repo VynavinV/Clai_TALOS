@@ -27,6 +27,7 @@ import model_router
 import browser_automation
 import google_integration
 import email_tools
+import pa_system
 import activity_tracker
 
 app_paths.ensure_runtime_dirs()
@@ -910,6 +911,33 @@ def _get_all_tools(include_subagent: bool = True, include_telegram: bool = False
         {
             "type": "function",
             "function": {
+                "name": "pa_system",
+                "description": (
+                    "Speak a message out loud through the host machine speakers (server-side). "
+                    "Use this for local PA announcements. This does NOT use browser audio."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "text": {"type": "string", "description": "Message to announce out loud"},
+                        "repeat": {"type": "number", "description": "How many times to repeat (default: 1, max: 5)"},
+                        "backend": {
+                            "type": "string",
+                            "description": "TTS backend: auto, windows_sapi, say, spd_say, espeak"
+                        },
+                        "voice": {"type": "string", "description": "Optional voice name for supported backends"},
+                        "rate": {
+                            "type": "number",
+                            "description": "Optional speaking rate. Range depends on backend."
+                        }
+                    },
+                    "required": ["text"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
                 "name": "browser_start_chrome_debug",
                 "description": "Start Google Chrome with remote debugging enabled so TALOS can attach to your existing logged-in browser state.",
                 "parameters": {
@@ -1726,6 +1754,20 @@ async def _execute_tool_call(
             )
             return json.dumps(result, indent=2)
 
+        elif tool_name == "pa_system":
+            text = str(tool_args.get("text", "")).strip()
+            if not text:
+                return json.dumps({"error": "text is required"}, indent=2)
+
+            result = pa_system.announce(
+                text=text,
+                repeat=tool_args.get("repeat", 1),
+                backend=str(tool_args.get("backend", "auto")).strip() or "auto",
+                voice=str(tool_args.get("voice", "")).strip(),
+                rate=tool_args.get("rate"),
+            )
+            return json.dumps(result, indent=2)
+
         elif tool_name == "browser_start_chrome_debug":
             result = await browser_automation.start_chrome_debug(
                 endpoint=tool_args.get("endpoint", "http://127.0.0.1:9222"),
@@ -2191,6 +2233,7 @@ _SINGLE_ARG_HINT = {
     "scrape_url": "url",
     "send_telegram_message": "message",
     "send_voice_message": "text",
+    "pa_system": "text",
     "read_tool_guide": "tool_name",
     "search_memories": "query",
     "list_memories": "category",
@@ -2203,6 +2246,9 @@ _TEXT_TOOL_ALIASES = {
     "editfile": "edit_file",
     "websearch": "web_search",
     "scrape": "scrape_url",
+    "speak": "pa_system",
+    "announce": "pa_system",
+    "pa": "pa_system",
 }
 
 _LEADING_ACK_RE = re.compile(

@@ -5,6 +5,28 @@ from pathlib import Path
 project_root = Path(SPECPATH).resolve()
 
 
+excluded_dirs = {
+    "build",
+    "dist",
+    "venv",
+    ".venv",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".git",
+}
+
+excluded_suffixes = {".pyc", ".pyo"}
+
+
+def should_bundle(path: Path) -> bool:
+    if any(part in excluded_dirs for part in path.parts):
+        return False
+    if path.suffix.lower() in excluded_suffixes:
+        return False
+    return True
+
+
 hiddenimports = [
     "telegram.ext",
     "google.genai",
@@ -20,12 +42,24 @@ hiddenimports = [
 ]
 
 
-datas = [
-    (str(project_root / "web"), "web"),
-    (str(project_root / "tools"), "tools"),
-    (str(project_root / "system_prompt.md"), "."),
-    (str(project_root.parent / "README.md"), "."),
-]
+datas = []
+
+# Bundle runtime source files (excluding build outputs) so start.bat works in EXE mode.
+for file_path in project_root.rglob("*"):
+    if not file_path.is_file():
+        continue
+    rel_path = file_path.relative_to(project_root)
+    if not should_bundle(rel_path):
+        continue
+    target_dir = Path("src") / rel_path.parent
+    datas.append((str(file_path), str(target_dir)))
+
+datas.extend(
+    [
+        (str(project_root.parent / "start.bat"), "."),
+        (str(project_root.parent / "README.md"), "."),
+    ]
+)
 
 
 block_cipher = None

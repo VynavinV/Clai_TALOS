@@ -29,6 +29,7 @@ import core
 import google_integration
 import activity_tracker
 import app_paths
+import ota_update
 from auth_policy import MIN_DASHBOARD_PASSWORD_LENGTH, validate_dashboard_password
 
 SCRIPT_DIR = app_paths.resource_root()
@@ -74,6 +75,14 @@ CSRF_MAX_AGE = 3600
 WEB_CHAT_MAX_INLINE_IMAGE_BYTES = 2 * 1024 * 1024
 WEB_CHAT_MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 WEB_UPLOAD_DIR = app_paths.web_upload_dir()
+COMMUNITY_HUB_DIR = app_paths.community_hub_dir()
+COMMUNITY_HUB_PACKAGES_DIR = app_paths.community_hub_packages_dir()
+COMMUNITY_HUB_INDEX_FILE = app_paths.community_hub_index_path()
+COMMUNITY_HUB_MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+COMMUNITY_HUB_MAX_ITEMS = 500
+COMMUNITY_HUB_ALLOWED_EXTENSIONS = frozenset({
+    ".zip", ".json", ".md", ".txt", ".yaml", ".yml", ".toml", ".py",
+})
 GOOGLE_OAUTH_PENDING_MAX_AGE = 900
 google_oauth_pending: dict[str, dict] = {}
 start_time = None
@@ -611,6 +620,97 @@ def _sanitize_upload_filename(filename: str) -> str:
         raw = "upload.bin"
     safe = re.sub(r"[^A-Za-z0-9._-]", "_", raw)
     return safe[:120] if safe else "upload.bin"
+
+
+def _sanitize_text_field(value: str, *, fallback: str = "", max_len: int = 160) -> str:
+    cleaned = re.sub(r"\s+", " ", str(value or "").strip())
+    if max_len > 0:
+        cleaned = cleaned[:max_len]
+    return cleaned or fallback
+
+
+def _community_public_entry(item: dict) -> dict:
+    item_id = str(item.get("id", "")).strip()
+    return {
+        "id": item_id,
+        "name": str(item.get("name", "")),
+        "kind": str(item.get("kind", "tool")),
+        "description": str(item.get("description", "")),
+        "author": str(item.get("author", "")),
+        "file_name": str(item.get("file_name", "download.bin")),
+        "size_bytes": int(item.get("size_bytes", 0) or 0),
+        "mime": str(item.get("mime", "application/octet-stream")),
+        "uploaded_at": str(item.get("uploaded_at", "")),
+        "downloads": int(item.get("downloads", 0) or 0),
+        "download_url": f"/api/community/download/{item_id}",
+    }
+
+
+def _normalize_community_entry(raw: dict) -> dict | None:
+    if not isinstance(raw, dict):
+        return None
+
+    item_id = _sanitize_text_field(raw.get("id", ""), max_len=64)
+    if not item_id:
+        return None
+
+    stored_name = _sanitize_upload_filename(raw.get("stored_name", ""))
+    if not stored_name:
+        return None
+
+    return {
+        "id": item_id,
+        "name": _sanitize_text_field(raw.get("name", "Untitled Tool"), fallback="Untitled Tool", max_len=120),
+        "kind": _sanitize_text_field(raw.get("kind", "tool"), fallback="tool", max_len=24).lower(),
+        "description": _sanitize_text_field(raw.get("description", ""), max_len=360),
+        "author": _sanitize_text_field(raw.get("author", ""), max_len=120),
+        "uploader": _sanitize_text_field(raw.get("uploader", ""), max_len=120),
+        "file_name": _sanitize_upload_filename(raw.get("file_name", stored_name)),
+        "stored_name": stored_name,
+        "size_bytes": max(0, int(raw.get("size_bytes", 0) or 0)),
+        "mime": _sanitize_text_field(raw.get("mime", "application/octet-stream"), fallback="application/octet-stream", max_len=120),
+        "uploaded_at": _sanitize_text_field(raw.get("uploaded_at", ""), max_len=48),
+        "downloads": max(0, int(raw.get("downloads", 0) or 0)),
+    }
+
+
+def _read_community_index() -> list[dict]:
+    if not os.path.isfile(COMMUNITY_HUB_INDEX_FILE):
+        return []
+
+    try:
+        with open(COMMUNITY_HUB_INDEX_FILE, "r") as f:
+            payload = json.load(f)
+    except Exception:
+        return []
+
+    if not isinstance(payload, list):
+        return []
+
+    items: list[dict] = []
+    for raw in payload:
+        normalized = _normalize_community_entry(raw)
+        if normalized is not None:
+            items.append(normalized)
+    return items
+
+
+def _write_community_index(items: list[dict]) -> None:
+    os.makedirs(COMMUNITY_HUB_DIR, exist_ok=True)
+    with open(COMMUNITY_HUB_INDEX_FILE, "w") as f:
+        json.dump(items, f, indent=2)
+
+
+def _community_file_path(stored_name: str) -> str:
+    safe_name = _sanitize_upload_filename(stored_name)
+    if not safe_name:
+        raise ValueError("invalid file name")
+
+    base = os.path.realpath(COMMUNITY_HUB_PACKAGES_DIR)
+    candidate = os.path.realpath(os.path.join(base, safe_name))
+    if candidate == base or not candidate.startswith(base + os.sep):
+        raise ValueError("invalid file path")
+    return candidate
 
 
 def _decode_data_url(data_url: str) -> tuple[str, bytes]:
@@ -1486,6 +1586,11 @@ async def handle_tools(request):
 
 
 @require_auth
+async def handle_community_page(request):
+    return _serve_auth_page(request, "community.html")
+
+
+@require_auth
 async def handle_projects_page(request):
     return _serve_auth_page(request, "projects.html")
 
@@ -1528,6 +1633,7 @@ async def handle_api_settings_get(request):
         "OPENROUTER_BASE_URL": env_vars.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
         "OLLAMA_BASE_URL": env_vars.get("OLLAMA_BASE_URL", "http://localhost:11434/v1"),
         "OLLAMA_MODEL": env_vars.get("OLLAMA_MODEL", ""),
+        "OTA_CHANNEL": env_vars.get("OTA_CHANNEL", "stable"),
         "MAX_TOOL_ROUNDS": env_vars.get("MAX_TOOL_ROUNDS", "5"),
         "MAX_TOOL_CALLS_PER_ROUND": env_vars.get("MAX_TOOL_CALLS_PER_ROUND", "20"),
         "MAX_COMMAND_TIMEOUT": env_vars.get("MAX_COMMAND_TIMEOUT", "120"),
@@ -1583,6 +1689,31 @@ async def handle_api_context_usage(request):
     })
 
 
+@require_auth
+async def handle_api_updates_check(request):
+    channel = str(request.query.get("channel", "")).strip()
+    status = ota_update.check_for_updates(channel=channel)
+    http_status = 200 if status.get("ok") else 502
+    return web.json_response(status, status=http_status)
+
+
+@require_auth_csrf
+async def handle_api_updates_apply(request):
+    body = request._json_body if isinstance(request._json_body, dict) else {}
+    channel = str(body.get("channel", "")).strip()
+    result = ota_update.apply_update(channel=channel)
+    http_status = 200 if result.get("ok") else 400
+
+    if result.get("ok") and result.get("restarting_now"):
+        async def _exit_after_response() -> None:
+            await asyncio.sleep(1.0)
+            os._exit(0)
+
+        asyncio.create_task(_exit_after_response())
+
+    return web.json_response(result, status=http_status)
+
+
 @require_auth_csrf
 async def handle_api_settings_post(request):
     global BOT_NAME
@@ -1597,7 +1728,7 @@ async def handle_api_settings_post(request):
         "GOOGLE_API_KEY", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET",
         "GOOGLE_OAUTH_REDIRECT_URI", "GOOGLE_APPS_SCRIPT_URL", "GOOGLE_OAUTH_SCOPES",
         "HIMALAYA_BIN", "HIMALAYA_CONFIG", "HIMALAYA_DEFAULT_ACCOUNT",
-        "PIPER_VOICE", "CLIENT_BASE_URL", "NVIDIA_BASE_URL", "CEREBRAS_BASE_URL", "OPENROUTER_BASE_URL", "OLLAMA_BASE_URL", "OLLAMA_MODEL",
+        "PIPER_VOICE", "CLIENT_BASE_URL", "NVIDIA_BASE_URL", "CEREBRAS_BASE_URL", "OPENROUTER_BASE_URL", "OLLAMA_BASE_URL", "OLLAMA_MODEL", "OTA_CHANNEL",
     ]
 
     def _is_masked(val: str) -> bool:
@@ -1618,6 +1749,15 @@ async def handle_api_settings_post(request):
             if key in _SECRET_KEYS and _is_masked(body[key].strip()):
                 continue
             env_vars[key] = body[key].strip()
+
+    if "OTA_CHANNEL" in env_vars:
+        ota_channel = str(env_vars.get("OTA_CHANNEL", "")).strip().lower()
+        if ota_channel not in {"stable", "prerelease"}:
+            return web.json_response(
+                {"error": "OTA_CHANNEL must be either stable or prerelease."},
+                status=400,
+            )
+        env_vars["OTA_CHANNEL"] = ota_channel
 
     _INT_KEYS = [
         ("MAX_TOOL_ROUNDS", 1, 50),
@@ -1955,6 +2095,7 @@ async def handle_api_tools_get(request):
         "scrape_url": True,
         "google_execute": True,
         "email_execute": True,
+        "pa_system": True,
         "browser_start_chrome_debug": True,
         "browser_connect": True,
         "browser_run": True,
@@ -1994,6 +2135,152 @@ async def handle_api_tools_post(request):
         json.dump(body, f, indent=2)
 
     return web.json_response({"ok": True})
+
+
+@require_auth
+async def handle_api_community_get(request):
+    items = _read_community_index()
+    return web.json_response({
+        "ok": True,
+        "items": [_community_public_entry(item) for item in items],
+    })
+
+
+@require_auth_csrf
+async def handle_api_community_upload(request):
+    body = request._json_body if isinstance(request._json_body, dict) else {}
+    attachment = body.get("attachment")
+
+    if not isinstance(attachment, dict):
+        return web.json_response({"error": "attachment is required."}, status=400)
+
+    file_name = _sanitize_upload_filename(str(attachment.get("name", "community-tool.zip")))
+    ext = os.path.splitext(file_name)[1].lower()
+    if ext not in COMMUNITY_HUB_ALLOWED_EXTENSIONS:
+        allowed = ", ".join(sorted(COMMUNITY_HUB_ALLOWED_EXTENSIONS))
+        return web.json_response({"error": f"Unsupported file type. Allowed: {allowed}"}, status=400)
+
+    try:
+        mime, content = _decode_data_url(str(attachment.get("data_url", "")))
+    except ValueError as exc:
+        return web.json_response({"error": str(exc)}, status=400)
+
+    size = len(content)
+    if size <= 0:
+        return web.json_response({"error": "Uploaded file is empty."}, status=400)
+    if size > COMMUNITY_HUB_MAX_UPLOAD_BYTES:
+        return web.json_response(
+            {
+                "error": (
+                    f"File too large ({size} bytes). "
+                    f"Limit is {COMMUNITY_HUB_MAX_UPLOAD_BYTES} bytes."
+                )
+            },
+            status=400,
+        )
+
+    session = sessions.get(request.cookies.get(SESSION_COOKIE, ""), {})
+    uploader = _sanitize_text_field(session.get("username", "community"), fallback="community", max_len=120)
+
+    now = datetime.now(timezone.utc)
+    item_id = secrets.token_hex(8)
+    stamp = now.strftime("%Y%m%d_%H%M%S")
+    stored_name = f"{stamp}_{item_id}_{file_name}"
+
+    os.makedirs(COMMUNITY_HUB_PACKAGES_DIR, exist_ok=True)
+    try:
+        saved_path = _community_file_path(stored_name)
+    except ValueError:
+        return web.json_response({"error": "Invalid upload name."}, status=400)
+
+    with open(saved_path, "wb") as f:
+        f.write(content)
+
+    item = {
+        "id": item_id,
+        "name": _sanitize_text_field(body.get("name", "Untitled Tool"), fallback="Untitled Tool", max_len=120),
+        "kind": _sanitize_text_field(body.get("kind", "tool"), fallback="tool", max_len=24).lower(),
+        "description": _sanitize_text_field(body.get("description", ""), max_len=360),
+        "author": _sanitize_text_field(body.get("author", ""), max_len=120),
+        "uploader": uploader,
+        "file_name": file_name,
+        "stored_name": stored_name,
+        "size_bytes": size,
+        "mime": _sanitize_text_field(mime, fallback="application/octet-stream", max_len=120),
+        "uploaded_at": now.isoformat(),
+        "downloads": 0,
+    }
+
+    items = _read_community_index()
+    items.insert(0, item)
+    stale_items = items[COMMUNITY_HUB_MAX_ITEMS:]
+    items = items[:COMMUNITY_HUB_MAX_ITEMS]
+
+    try:
+        _write_community_index(items)
+    except Exception:
+        try:
+            os.remove(saved_path)
+        except Exception:
+            pass
+        return web.json_response({"error": "Failed to save upload metadata."}, status=500)
+
+    for stale in stale_items:
+        stale_name = _sanitize_upload_filename(stale.get("stored_name", ""))
+        if not stale_name:
+            continue
+        try:
+            stale_path = _community_file_path(stale_name)
+            if os.path.isfile(stale_path):
+                os.remove(stale_path)
+        except Exception:
+            continue
+
+    return web.json_response({
+        "ok": True,
+        "item": _community_public_entry(item),
+    })
+
+
+@require_auth
+async def handle_api_community_download(request):
+    item_id = _sanitize_text_field(request.match_info.get("item_id", ""), max_len=64)
+    if not item_id:
+        return web.json_response({"error": "Not found."}, status=404)
+
+    items = _read_community_index()
+    found_idx = None
+    found_item = None
+    for idx, item in enumerate(items):
+        if item.get("id") == item_id:
+            found_idx = idx
+            found_item = item
+            break
+
+    if found_item is None or found_idx is None:
+        return web.json_response({"error": "Not found."}, status=404)
+
+    try:
+        file_path = _community_file_path(found_item.get("stored_name", ""))
+    except ValueError:
+        return web.json_response({"error": "Not found."}, status=404)
+
+    if not os.path.isfile(file_path):
+        return web.json_response({"error": "File not found."}, status=404)
+
+    items[found_idx]["downloads"] = max(0, int(items[found_idx].get("downloads", 0) or 0)) + 1
+    try:
+        _write_community_index(items)
+    except Exception:
+        pass
+
+    response = web.FileResponse(file_path)
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Content-Disposition"] = f'attachment; filename="{_sanitize_upload_filename(found_item.get("file_name", "download.bin"))}"'
+    mime = _sanitize_text_field(found_item.get("mime", ""), max_len=120)
+    if mime:
+        response.content_type = mime
+    return response
 
 
 @require_auth_csrf
@@ -2068,6 +2355,8 @@ async def main():
     web_app.router.add_get("/keys", handle_keys)
     web_app.router.add_get("/settings", handle_settings)
     web_app.router.add_get("/tools", handle_tools)
+    web_app.router.add_get("/claistore", handle_community_page)
+    web_app.router.add_get("/community", handle_community_page)
     web_app.router.add_get("/projects", handle_projects_page)
     web_app.router.add_post("/login", handle_login)
     web_app.router.add_post("/logout", handle_logout)
@@ -2077,6 +2366,8 @@ async def main():
     web_app.router.add_post("/api/keys", handle_api_keys_post)
     web_app.router.add_get("/api/settings", handle_api_settings_get)
     web_app.router.add_post("/api/settings", handle_api_settings_post)
+    web_app.router.add_get("/api/updates/check", handle_api_updates_check)
+    web_app.router.add_post("/api/updates/apply", handle_api_updates_apply)
     web_app.router.add_get("/api/context-usage", handle_api_context_usage)
     web_app.router.add_get("/api/google/status", handle_api_google_status)
     web_app.router.add_post("/api/google/connect", handle_api_google_connect)
@@ -2085,6 +2376,9 @@ async def main():
     web_app.router.add_post("/api/google/test", handle_api_google_test)
     web_app.router.add_get("/api/tools", handle_api_tools_get)
     web_app.router.add_post("/api/tools", handle_api_tools_post)
+    web_app.router.add_get("/api/community", handle_api_community_get)
+    web_app.router.add_post("/api/community/upload", handle_api_community_upload)
+    web_app.router.add_get("/api/community/download/{item_id}", handle_api_community_download)
     web_app.router.add_get("/api/models", handle_api_models)
     web_app.router.add_post("/api/models/fetch", handle_api_models_fetch)
     web_app.router.add_post("/api/ollama/setup", handle_api_ollama_setup)

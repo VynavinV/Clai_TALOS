@@ -97,6 +97,7 @@
     <a href="/dashboard" class="nav-item"><span class="icon">&#9632;</span> Dashboard</a>
     <a href="/keys" class="nav-item"><span class="icon">&#9919;</span> API Keys</a>
     <a href="/tools" class="nav-item"><span class="icon">&#9881;</span> Tools</a>
+    <a href="/claistore" class="nav-item"><span class="icon">&#11088;</span> ClaiStore</a>
     <a href="/settings" class="nav-item active"><span class="icon">&#9881;</span> Settings</a>
     <a href="/projects" class="nav-item"><span class="icon">&#9830;</span> Projects</a>
     <a href="/static/chat.html" class="nav-item"><span class="icon">&#9993;</span> Chat</a>
@@ -198,6 +199,32 @@
   </div>
 
   <div class="section">
+    <div class="section-title">Over-the-Air Updates</div>
+    <div class="form-group">
+      <label>Update Channel</label>
+      <select id="ota-channel" onchange="checkOtaUpdates(false)">
+        <option value="stable">Stable</option>
+        <option value="prerelease">Pre-release</option>
+      </select>
+      <div class="form-hint">Stable uses latest production release. Pre-release includes preview/beta builds.</div>
+    </div>
+    <div class="status-line" id="ota-current-version">Current version: checking...</div>
+    <div class="status-line" id="ota-latest-version">Latest release: checking...</div>
+    <div class="status-line" id="ota-release-channel">Channel: stable</div>
+    <div class="form-hint" id="ota-mode-hint">Checking update support for this install type...</div>
+    <div class="google-actions">
+      <button class="btn" id="ota-check-btn" onclick="checkOtaUpdates(true)">Check for Updates</button>
+      <button class="btn" id="ota-apply-btn" onclick="applyOtaUpdate()" disabled>Download and Apply</button>
+    </div>
+    <div class="status-line" id="ota-status-line"></div>
+    <div class="form-group" style="margin-top:0.8rem;">
+      <label>Release Notes Preview</label>
+      <textarea id="ota-release-notes" readonly style="min-height:120px; background:rgba(255,255,255,0.02);" placeholder="Release notes will appear after checking for updates."></textarea>
+      <div class="form-hint" id="ota-release-meta">No release metadata loaded yet.</div>
+    </div>
+  </div>
+
+  <div class="section">
     <div class="section-title">Safety Limits (Advanced)</div>
     <div class="form-group"><label>Maximum Helper Rounds</label><input type="text" id="max-tool-rounds" placeholder="5" inputmode="numeric"></div>
     <div class="form-group"><label>Maximum Actions Per Round</label><input type="text" id="max-tool-calls-per-round" placeholder="20" inputmode="numeric"></div>
@@ -252,6 +279,7 @@ var _providerKeys = {};
 var _activeProvider = '';
 var _fetchTimer = null;
 var _baseUrlValues = { zhipu: '', nvidia: '', cerebras: '', openrouter: '', ollama: '' };
+var _otaStatus = null;
 
 function _saveBaseUrls() {
   var el;
@@ -503,6 +531,9 @@ async function loadSettings() {
     document.getElementById('max-subagent-tool-rounds').value = d.MAX_SUBAGENT_TOOL_ROUNDS || '5';
     document.getElementById('max-subagent-tool-calls-per-round').value = d.MAX_SUBAGENT_TOOL_CALLS_PER_ROUND || '15';
     document.getElementById('max-context-chars').value = d.MAX_CONTEXT_CHARS || '120000';
+    var otaChannel = String(d.OTA_CHANNEL || 'stable').toLowerCase();
+    if (otaChannel !== 'stable' && otaChannel !== 'prerelease') otaChannel = 'stable';
+    document.getElementById('ota-channel').value = otaChannel;
 
     _providerKeys = {
       ZHIPUAI_API_KEY: d.ZHIPUAI_API_KEY || '',
@@ -563,6 +594,7 @@ async function loadSettings() {
     await loadFastModels(d);
     updateStatus('google-api', d.GOOGLE_API_KEY);
     await loadGoogleStatus();
+    await checkOtaUpdates(false);
     await loadContextUsage();
     startContextUsagePolling();
   } catch (e) {}
@@ -675,6 +707,145 @@ function startContextUsagePolling() {
   contextUsageTimer = setInterval(loadContextUsage, 3000);
 }
 
+function renderOtaStatus(data) {
+  _otaStatus = data || null;
+
+  var currentEl = document.getElementById('ota-current-version');
+  var latestEl = document.getElementById('ota-latest-version');
+  var channelEl = document.getElementById('ota-release-channel');
+  var hintEl = document.getElementById('ota-mode-hint');
+  var statusEl = document.getElementById('ota-status-line');
+  var notesEl = document.getElementById('ota-release-notes');
+  var metaEl = document.getElementById('ota-release-meta');
+  var applyBtn = document.getElementById('ota-apply-btn');
+
+  if (!data) {
+    currentEl.textContent = 'Current version: unavailable';
+    latestEl.textContent = 'Latest release: unavailable';
+    channelEl.textContent = 'Channel: unknown';
+    hintEl.textContent = 'Update information is unavailable right now.';
+    statusEl.textContent = 'Could not load OTA status.';
+    notesEl.value = '';
+    metaEl.textContent = 'No release metadata loaded yet.';
+    applyBtn.disabled = true;
+    return;
+  }
+
+  currentEl.textContent = 'Current version: ' + (data.current_version || 'unknown');
+  latestEl.textContent = 'Latest release: ' + (data.latest_version || 'not found');
+  channelEl.textContent = 'Channel: ' + (data.channel || 'stable');
+  notesEl.value = String(data.release_notes || '').trim() || 'No release notes were provided for this release.';
+
+  var meta = [];
+  if (data.release_published_at) meta.push('Published: ' + data.release_published_at);
+  if (data.release_url) meta.push('URL: ' + data.release_url);
+  if (data.release_is_prerelease) meta.push('Type: prerelease');
+  metaEl.textContent = meta.length ? meta.join(' | ') : 'No release metadata loaded yet.';
+
+  if (data.enabled === false) {
+    hintEl.textContent = 'OTA is disabled by configuration (OTA_ENABLED=0).';
+    statusEl.textContent = data.message || 'OTA disabled.';
+    applyBtn.disabled = true;
+    return;
+  }
+
+  hintEl.textContent = (data.apply_message || '');
+  statusEl.textContent = data.message || '';
+  applyBtn.disabled = !(data.ok && data.update_available && data.can_apply);
+}
+
+async function checkOtaUpdates(showToast) {
+  var checkBtn = document.getElementById('ota-check-btn');
+  var statusEl = document.getElementById('ota-status-line');
+  var selectedChannel = (document.getElementById('ota-channel').value || 'stable').trim().toLowerCase();
+  checkBtn.disabled = true;
+  statusEl.textContent = 'Checking for updates...';
+
+  try {
+    var res = await fetch('/api/updates/check?channel=' + encodeURIComponent(selectedChannel));
+    if (res.status === 401) { window.location.href = '/'; return; }
+
+    var data = await res.json();
+    renderOtaStatus(data);
+
+    if (showToast) {
+      if (data.ok) {
+        if (data.update_available && data.can_apply) {
+          showMsg('Update available: ' + (data.latest_version || 'new release found'), true);
+        } else if (data.update_available && !data.can_apply) {
+          showMsg('Update found but automatic apply is unavailable in this mode.', false);
+        } else {
+          showMsg('You are already on the latest version.', true);
+        }
+      } else {
+        showMsg(data.error || 'Could not check for updates.', false);
+      }
+    }
+  } catch (e) {
+    renderOtaStatus(null);
+    if (showToast) showMsg('Connection problem while checking updates.', false);
+  }
+
+  checkBtn.disabled = false;
+}
+
+async function applyOtaUpdate() {
+  if (!_otaStatus || !_otaStatus.update_available) {
+    showMsg('No update is currently available.', false);
+    return;
+  }
+  if (!_otaStatus.can_apply) {
+    showMsg('Automatic update apply is not supported for this install mode.', false);
+    return;
+  }
+
+  var warning = 'Apply the latest update now?';
+  if ((_otaStatus.install_mode || '') === 'frozen-windows') {
+    warning = 'Apply and restart now? TALOS will close briefly while updating files.';
+  }
+  if (!confirm(warning)) return;
+
+  var applyBtn = document.getElementById('ota-apply-btn');
+  var statusEl = document.getElementById('ota-status-line');
+  var selectedChannel = (document.getElementById('ota-channel').value || 'stable').trim().toLowerCase();
+  applyBtn.disabled = true;
+  statusEl.textContent = 'Applying update...';
+
+  try {
+    var res = await _post('/api/updates/apply', { channel: selectedChannel });
+    if (res.status === 401) { window.location.href = '/'; return; }
+    var data = await res.json();
+
+    if (!data.ok) {
+      showMsg(data.error || 'Could not apply update.', false);
+      statusEl.textContent = data.error || 'Update failed.';
+      await checkOtaUpdates(false);
+      return;
+    }
+
+    statusEl.textContent = data.message || 'Update applied.';
+
+    if (data.restarting_now) {
+      showMsg('Update staged. Restarting now...', true);
+      setTimeout(function() { window.location.reload(); }, 15000);
+      return;
+    }
+
+    if (data.restart_required) {
+      showMsg('Update installed. Click Restart Assistant to finish.', true);
+    } else {
+      showMsg('Update applied successfully.', true);
+    }
+
+    await checkOtaUpdates(false);
+  } catch (e) {
+    showMsg('Connection problem while applying update.', false);
+    statusEl.textContent = 'Update request failed.';
+  }
+
+  applyBtn.disabled = false;
+}
+
 async function saveSettings() {
   _saveBaseUrls();
   var mainModel = _currentMainModel;
@@ -710,6 +881,7 @@ async function saveSettings() {
     OPENROUTER_BASE_URL: (document.getElementById('openrouter-base-url') || {}).value || _baseUrlValues.openrouter || '',
     OLLAMA_BASE_URL: (document.getElementById('ollama-base-url') || {}).value || _baseUrlValues.ollama || '',
     OLLAMA_MODEL: (document.getElementById('key-ollama') || {}).value || _ollamaModel || '',
+    OTA_CHANNEL: (document.getElementById('ota-channel').value || 'stable').trim().toLowerCase(),
     MAIN_MODEL: mainModel,
     IMAGE_MODEL: getModelValue('image-model'),
     FAST_MODEL: getModelValue('fast-model'),

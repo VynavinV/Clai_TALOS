@@ -168,6 +168,24 @@ When no config exists, headless mode offers:
 1. **Tailscale + browser path** - Connect Tailscale, start Funnel, and finish onboarding from any device.
 2. **Terminal-only path** - Configure Telegram, model provider, API keys, and optional services directly in terminal.
 
+### Upgrade Older Copied Installs (Pre-OTA)
+
+If you have an older copied TALOS folder that predates OTA support, use the legacy updater:
+
+```bash
+python scripts/update_legacy_copy.py --target /path/to/old/Clai_TALOS --channel stable
+```
+
+Windows example:
+
+```powershell
+python scripts/update_legacy_copy.py --target "C:\path\to\old\Clai_TALOS" --channel stable
+```
+
+Use `--channel prerelease` if you want preview builds.
+
+This updater preserves runtime/user data in the target copy (for example `.env`, credentials, logs, database, and projects) while overlaying updated code.
+
 ### What startup does automatically
 
 The startup scripts (`start.sh`, `start.bat`) automatically:
@@ -215,6 +233,7 @@ This behavior is Linux-specific.
 - [Architecture](#architecture)
 - [Sudoers Behavior (Linux)](#sudoers-behavior-linux)
 - [First Boot and Onboarding](#first-boot-and-onboarding)
+- [Upgrade Older Copied Installs (Pre-OTA)](#upgrade-older-copied-installs-pre-ota)
 - [Dashboard Guide](#dashboard-guide)
 - [HTTP Routes and API Reference](#http-routes-and-api-reference)
 - [Configuration Reference (.env)](#configuration-reference-env)
@@ -939,6 +958,11 @@ This generates:
 - `dist/SHA256SUMS.txt`
 - `dist/SHA256SUMS-<version>.txt`
 - `dist/build-manifest.json`
+
+When users launch `ClaiTALOS.exe`, it now:
+
+- shows full setup/install output in the CMD console
+- automatically runs headless startup via `clai ./start.bat --headless`
 
 CI release build:
 

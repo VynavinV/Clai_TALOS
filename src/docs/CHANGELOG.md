@@ -10,6 +10,9 @@ All notable changes to this project will be documented in this file.
 - Basic test coverage for dashboard password policy via `tests/test_auth_policy.py`.
 - Initial Windows EXE packaging pipeline: `talos_entry.py`, `talos_exe.spec`, `scripts/build_windows_exe.ps1`, and `.github/workflows/windows-exe-release.yml`.
 - Runtime path abstraction in `app_paths.py` for frozen executable mode (app data storage under OS user data directories).
+- Over-the-air update support in Settings with authenticated update check/apply APIs and runtime update handling for source git installs and frozen Windows builds.
+- OTA channel control (`stable` / `prerelease`) and release-notes preview in Settings.
+- Legacy updater utility `scripts/update_legacy_copy.py` for non-git copied installs that predate OTA support.
 
 ### Changed
 

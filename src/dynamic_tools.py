@@ -34,6 +34,7 @@ _RESERVED_TOOL_NAMES = {
     "scrape_url",
     "google_execute",
     "email_execute",
+    "pa_system",
     "browser_start_chrome_debug",
     "browser_connect",
     "browser_run",

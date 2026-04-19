@@ -5,6 +5,7 @@ Param(
 
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+$RepoRoot = Split-Path -Parent $Root
 Set-Location $Root
 
 Write-Host "[build] Preparing Windows EXE build in $Root"
@@ -39,12 +40,32 @@ function Get-VersionLabel {
     return "$timestamp-$sha$dirty"
 }
 
+$pyCommand = $null
+$pyArgs = @()
+
 if (Get-Command py -ErrorAction SilentlyContinue) {
-    $pyCmd = "py -$PythonVersion"
-} elseif (Get-Command python -ErrorAction SilentlyContinue) {
-    $pyCmd = "python"
-} else {
-    throw "Python launcher not found. Install Python 3.11+ first."
+    & py -$PythonVersion --version *> $null
+    if ($LASTEXITCODE -eq 0) {
+        $pyCommand = "py"
+        $pyArgs = @("-$PythonVersion")
+    }
+}
+
+if (-not $pyCommand) {
+    $repoVenvPython = Join-Path $RepoRoot ".venv\Scripts\python.exe"
+    if (Test-Path $repoVenvPython) {
+        $pyCommand = $repoVenvPython
+        $pyArgs = @()
+    }
+}
+
+if (-not $pyCommand -and (Get-Command python -ErrorAction SilentlyContinue)) {
+    $pyCommand = "python"
+    $pyArgs = @()
+}
+
+if (-not $pyCommand) {
+    throw "No usable Python runtime found. Install Python 3.11+ or create .venv at repository root."
 }
 
 $venvDir = ".venv"
@@ -55,7 +76,10 @@ if (-not (Test-Path $venvDir)) {
 if (-not (Test-Path $venvDir)) {
     $venvDir = "venv"
     Write-Host "[build] Creating venv at $venvDir"
-    Invoke-Expression "$pyCmd -m venv $venvDir"
+    & $pyCommand @pyArgs -m venv $venvDir
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path (Join-Path $Root "$venvDir\Scripts\python.exe"))) {
+        throw "Failed to create build virtual environment at $venvDir"
+    }
 }
 
 $pythonExe = Join-Path $Root "$venvDir\Scripts\python.exe"
@@ -65,11 +89,26 @@ Write-Host "[build] Installing dependencies"
 & $pythonExe -m pip install --upgrade pip
 & $pipExe install -r requirements.txt pyinstaller
 
-Write-Host "[build] Building EXE with PyInstaller"
-& $pythonExe -m PyInstaller --noconfirm --clean talos_exe.spec
-
 $distDir = Join-Path $Root "dist"
 $outDir = Join-Path $distDir "ClaiTALOS"
+$buildWorkDir = Join-Path $Root "build"
+
+if (Test-Path $outDir) {
+    Write-Host "[build] Removing previous output directory $outDir"
+    Remove-Item $outDir -Recurse -Force
+}
+
+if (Test-Path $buildWorkDir) {
+    Write-Host "[build] Removing previous PyInstaller work directory $buildWorkDir"
+    Remove-Item $buildWorkDir -Recurse -Force
+}
+
+Write-Host "[build] Building EXE with PyInstaller"
+& $pythonExe -m PyInstaller --noconfirm --clean talos_exe.spec
+if ($LASTEXITCODE -ne 0) {
+    throw "PyInstaller failed with exit code $LASTEXITCODE"
+}
+
 if (-not (Test-Path $outDir)) {
     throw "Build output not found at $outDir"
 }

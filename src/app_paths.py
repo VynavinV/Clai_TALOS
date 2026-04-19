@@ -122,6 +122,18 @@ def web_upload_dir() -> str:
     return data_path("logs", "web_uploads")
 
 
+def community_hub_dir() -> str:
+    return data_path("community_hub")
+
+
+def community_hub_packages_dir() -> str:
+    return data_path("community_hub", "packages")
+
+
+def community_hub_index_path() -> str:
+    return data_path("community_hub", "index.json")
+
+
 def projects_dir() -> str:
     return data_path("projects")
 
@@ -153,6 +165,8 @@ def ensure_runtime_dirs() -> None:
         browser_artifacts_dir(),
         scrape_cache_dir(),
         web_upload_dir(),
+        community_hub_dir(),
+        community_hub_packages_dir(),
         projects_dir(),
         bin_dir(),
         himalaya_dir(),
