@@ -5,7 +5,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$SRC_DIR/.." && pwd)"
 
-PACKAGE_NAME="clai-talos"
+PACKAGE_NAME="talos"
+INSTALL_NAME="clai-talos"
 VERSION="${1:-${TALOS_DEB_VERSION:-0.1.0}}"
 ARCH="${DEB_ARCH:-}"
 OUT_DIR="${DEB_OUT_DIR:-$REPO_ROOT/dist/deb}"
@@ -50,11 +51,11 @@ fi
 
 PKG_DIR="$BUILD_DIR/${PACKAGE_NAME}_${VERSION}_${ARCH}"
 DEBIAN_DIR="$PKG_DIR/DEBIAN"
-APP_DIR="$PKG_DIR/opt/$PACKAGE_NAME"
+APP_DIR="$PKG_DIR/opt/$INSTALL_NAME"
 BIN_DIR="$PKG_DIR/usr/bin"
 SYSTEMD_DIR="$PKG_DIR/lib/systemd/system"
 DEFAULTS_DIR="$PKG_DIR/etc/default"
-VAR_DIR="$PKG_DIR/var/lib/$PACKAGE_NAME"
+VAR_DIR="$PKG_DIR/var/lib/$INSTALL_NAME"
 
 rm -rf "$PKG_DIR"
 mkdir -p "$DEBIAN_DIR" "$APP_DIR" "$BIN_DIR" "$SYSTEMD_DIR" "$DEFAULTS_DIR" "$VAR_DIR"
