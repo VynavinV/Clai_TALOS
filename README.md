@@ -182,9 +182,21 @@ Windows example:
 python scripts/update_legacy_copy.py --target "C:\path\to\old\Clai_TALOS" --channel stable
 ```
 
+One-command curl updater (Linux/macOS/Git Bash):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/VynavinV/Clai_TALOS/master/scripts/update_via_curl.sh | bash -s -- --target /path/to/old/Clai_TALOS --channel stable
+```
+
+Optional prerelease channel:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/VynavinV/Clai_TALOS/master/scripts/update_via_curl.sh | bash -s -- --target /path/to/old/Clai_TALOS --channel prerelease
+```
+
 Use `--channel prerelease` if you want preview builds.
 
-This updater preserves runtime/user data in the target copy (for example `.env`, credentials, logs, database, and projects) while overlaying updated code.
+This updater preserves runtime/user data in the target copy (for example `.env`, credentials, API keys, Telegram token, logs, database, projects, and local service configs) while overlaying updated code.
 
 ### What startup does automatically
 
