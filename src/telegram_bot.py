@@ -2238,7 +2238,20 @@ async def handle_api_context_usage(request):
 @require_auth
 async def handle_api_updates_check(request):
     channel = str(request.query.get("channel", "")).strip()
-    status = ota_update.check_for_updates(channel=channel)
+    try:
+        status = ota_update.check_for_updates(channel=channel)
+    except Exception as exc:
+        status = {
+            "ok": False,
+            "enabled": True,
+            "channel": channel or "stable",
+            "install_mode": "unknown",
+            "current_version": ota_update.current_version(),
+            "update_available": False,
+            "can_apply": False,
+            "apply_message": "",
+            "error": f"Could not load OTA status: {exc}",
+        }
     http_status = 200 if status.get("ok") else 502
     return web.json_response(status, status=http_status)
 

@@ -12,7 +12,7 @@ from urllib.request import Request, urlopen
 import app_paths
 
 
-DEFAULT_GITHUB_REPO = "vynavinv/clai-talos"
+DEFAULT_GITHUB_REPO = "VynavinV/Clai_TALOS"
 DEFAULT_WINDOWS_ASSET_NAME = "ClaiTALOS-windows-x64-latest.zip"
 DEFAULT_RELEASES_URL_TEMPLATE = "https://api.github.com/repos/{repo}/releases/latest"
 DEFAULT_RELEASES_LIST_URL_TEMPLATE = "https://api.github.com/repos/{repo}/releases?per_page=30"
@@ -128,12 +128,17 @@ def _releases_list_api_url(repo: str) -> str:
 
 
 def _http_bytes(url: str, timeout_s: int = DEFAULT_TIMEOUT_S) -> bytes:
+	github_token = str(os.getenv("OTA_GITHUB_TOKEN", "")).strip()
+	headers = {
+		"User-Agent": "Clai-TALOS-OTA",
+		"Accept": "application/vnd.github+json",
+	}
+	if github_token:
+		headers["Authorization"] = f"Bearer {github_token}"
+		headers["X-GitHub-Api-Version"] = "2022-11-28"
 	req = Request(
 		url,
-		headers={
-			"User-Agent": "Clai-TALOS-OTA",
-			"Accept": "application/vnd.github+json",
-		},
+		headers=headers,
 	)
 	with urlopen(req, timeout=timeout_s) as resp:
 		return resp.read()
