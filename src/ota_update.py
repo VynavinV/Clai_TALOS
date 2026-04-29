@@ -277,6 +277,10 @@ def install_mode() -> str:
 		return "frozen-windows"
 	if app_paths.is_frozen():
 		return "frozen"
+	if sys.platform.startswith("linux"):
+		source_root = os.path.realpath(app_paths.source_root())
+		if source_root.startswith("/opt/clai-talos/") and shutil.which("dpkg") and shutil.which("apt-get"):
+			return "linux-deb"
 	if _has_git_checkout(_repo_root()):
 		return "source-git"
 	return "source"
@@ -422,11 +426,59 @@ def _can_apply(mode: str) -> tuple[bool, str]:
 		if not shutil.which("git"):
 			return False, "Git is not installed on this machine."
 		return True, "Will run git pull and refresh Python dependencies."
+	if mode == "linux-deb":
+		if not shutil.which("apt-get") or not shutil.which("dpkg"):
+			return False, "This runtime needs apt/dpkg available to auto-apply .deb updates."
+		if hasattr(os, "geteuid") and os.geteuid() == 0:
+			return True, "Will download and install the latest Debian package on this server."
+		sudo_bin = shutil.which("sudo")
+		if sudo_bin:
+			try:
+				sudo_check = _run([sudo_bin, "-n", "true"], timeout=5)
+				if sudo_check.returncode == 0:
+					return True, "Will install the latest Debian package via sudo on this server."
+			except Exception:
+				pass
+		return False, "Auto apply for .deb needs root or passwordless sudo for apt/systemctl."
 	if mode == "frozen-windows":
 		return True, "Will download the latest Windows package and swap files automatically."
 	if mode == "frozen":
 		return False, "Automatic OTA apply is not supported for this packaged platform yet."
 	return False, "Automatic OTA apply requires a git checkout or Windows packaged app."
+
+
+def _pick_deb_asset(assets: list[dict]) -> dict | None:
+	if not assets:
+		return None
+
+	preferred_name = str(os.getenv("OTA_DEB_ASSET_NAME", "")).strip()
+	if preferred_name:
+		for asset in assets:
+			if asset.get("name") == preferred_name and asset.get("url"):
+				return asset
+
+	arch = "amd64"
+	if shutil.which("dpkg"):
+		try:
+			arch_result = _run(["dpkg", "--print-architecture"], timeout=5)
+			if arch_result.returncode == 0:
+				candidate = str(arch_result.stdout or "").strip()
+				if candidate:
+					arch = candidate
+		except Exception:
+			pass
+
+	for asset in assets:
+		name = str(asset.get("name", "")).lower()
+		if name.endswith(".deb") and f"_{arch}.deb" in name and asset.get("url"):
+			return asset
+
+	for asset in assets:
+		name = str(asset.get("name", "")).lower()
+		if name.endswith(".deb") and asset.get("url"):
+			return asset
+
+	return None
 
 
 def check_for_updates(channel: str | None = None) -> dict:
@@ -734,6 +786,98 @@ def _apply_frozen_windows(release: dict) -> dict:
 	}
 
 
+def _apply_linux_deb(release: dict) -> dict:
+	assets = list(release.get("assets", []))
+	asset = _pick_deb_asset(assets)
+	if not asset:
+		return {
+			"ok": False,
+			"error": "No compatible Debian package (.deb) found in the latest release.",
+		}
+
+	asset_name = str(asset.get("name", "") or "update.deb")
+	asset_url = str(asset.get("url", "")).strip()
+	if not asset_url:
+		return {
+			"ok": False,
+			"error": "Release asset is missing a download URL.",
+		}
+
+	updates_dir = app_paths.data_path("updates")
+	os.makedirs(updates_dir, exist_ok=True)
+
+	stamp = time.strftime("%Y%m%d_%H%M%S")
+	archive_name = f"{stamp}_{_safe_filename(asset_name, fallback='update.deb')}"
+	archive_path = os.path.join(updates_dir, archive_name)
+
+	timeout_s = max(5, int(str(os.getenv("OTA_TIMEOUT_S", "15")).strip() or "15"))
+	try:
+		_download_to_path(asset_url, archive_path, timeout_s=timeout_s)
+	except Exception as exc:
+		return {
+			"ok": False,
+			"error": f"Failed to download Debian package: {exc}",
+		}
+
+	apt_bin = shutil.which("apt-get") or "apt-get"
+	sudo_bin = shutil.which("sudo")
+	use_sudo = bool(hasattr(os, "geteuid") and os.geteuid() != 0)
+
+	if use_sudo and not sudo_bin:
+		return {
+			"ok": False,
+			"error": "This process is not root and sudo is unavailable. Cannot auto-install .deb.",
+			"details": f"Package downloaded to {archive_path}",
+		}
+
+	install_cmd = [apt_bin, "install", "-y", archive_path]
+	if use_sudo and sudo_bin:
+		install_cmd = [sudo_bin, "-n"] + install_cmd
+
+	try:
+		install_result = _run(install_cmd, timeout=900)
+	except Exception as exc:
+		return {
+			"ok": False,
+			"error": f"Failed running apt install: {exc}",
+		}
+
+	if install_result.returncode != 0:
+		return {
+			"ok": False,
+			"error": "Debian package install failed.",
+			"details": _clip((install_result.stdout or "") + "\n" + (install_result.stderr or ""), 3000),
+		}
+
+	restart_cmd = ["systemctl", "restart", "clai-talos.service"]
+	if use_sudo and sudo_bin:
+		restart_cmd = [sudo_bin, "-n"] + restart_cmd
+
+	restart_warning = ""
+	if shutil.which("systemctl"):
+		try:
+			restart_result = _run(restart_cmd, timeout=90)
+			if restart_result.returncode != 0:
+				restart_warning = _clip((restart_result.stdout or "") + "\n" + (restart_result.stderr or ""), 600)
+		except Exception as exc:
+			restart_warning = str(exc)
+
+	result = {
+		"ok": True,
+		"mode": "linux-deb",
+		"applied": True,
+		"restart_required": False,
+		"message": "Debian update installed on server.",
+		"details": {
+			"asset": asset_name,
+			"archive_path": archive_path,
+		},
+	}
+	if restart_warning:
+		result["warning"] = f"Package installed, but service restart may need manual action: {restart_warning}"
+	return result
+
+
 def apply_update(channel: str | None = None) -> dict:
 	selected_channel = _normalize_channel(channel or os.getenv("OTA_CHANNEL", "stable"))
 	status = check_for_updates(selected_channel)
@@ -764,6 +908,15 @@ def apply_update(channel: str | None = None) -> dict:
 				"error": release.get("error", "Could not fetch update release metadata."),
 			}
 		return _apply_frozen_windows(release)
+
+	if mode == "linux-deb":
+		release = _release_payload(selected_channel)
+		if not release.get("ok"):
+			return {
+				"ok": False,
+				"error": release.get("error", "Could not fetch update release metadata."),
+			}
+		return _apply_linux_deb(release)
 
 	return {
 		"ok": False,
