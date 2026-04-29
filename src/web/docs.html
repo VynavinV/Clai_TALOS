@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="csrf-token" content="{{CSRF_TOKEN}}">
+<title>{{BOT_NAME}} - Documentation</title>
+<style>
+  :root {
+    --bg-0: #06121a;
+    --bg-1: #0b2030;
+    --ink-0: #eef8ff;
+    --ink-1: #b8d2e5;
+    --ink-2: #84a1b6;
+    --line: rgba(122, 220, 255, 0.23);
+    --line-strong: rgba(122, 220, 255, 0.46);
+    --cyan: #4fd3ff;
+    --mint: #3ef0b5;
+    --amber: #ffcb77;
+    --rose: #ff7d96;
+    --surface-0: rgba(14, 31, 45, 0.78);
+    --surface-1: rgba(16, 42, 63, 0.92);
+    --sidebar-width: 236px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: "Trebuchet MS", "Segoe UI", "Tahoma", sans-serif;
+    color: var(--ink-0);
+    min-height: 100vh;
+    display: flex;
+    background:
+      radial-gradient(1200px 640px at 95% -12%, rgba(79, 211, 255, 0.22), transparent 70%),
+      radial-gradient(900px 560px at -10% -5%, rgba(62, 240, 181, 0.18), transparent 72%),
+      linear-gradient(165deg, var(--bg-1), var(--bg-0));
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background-image:
+      linear-gradient(rgba(180, 228, 255, 0.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(180, 228, 255, 0.045) 1px, transparent 1px);
+    background-size: 30px 30px;
+    mask-image: radial-gradient(circle at center, black 35%, transparent 92%);
+  }
+
+  .sidebar {
+    width: var(--sidebar-width);
+    background: linear-gradient(180deg, rgba(5, 14, 22, 0.95), rgba(3, 10, 16, 0.9));
+    border-right: 1px solid var(--line);
+    padding: 1.4rem 0.85rem 1rem;
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 20;
+    backdrop-filter: blur(10px);
+  }
+
+  .sidebar-brand {
+    display: flex;
+    align-items: center;
+    gap: 0.72rem;
+    margin-bottom: 1.8rem;
+    padding: 0 0.55rem;
+  }
+
+  .sidebar-brand img {
+    width: 37px;
+    height: 37px;
+    border-radius: 50%;
+    border: 1px solid rgba(79, 211, 255, 0.48);
+  }
+
+  .sidebar-brand span {
+    font-weight: 700;
+    font-size: 0.98rem;
+  }
+
+  .nav-items { flex: 1; }
+
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 0.72rem;
+    padding: 0.67rem 0.72rem;
+    margin: 0.14rem 0;
+    border-radius: 10px;
+    border: 1px solid transparent;
+    color: var(--ink-2);
+    font-size: 0.82rem;
+    text-decoration: none;
+    transition: 0.2s ease;
+  }
+
+  .nav-item:hover {
+    color: var(--ink-1);
+    border-color: rgba(79, 211, 255, 0.22);
+    background: rgba(79, 211, 255, 0.1);
+  }
+
+  .nav-item.active {
+    color: var(--ink-0);
+    border-color: var(--line-strong);
+    background: linear-gradient(90deg, rgba(79, 211, 255, 0.22), rgba(62, 240, 181, 0.12));
+  }
+
+  .nav-bottom {
+    border-top: 1px solid var(--line);
+    padding-top: 1rem;
+  }
+
+  .main {
+    margin-left: var(--sidebar-width);
+    width: min(1300px, 100%);
+    padding: 2rem 2.2rem;
+    position: relative;
+    z-index: 1;
+  }
+
+  .hero {
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    padding: 1.25rem;
+    background: linear-gradient(150deg, rgba(79, 211, 255, 0.14), rgba(16, 33, 49, 0.75));
+    box-shadow: 0 20px 38px rgba(5, 15, 24, 0.34);
+    margin-bottom: 1rem;
+    display: grid;
+    gap: 0.55rem;
+  }
+
+  .hero h1 {
+    font-size: clamp(1.4rem, 2.6vw, 2rem);
+    line-height: 1.1;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+  }
+
+  .hero p {
+    color: var(--ink-1);
+    max-width: 850px;
+    line-height: 1.45;
+  }
+
+  .hero-pills {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  .pill {
+    border-radius: 999px;
+    border: 1px solid rgba(79, 211, 255, 0.4);
+    background: rgba(79, 211, 255, 0.14);
+    color: #d7f5ff;
+    font-size: 0.66rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-weight: 700;
+    padding: 0.34rem 0.58rem;
+  }
+
+  .pill.warn {
+    border-color: rgba(255, 203, 119, 0.48);
+    background: rgba(255, 203, 119, 0.14);
+    color: #ffe8c0;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: 0.9rem;
+  }
+
+  .panel {
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: linear-gradient(160deg, var(--surface-1), var(--surface-0));
+    box-shadow: 0 14px 30px rgba(4, 13, 21, 0.32);
+    padding: 1rem;
+  }
+
+  .span-8 { grid-column: span 8; }
+  .span-4 { grid-column: span 4; }
+  .span-12 { grid-column: span 12; }
+
+  .panel h2 {
+    font-size: 0.86rem;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--ink-2);
+    margin-bottom: 0.7rem;
+  }
+
+  .panel h3 {
+    font-size: 0.95rem;
+    margin: 0.7rem 0 0.35rem;
+    color: var(--ink-0);
+  }
+
+  .panel p {
+    color: var(--ink-1);
+    line-height: 1.45;
+    font-size: 0.88rem;
+  }
+
+  .stat-stack {
+    display: grid;
+    gap: 0.62rem;
+  }
+
+  .stat {
+    border-radius: 12px;
+    border: 1px solid rgba(79, 211, 255, 0.22);
+    background: rgba(255, 255, 255, 0.03);
+    padding: 0.75rem;
+  }
+
+  .stat .k {
+    color: var(--ink-2);
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 0.3rem;
+  }
+
+  .stat .v {
+    color: #e9fbff;
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 0.9rem;
+    word-break: break-all;
+  }
+
+  .step {
+    margin-bottom: 0.8rem;
+    border-left: 2px solid rgba(79, 211, 255, 0.35);
+    padding-left: 0.7rem;
+  }
+
+  .step .n {
+    color: var(--cyan);
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+  }
+
+  pre {
+    margin-top: 0.52rem;
+    background: #031018;
+    border: 1px solid rgba(79, 211, 255, 0.28);
+    border-radius: 12px;
+    padding: 0.7rem;
+    overflow-x: auto;
+  }
+
+  code {
+    font-family: Consolas, "Courier New", monospace;
+    color: #c9f4ff;
+    font-size: 0.8rem;
+    white-space: pre;
+  }
+
+  .callout {
+    margin-top: 0.7rem;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 125, 150, 0.35);
+    background: rgba(255, 125, 150, 0.1);
+    color: #ffd5de;
+    padding: 0.72rem;
+    font-size: 0.8rem;
+  }
+
+  .footer-note {
+    margin-top: 0.8rem;
+    color: var(--ink-2);
+    font-size: 0.76rem;
+  }
+
+  .mobile-header {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 56px;
+    background: rgba(6, 14, 22, 0.95);
+    border-bottom: 1px solid var(--line);
+    z-index: 30;
+    align-items: center;
+    padding: 0 1rem;
+    gap: 0.65rem;
+  }
+
+  .mobile-header img {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 1px solid rgba(79, 211, 255, 0.45);
+  }
+
+  .hamburger {
+    margin-left: auto;
+    background: none;
+    border: none;
+    color: var(--ink-1);
+    font-size: 1.4rem;
+  }
+
+  .sidebar-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    z-index: 19;
+  }
+
+  @media (max-width: 1020px) {
+    .span-8,
+    .span-4,
+    .span-12 {
+      grid-column: span 12;
+    }
+  }
+
+  @media (max-width: 768px) {
+    .sidebar {
+      transform: translateX(-100%);
+      transition: transform 0.2s ease;
+    }
+
+    .sidebar.open { transform: translateX(0); }
+    .sidebar-overlay.open { display: block; }
+    .mobile-header { display: flex; }
+
+    .main {
+      margin-left: 0;
+      padding: 70px 0.85rem 1.2rem;
+    }
+  }
+</style>
+</head>
+<body>
+
+<div class="mobile-header">
+  <img src="/static/clai-icon.png" alt="">
+  <span>{{BOT_NAME}}</span>
+  <button class="hamburger" onclick="toggleSidebar()">&#9776;</button>
+</div>
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
+
+<nav class="sidebar" id="sidebar">
+  <div class="sidebar-brand">
+    <img src="/static/clai-icon.png" alt="Clai">
+    <span>{{BOT_NAME}}</span>
+  </div>
+  <div class="nav-items">
+    <a href="/dashboard" class="nav-item"><span>&#9632;</span> Home</a>
+    <a href="/keys" class="nav-item"><span>&#9919;</span> API Keys</a>
+    <a href="/tools" class="nav-item"><span>&#9881;</span> Tools</a>
+    <a href="/claistore" class="nav-item"><span>&#11088;</span> ClaiStore</a>
+    <a href="/settings" class="nav-item"><span>&#9881;</span> Settings</a>
+    <a href="/docs" class="nav-item active"><span>&#128214;</span> Docs</a>
+    <a href="/projects" class="nav-item"><span>&#9830;</span> Projects</a>
+    <a href="/static/chat.html" class="nav-item"><span>&#9993;</span> Chat</a>
+    <a href="/activity" class="nav-item"><span>&#9673;</span> Activity</a>
+  </div>
+  <div class="nav-bottom">
+    <a href="#" class="nav-item" onclick="logout(); return false;"><span>&#10140;</span> Sign Out</a>
+  </div>
+</nav>
+
+<main class="main">
+  <section class="hero">
+    <h1>Clai Docs: Cloud + ClaiStore + Ops</h1>
+    <p>
+      This docs portal is designed for production operators. It focuses on server-first installs,
+      cloud deployment, and release-safe operations.
+    </p>
+    <div class="hero-pills">
+      <span class="pill">server-first</span>
+      <span class="pill">cloud-ready</span>
+      <span class="pill warn">never install on viewer machine</span>
+    </div>
+  </section>
+
+  <section class="grid">
+    <article class="panel span-8">
+      <h2>ClaiStore Server Install Flow</h2>
+
+      <div class="step">
+        <div class="n">Step 1</div>
+        <h3>User clicks Install on Server</h3>
+        <p>The dashboard triggers a POST request to <code>/api/community/install/{item_id}</code> with CSRF protection.</p>
+      </div>
+
+      <div class="step">
+        <div class="n">Step 2</div>
+        <h3>Server stores package under runtime data</h3>
+        <p>Package bytes are saved in <code>community_hub/installed</code> inside the TALOS data directory on the host.</p>
+      </div>
+
+      <div class="step">
+        <div class="n">Step 3</div>
+        <h3>OpenClaw manifests are imported automatically</h3>
+        <p>If the package looks like an OpenClaw manifest, tools and skill docs are imported into the runtime registry/docs.</p>
+      </div>
+
+      <div class="callout">
+        Security default: install only stores/imports artifacts. It does not auto-execute arbitrary code from packages.
+      </div>
+    </article>
+
+    <aside class="panel span-4">
+      <h2>Runtime Paths</h2>
+      <div class="stat-stack">
+        <div class="stat">
+          <div class="k">Community Packages</div>
+          <div class="v">community_hub/packages</div>
+        </div>
+        <div class="stat">
+          <div class="k">Installed Artifacts</div>
+          <div class="v">community_hub/installed</div>
+        </div>
+        <div class="stat">
+          <div class="k">Dynamic Tools Registry</div>
+          <div class="v">projects/dynamic_tools.json</div>
+        </div>
+        <div class="stat">
+          <div class="k">Skill Docs Directory</div>
+          <div class="v">tools/</div>
+        </div>
+      </div>
+    </aside>
+
+    <article class="panel span-12">
+      <h2>Cloud Deployment Baseline (Ubuntu VM)</h2>
+      <h3>Install from release package</h3>
+      <pre><code>sudo apt update
+sudo apt install -y curl ca-certificates
+curl -L -o talos_1.0.0_amd64.deb https://github.com/&lt;org&gt;/&lt;repo&gt;/releases/download/v1.0.0/talos_1.0.0_amd64.deb
+sudo apt install -y ./talos_1.0.0_amd64.deb
+sudo systemctl enable clai-talos
+sudo systemctl restart clai-talos
+sudo systemctl status clai-talos --no-pager</code></pre>
+
+      <h3>Set production environment keys</h3>
+      <pre><code>sudo tee -a /var/lib/clai-talos/.env &gt;/dev/null &lt;&lt;'EOF'
+WEB_PORT=8080
+BOT_NAME=Clai-TALOS
+TELEGRAM_BOT_TOKEN=REPLACE_ME
+OPENAI_API_KEY=REPLACE_ME
+DASHBOARD_REMOTE_URL=https://your-user.github.io/your-repo/dashboard-fragment.html
+EOF
+sudo chown clai-talos:clai-talos /var/lib/clai-talos/.env
+sudo systemctl restart clai-talos</code></pre>
+
+      <h3>Reverse proxy + TLS (Nginx sketch)</h3>
+      <pre><code>sudo apt install -y nginx certbot python3-certbot-nginx
+sudo certbot --nginx -d your.domain.example
+# Proxy pass to http://127.0.0.1:8080 in nginx site config
+sudo systemctl reload nginx</code></pre>
+    </article>
+
+    <article class="panel span-12">
+      <h2>GitHub Docs Publishing</h2>
+      <p>
+        Publish this docs style on GitHub Pages for external read-only docs. Keep in-app docs at <code>/docs</code>
+        for authenticated operators.
+      </p>
+      <pre><code># from repo root
+mkdir -p docs-site
+# put your static docs site in docs-site/
+git add docs-site
+git commit -m "Add docs website"
+git push
+# Enable GitHub Pages from docs-site branch/folder in repo settings</code></pre>
+      <p class="footer-note">
+        Tip: keep operational secrets out of public docs pages. Public docs should contain placeholders only.
+      </p>
+    </article>
+  </section>
+</main>
+
+<script>
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('open');
+  document.getElementById('sidebar-overlay').classList.toggle('open');
+}
+
+function logout() {
+  fetch('/logout', { method: 'POST' }).then(function() { window.location.href = '/'; });
+}
+</script>
+</body>
+</html>

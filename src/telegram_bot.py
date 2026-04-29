@@ -80,6 +80,7 @@ WEB_CHAT_MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 WEB_UPLOAD_DIR = app_paths.web_upload_dir()
 COMMUNITY_HUB_DIR = app_paths.community_hub_dir()
 COMMUNITY_HUB_PACKAGES_DIR = app_paths.community_hub_packages_dir()
+COMMUNITY_HUB_INSTALLED_DIR = app_paths.data_path("community_hub", "installed")
 COMMUNITY_HUB_INDEX_FILE = app_paths.community_hub_index_path()
 COMMUNITY_HUB_MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 COMMUNITY_HUB_MAX_ITEMS = 500
@@ -1182,6 +1183,7 @@ def _community_public_entry(item: dict) -> dict:
         "uploaded_at": str(item.get("uploaded_at", "")),
         "downloads": int(item.get("downloads", 0) or 0),
         "download_url": f"/api/community/download/{item_id}",
+        "install_url": f"/api/community/install/{item_id}",
     }
 
 
@@ -2130,6 +2132,11 @@ async def handle_community_page(request):
 
 
 @require_auth
+async def handle_docs_page(request):
+    return _serve_auth_page(request, "docs.html")
+
+
+@require_auth
 async def handle_projects_page(request):
     return _serve_auth_page(request, "projects.html")
 
@@ -2842,6 +2849,92 @@ async def handle_api_community_download(request):
 
 
 @require_auth_csrf
+async def handle_api_community_install(request):
+    item_id = _sanitize_text_field(request.match_info.get("item_id", ""), max_len=64)
+    if not item_id:
+        return web.json_response({"error": "Not found."}, status=404)
+
+    item: dict | None = None
+    payload: bytes | None = None
+
+    builtin = _resolve_builtin_community_item(item_id)
+    if builtin is not None:
+        item, payload = builtin
+    else:
+        items = _read_community_index()
+        found_item = None
+        for entry in items:
+            if entry.get("id") == item_id:
+                found_item = entry
+                break
+
+        if found_item is None:
+            return web.json_response({"error": "Not found."}, status=404)
+
+        try:
+            source_path = _community_file_path(found_item.get("stored_name", ""))
+        except ValueError:
+            return web.json_response({"error": "Not found."}, status=404)
+
+        if not os.path.isfile(source_path):
+            return web.json_response({"error": "File not found."}, status=404)
+
+        try:
+            with open(source_path, "rb") as f:
+                payload = f.read()
+        except Exception:
+            return web.json_response({"error": "Failed to read package."}, status=500)
+
+        item = found_item
+
+    if not item or payload is None:
+        return web.json_response({"error": "Not found."}, status=404)
+
+    safe_file_name = _sanitize_upload_filename(item.get("file_name", "community-package.bin"))
+    now = datetime.now(timezone.utc)
+    stamp = now.strftime("%Y%m%d_%H%M%S")
+    stored_name = f"{stamp}_{item_id}_{safe_file_name}"
+
+    os.makedirs(COMMUNITY_HUB_INSTALLED_DIR, exist_ok=True)
+    install_path = os.path.join(COMMUNITY_HUB_INSTALLED_DIR, stored_name)
+    try:
+        with open(install_path, "wb") as f:
+            f.write(payload)
+    except Exception as exc:
+        return web.json_response({"error": f"Failed to install package on server: {exc}"}, status=500)
+
+    openclaw_import = _import_openclaw_compatibility(safe_file_name, payload)
+
+    installed_skill_doc = ""
+    lower_name = safe_file_name.lower()
+    if not openclaw_import.get("detected") and lower_name.endswith((".md", ".txt")):
+        docs_dir = app_paths.dynamic_tools_docs_dir()
+        os.makedirs(docs_dir, exist_ok=True)
+        stem = os.path.splitext(safe_file_name)[0]
+        doc_name = _normalize_openclaw_identifier(stem, prefix="community_skill")
+        doc_path = os.path.join(docs_dir, f"{doc_name}.md")
+        try:
+            decoded = payload.decode("utf-8", errors="replace")
+            with open(doc_path, "w", encoding="utf-8") as f:
+                f.write(decoded.rstrip() + "\n")
+            installed_skill_doc = doc_name
+        except Exception:
+            installed_skill_doc = ""
+
+    rel_install_path = os.path.relpath(install_path, app_paths.data_root()).replace("\\", "/")
+    response_payload = {
+        "ok": True,
+        "message": "Installed on server.",
+        "installed_path": rel_install_path,
+        "item": _community_public_entry(item),
+        "openclaw_import": openclaw_import,
+    }
+    if installed_skill_doc:
+        response_payload["skill_doc"] = installed_skill_doc
+    return web.json_response(response_payload)
+
+
+@require_auth_csrf
 async def handle_api_reload(request):
     try:
         load_dotenv(dotenv_path=ENV_FILE, override=True)
@@ -2915,6 +3008,7 @@ async def main():
     web_app.router.add_get("/tools", handle_tools)
     web_app.router.add_get("/claistore", handle_community_page)
     web_app.router.add_get("/community", handle_community_page)
+    web_app.router.add_get("/docs", handle_docs_page)
     web_app.router.add_get("/projects", handle_projects_page)
     web_app.router.add_post("/login", handle_login)
     web_app.router.add_post("/logout", handle_logout)
@@ -2937,6 +3031,7 @@ async def main():
     web_app.router.add_get("/api/community", handle_api_community_get)
     web_app.router.add_post("/api/community/upload", handle_api_community_upload)
     web_app.router.add_get("/api/community/download/{item_id}", handle_api_community_download)
+    web_app.router.add_post("/api/community/install/{item_id}", handle_api_community_install)
     web_app.router.add_get("/api/models", handle_api_models)
     web_app.router.add_post("/api/models/fetch", handle_api_models_fetch)
     web_app.router.add_post("/api/ollama/setup", handle_api_ollama_setup)

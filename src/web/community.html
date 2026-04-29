@@ -499,6 +499,7 @@
     <a href="/tools" class="nav-item"><span class="icon">&#9881;</span> Tools</a>
     <a href="/claistore" class="nav-item active"><span class="icon">&#11088;</span> ClaiStore</a>
     <a href="/settings" class="nav-item"><span class="icon">&#9881;</span> Settings</a>
+    <a href="/docs" class="nav-item"><span class="icon">&#128214;</span> Docs</a>
     <a href="/projects" class="nav-item"><span class="icon">&#9830;</span> Projects</a>
     <a href="/static/chat.html" class="nav-item"><span class="icon">&#9993;</span> Chat</a>
     <a href="/activity" class="nav-item"><span class="icon">&#9673;</span> Activity</a>
@@ -512,7 +513,7 @@
   <header class="hero">
     <div>
       <h1>ClaiStore</h1>
-      <p>Share custom tools and skills with ClaiStore. Upload your own packages and grab community-made ones with one click.</p>
+      <p>Share custom tools and skills with ClaiStore. Installs run on this server instance, never on the computer opening the dashboard.</p>
     </div>
     <div class="hero-meta">
       <span class="pill" id="tool-count">Loading</span>
@@ -633,7 +634,7 @@ function renderList() {
       + '<div class="tool-desc">' + description + '</div>'
       + '<div class="tool-meta"><span>' + esc(meta) + '</span></div>'
       + '<div class="tool-actions">'
-      + '<button class="btn" onclick="downloadItem(\'' + esc(item.id) + '\')">Download</button>'
+      + '<button class="btn" onclick="installItem(\'' + esc(item.id) + '\')">Install on Server</button>'
       + '</div>'
       + '</article>';
   }).join('');
@@ -734,10 +735,38 @@ async function uploadItem(event) {
   }
 }
 
-function downloadItem(id) {
+async function installItem(id) {
   var itemId = String(id || '').trim();
   if (!itemId) return;
-  window.location.href = '/api/community/download/' + encodeURIComponent(itemId);
+  try {
+    var res = await fetch('/api/community/install/' + encodeURIComponent(itemId), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ csrf_token: csrfToken })
+    });
+
+    if (res.status === 401) { window.location.href = '/'; return; }
+
+    var data = await res.json();
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error || 'Install failed');
+    }
+
+    var summary = 'Installed on server: ' + String(data.installed_path || 'community_hub/installed');
+    var imported = data.openclaw_import || {};
+    if (imported.detected) {
+      summary += '. OpenClaw import: '
+        + Number(imported.tools_imported || 0) + ' tools, '
+        + Number(imported.skills_imported || 0) + ' skills';
+    }
+    if (data.skill_doc) {
+      summary += '. Skill doc: ' + data.skill_doc + '.md';
+    }
+    setUploadMsg(summary, true);
+    await loadItems();
+  } catch (e) {
+    setUploadMsg(e && e.message ? e.message : 'Install failed.', false);
+  }
 }
 
 function logout() {
