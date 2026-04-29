@@ -91,6 +91,13 @@ if [[ -f "$APP_DIR/start.sh" ]]; then
   chmod 0755 "$APP_DIR/start.sh"
 fi
 
+# Explicitly copy web files to root level for easier access and resource resolution
+if [[ -d "$APP_DIR/src/web" ]]; then
+  mkdir -p "$APP_DIR/web"
+  cp -r "$APP_DIR/src/web/"* "$APP_DIR/web/"
+  chmod -R 0644 "$APP_DIR/web"
+fi
+
 cat > "$DEBIAN_DIR/control" <<EOF
 Package: $PACKAGE_NAME
 Version: $VERSION
