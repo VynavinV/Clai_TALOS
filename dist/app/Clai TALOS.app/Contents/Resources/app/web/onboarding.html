@@ -1,0 +1,1029 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="csrf-token" content="{{CSRF_TOKEN}}">
+<title>{{BOT_NAME}} — Welcome Setup</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0a0a0f;
+    color: #e0e0e0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .wizard {
+    width: 100%;
+    max-width: 520px;
+    padding: 2rem;
+  }
+  .step { display: none; }
+  .step.active { display: block; }
+  .step-indicator {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: center;
+    margin-bottom: 2rem;
+  }
+  .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.1);
+    transition: all 0.3s;
+  }
+  .dot.active { background: #63b3ed; box-shadow: 0 0 8px rgba(99,179,237,0.4); }
+  .dot.done { background: #48bb78; }
+  h2 {
+    font-size: 1.3rem;
+    font-weight: 600;
+    color: #fff;
+    margin-bottom: 0.4rem;
+  }
+  .desc {
+    font-size: 0.85rem;
+    color: #888;
+    line-height: 1.6;
+    margin-bottom: 1.5rem;
+  }
+  .field { margin-bottom: 1rem; }
+  .field label {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 0.4rem;
+  }
+  .field input, .field select {
+    width: 100%;
+    padding: 0.7rem 0.9rem;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    color: #e0e0e0;
+    font-size: 0.9rem;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .field .model-select-wrap { position: relative; display: flex; align-items: center; gap: 0.35rem; }
+  .field .model-select-wrap select { flex: 1; }
+  .model-override-btn { background: none; border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; color: #666; cursor: pointer; padding: 0.4rem 0.5rem; font-size: 0.8rem; line-height: 1; transition: all 0.15s; flex-shrink: 0; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; }
+  .model-override-btn:hover { color: #63b3ed; border-color: rgba(99,179,237,0.3); background: rgba(99,179,237,0.06); }
+  .model-override-btn.active { color: #63b3ed; border-color: rgba(99,179,237,0.4); background: rgba(99,179,237,0.1); }
+  .model-override-input { display: none; flex: 1; padding: 0.7rem 0.9rem; background: rgba(255,255,255,0.04); border: 1px solid rgba(99,179,237,0.3); border-radius: 8px; color: #e0e0e0; font-size: 0.9rem; font-family: monospace; outline: none; }
+  .model-override-input:focus { border-color: rgba(99,179,237,0.5); }
+  .model-override-input::placeholder { color: #444; }
+  .field select {
+    font-family: inherit;
+    appearance: none;
+    background-image: linear-gradient(45deg, transparent 50%, #666 50%), linear-gradient(135deg, #666 50%, transparent 50%);
+    background-position: calc(100% - 18px) 50%, calc(100% - 12px) 50%;
+    background-size: 6px 6px, 6px 6px;
+    background-repeat: no-repeat;
+  }
+  .field input:focus, .field select:focus { border-color: rgba(99,179,237,0.5); }
+  .field .hint {
+    font-size: 0.72rem;
+    color: #555;
+    margin-top: 0.3rem;
+    line-height: 1.4;
+  }
+  .field .hint a { color: #63b3ed; text-decoration: none; }
+  .field .hint a:hover { text-decoration: underline; }
+  .btn-row {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+  }
+  .btn {
+    flex: 1;
+    padding: 0.75rem;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-align: center;
+  }
+  .btn-primary {
+    background: rgba(99,179,237,0.15);
+    border: 1px solid rgba(99,179,237,0.3);
+    color: #63b3ed;
+  }
+  .btn-primary:hover { background: rgba(99,179,237,0.25); }
+  .btn-skip {
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.08);
+    color: #666;
+  }
+  .btn-skip:hover { color: #999; border-color: rgba(255,255,255,0.15); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .error {
+    color: #f56565;
+    font-size: 0.8rem;
+    min-height: 1em;
+    margin-top: 0.5rem;
+  }
+  .success {
+    color: #48bb78;
+    font-size: 0.8rem;
+    min-height: 1em;
+    margin-top: 0.5rem;
+  }
+  .info-box {
+    padding: 1rem 1.2rem;
+    background: rgba(99,179,237,0.06);
+    border: 1px solid rgba(99,179,237,0.15);
+    border-radius: 10px;
+    font-size: 0.82rem;
+    color: #999;
+    line-height: 1.6;
+    margin-bottom: 1.5rem;
+  }
+  .info-box ol {
+    margin: 0.5rem 0 0 1.2rem;
+  }
+  .info-box a { color: #63b3ed; text-decoration: none; }
+  .info-box a:hover { text-decoration: underline; }
+  .provider-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.6rem;
+    margin-bottom: 1rem;
+  }
+  .provider-card {
+    padding: 0.8rem;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-align: center;
+  }
+  .provider-card:hover {
+    background: rgba(255,255,255,0.06);
+    border-color: rgba(255,255,255,0.12);
+  }
+  .provider-card.selected {
+    background: rgba(99,179,237,0.1);
+    border-color: rgba(99,179,237,0.4);
+  }
+  .provider-card .name {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #fff;
+    margin-bottom: 0.2rem;
+  }
+  .provider-card .models {
+    font-size: 0.7rem;
+    color: #666;
+  }
+  .section-label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #aaa;
+    margin-bottom: 0.6rem;
+    margin-top: 0.5rem;
+  }
+  .divider {
+    border: none;
+    border-top: 1px solid rgba(255,255,255,0.06);
+    margin: 1.5rem 0;
+  }
+  .finish-wrap {
+    text-align: center;
+    padding: 2rem 0;
+  }
+  .finish-wrap h2 { margin-bottom: 0.6rem; }
+  .finish-check {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+    color: #48bb78;
+  }
+</style>
+</head>
+<body>
+<div class="wizard">
+  <div class="step-indicator" id="step-dots"></div>
+
+  <!-- Step 1: Telegram Bot Token -->
+  <div class="step active" data-step="0">
+    <h2>Step 1: Connect Telegram</h2>
+    <p class="desc">This lets your assistant read and reply to your Telegram messages. You can change this later.</p>
+    <div class="info-box">
+      <ol>
+        <li>Open Telegram and search for <a href="https://t.me/BotFather" target="_blank">@BotFather</a></li>
+        <li>Send <strong>/newbot</strong> and follow the steps</li>
+        <li>Copy the token BotFather gives you and paste it below</li>
+      </ol>
+    </div>
+    <div class="field">
+      <label>Telegram Bot Token</label>
+      <input type="text" id="telegram-token" placeholder="123456789:ABC-..." autocomplete="off">
+    </div>
+    <div class="field">
+      <label>Bot Name</label>
+      <input type="text" id="bot-name" placeholder="Clai-TALOS" value="{{BOT_NAME}}">
+      <div class="hint">Friendly name shown in your dashboard and messages.</div>
+    </div>
+    <div class="error" id="err-telegram"></div>
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="saveTelegram()">Save and Continue</button>
+    </div>
+  </div>
+
+  <!-- Step 2: Tailscale -->
+  <div class="step" data-step="1">
+    <h2>Step 2: Secure Remote Access (Optional)</h2>
+    <p class="desc">Tailscale lets you reach your assistant safely from anywhere. You can skip this and set it up later.</p>
+    <div id="ts-status"></div>
+    <div class="info-box">
+      If Tailscale is already installed, sign in now. If not, install it from
+      <a href="https://tailscale.com/download" target="_blank">tailscale.com/download</a>
+      and then return to this step.
+    </div>
+    <div id="ts-login-link" style="display:none; margin-bottom:1rem;">
+      <div class="field">
+        <label>Tailscale Sign-in Link</label>
+        <a id="ts-link-url" href="#" target="_blank" style="color:#63b3ed; font-size:0.85rem;">Open this link to sign in to Tailscale</a>
+      </div>
+    </div>
+    <div class="error" id="err-tailscale"></div>
+    <div class="success" id="ok-tailscale"></div>
+    <div class="btn-row">
+      <button class="btn btn-skip" onclick="goStep(2)">Skip for now</button>
+      <button class="btn btn-primary" id="ts-check-btn" onclick="checkTailscale()">Check Connection</button>
+    </div>
+  </div>
+
+  <!-- Step 3: Main Model Provider + Model -->
+  <div class="step" data-step="2">
+    <h2>Step 3: Choose Your AI Brain</h2>
+    <p class="desc">Pick the provider and model for chat replies. You can always change this later in Settings.</p>
+
+    <div class="section-label">Choose a Provider</div>
+    <div class="provider-grid" id="provider-grid"></div>
+
+    <div id="ollama-setup-area" style="display:none;">
+      <div class="info-box" style="margin-bottom:1rem;">
+        Ollama runs AI models locally on your machine. No API key needed.
+        <ol>
+          <li>Install Ollama from <a href="https://ollama.com" target="_blank">ollama.com</a></li>
+          <li>Make sure Ollama is running</li>
+          <li>Type a model name below (e.g. <code>llama3</code>, <code>mistral</code>, <code>deepseek-r1</code>)</li>
+        </ol>
+        Browse all models at <a href="https://ollama.com/library" target="_blank">ollama.com/library</a>
+      </div>
+      <div class="field">
+        <label>Ollama Model Name</label>
+        <input type="text" id="ollama-model-name" placeholder="llama3" autocomplete="off">
+        <div class="hint">The model will be downloaded automatically if not already present.</div>
+      </div>
+      <div id="ollama-pull-status" style="display:none; margin-bottom:0.5rem;"></div>
+    </div>
+
+    <div class="field" id="api-key-field" style="display:none;">
+      <label id="api-key-label">Provider API Key</label>
+      <input type="password" id="api-key-input" placeholder="Paste your provider API key" autocomplete="off" oninput="onApiKeyInput()">
+      <div class="hint" id="api-key-hint"></div>
+    </div>
+
+    <div class="field">
+      <label>Main Chat Model</label>
+      <div class="model-select-wrap">
+        <select id="main-model"><option value="">Choose provider first</option></select>
+        <button class="model-override-btn" onclick="toggleModelOverride('main-model')" title="Type model name manually">&#9998;</button>
+      </div>
+    </div>
+
+    <hr class="divider">
+
+    <div class="section-label">Photo Understanding Model</div>
+    <div class="field">
+      <label>Photo Model</label>
+      <div class="model-select-wrap">
+        <select id="image-model" onchange="onVisionModelChange()"><option value="">Automatic (same provider)</option></select>
+        <button class="model-override-btn" onclick="toggleModelOverride('image-model')" title="Type model name manually">&#9998;</button>
+      </div>
+      <div class="hint">Used when you send photos. If needed, add a provider key to load photo models.</div>
+    </div>
+
+    <div class="field" id="vision-api-key-field" style="display:none;">
+      <label id="vision-api-key-label">Photo Provider API Key</label>
+      <input type="password" id="vision-api-key-input" placeholder="Paste your provider API key" autocomplete="off" oninput="onVisionApiKeyInput()">
+      <div class="hint" id="vision-api-key-hint"></div>
+    </div>
+
+    <div class="error" id="err-model"></div>
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="saveModel()">Save and Continue</button>
+    </div>
+  </div>
+
+  <!-- Step 4: Optional - Gemini (web search) -->
+  <div class="step" data-step="3">
+    <h2>Step 4: Web Search (Optional)</h2>
+    <p class="desc">A Gemini API key enables web search. If you already chose Gemini above, you can skip this step.</p>
+    <div class="field">
+      <label>Gemini API Key</label>
+      <input type="password" id="gemini-key" placeholder="Get from aistudio.google.com/app/apikey" autocomplete="off">
+      <div class="hint"><a href="https://aistudio.google.com/app/apikey" target="_blank">Get a free Gemini key here</a> if you want web search.</div>
+    </div>
+    <div class="error" id="err-gemini"></div>
+    <div class="btn-row">
+      <button class="btn btn-skip" onclick="goStep(4)">Skip for now</button>
+      <button class="btn btn-primary" onclick="saveGemini()">Save & Continue</button>
+    </div>
+  </div>
+
+  <!-- Step 5: Optional - Email (Himalaya) -->
+  <div class="step" data-step="4">
+    <h2>Step 5: Email Setup (Optional)</h2>
+    <p class="desc">Connect Gmail so your assistant can read and send email for you.</p>
+    <div class="info-box">
+      We will install <a href="https://github.com/pimalaya/himalaya" target="_blank">Himalaya</a> (a small email helper) and connect it to Gmail using an app password.
+      <ol>
+        <li>Open <a href="https://myaccount.google.com/apppasswords" target="_blank">Google App Passwords</a></li>
+        <li>Create a new app password (choose "Mail" and "Other")</li>
+        <li>Copy the 16-character password below</li>
+      </ol>
+    </div>
+    <div class="field">
+      <label>Gmail Address</label>
+      <input type="email" id="email-address" placeholder="you@gmail.com" autocomplete="email">
+    </div>
+    <div class="field">
+      <label>App Password</label>
+      <input type="password" id="email-app-password" placeholder="xxxx xxxx xxxx xxxx" autocomplete="off">
+      <div class="hint">16-character Google app password (spaces are okay, we clean them).</div>
+    </div>
+    <div id="email-status" style="display:none; margin-bottom:1rem;"></div>
+    <div class="error" id="err-email"></div>
+    <div class="success" id="ok-email"></div>
+    <div class="btn-row">
+      <button class="btn btn-skip" onclick="goStep(5)">Skip for now</button>
+      <button class="btn btn-primary" id="email-setup-btn" onclick="setupEmail()">Install and Connect</button>
+    </div>
+  </div>
+
+  <!-- Step 6: Optional - Google -->
+  <div class="step" data-step="5">
+    <h2>Step 6: Google Tools (Optional)</h2>
+    <p class="desc">Link your Google account to use Calendar, Drive, and Sheets.</p>
+
+    <div class="field">
+      <label>Google API Key</label>
+      <input type="password" id="google-api-key" placeholder="AIza..." autocomplete="off">
+      <div class="hint"><a href="https://aistudio.google.com/app/apikey" target="_blank">Get a free API key from Google AI Studio</a> (optional).</div>
+    </div>
+
+    <hr class="divider">
+    <div class="section-label">Connect Your Google Account</div>
+    <div class="info-box">
+      <strong>One-time setup (about 2 minutes):</strong>
+      <ol>
+        <li>Open <a href="https://console.cloud.google.com/apis/credentials" target="_blank">Google Cloud Console</a></li>
+        <li>Create a project (or choose one), then open <strong>"OAuth consent screen"</strong></li>
+        <li>Set <strong>Audience = External</strong>, complete the required app info, and save</li>
+        <li>In <strong>Audience</strong>, find <strong>Test users</strong> -> click <strong>Add users</strong> -> add your own Google email address (and any other account you will sign in with)</li>
+        <li>Go back to <strong>Credentials</strong>, then select <strong>"Create Credentials" -> "OAuth client ID"</strong></li>
+        <li>Choose <strong>"Web application"</strong> and give it a name like "Clai-TALOS"</li>
+        <li>Under <strong>"Authorized redirect URIs"</strong>, add: <code id="google-redirect-uri-placeholder"></code></li>
+        <li>Click <strong>Create</strong>, then paste the <strong>Client ID</strong> and <strong>Client Secret</strong> below</li>
+      </ol>
+    </div>
+    <div class="field">
+      <label>OAuth Client ID</label>
+      <input type="text" id="google-oauth-client-id" placeholder="xxxx.apps.googleusercontent.com" autocomplete="off">
+    </div>
+    <div class="field">
+      <label>OAuth Client Secret</label>
+      <input type="password" id="google-oauth-client-secret" placeholder="GOCSPX-..." autocomplete="off">
+    </div>
+
+    <div id="google-connect-area" style="display:none; margin-bottom:1rem;">
+      <button class="btn btn-primary" onclick="connectGoogleOnboarding()" style="width:100%; margin-bottom:0.5rem;">Connect Google Account</button>
+      <div class="info-box" id="google-connect-status" style="display:none;"></div>
+    </div>
+
+    <div class="error" id="err-google"></div>
+    <div class="success" id="ok-google"></div>
+    <div class="btn-row">
+      <button class="btn btn-skip" onclick="goStep(6)">Skip for now</button>
+      <button class="btn btn-primary" id="google-save-btn" onclick="saveGoogle()">Save & Continue</button>
+    </div>
+  </div>
+
+  <!-- Step 7: Done! -->
+  <div class="step" data-step="6">
+    <div class="finish-wrap">
+      <div class="finish-check">&#10003;</div>
+      <h2>All set. You did it!</h2>
+      <p class="desc">
+        Your assistant is starting now. Open Telegram and send a message to begin.
+        You can come back to Home and Settings anytime.
+      </p>
+      <div class="btn-row" style="justify-content:center;">
+        <button class="btn btn-primary" onclick="window.location.href='/dashboard'" style="max-width:220px;">Open Home Dashboard</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+var TOTAL_STEPS = 7;
+var currentStep = 0;
+var selectedProvider = '';
+var _csrfToken = document.querySelector('meta[name="csrf-token"]') ? document.querySelector('meta[name="csrf-token"]').getAttribute('content') : '';
+
+function _post(url, body) {
+  body.csrf_token = _csrfToken;
+  return fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+}
+
+var PROVIDERS = {
+  openai: {
+    name: 'OpenAI',
+    models: [],
+    vision: [],
+    env_key: 'OPENAI_API_KEY',
+    url: 'https://platform.openai.com/api-keys'
+  },
+  anthropic: {
+    name: 'Anthropic',
+    models: [],
+    vision: [],
+    env_key: 'ANTHROPIC_API_KEY',
+    url: 'https://console.anthropic.com/settings/keys'
+  },
+  gemini: {
+    name: 'Gemini',
+    models: [],
+    vision: [],
+    env_key: 'GEMINI_API_KEY',
+    url: 'https://aistudio.google.com/app/apikey'
+  },
+  zhipu: {
+    name: 'ZhipuAI',
+    models: [],
+    vision: [],
+    env_key: 'ZHIPUAI_API_KEY',
+    url: 'https://open.bigmodel.cn/'
+  },
+  nvidia: {
+    name: 'NVIDIA',
+    models: [],
+    vision: [],
+    env_key: 'NVIDIA_API_KEY',
+    url: 'https://build.nvidia.com/z-ai/glm4_7'
+  },
+  cerebras: {
+    name: 'Cerebras',
+    models: [],
+    vision: [],
+    env_key: 'CEREBRAS_API_KEY',
+    url: 'https://cloud.cerebras.ai/'
+  },
+  openrouter: {
+    name: 'OpenRouter',
+    models: [],
+    vision: [],
+    env_key: 'OPENROUTER_API_KEY',
+    url: 'https://openrouter.ai/keys'
+  }
+};
+
+function initDots() {
+  var html = '';
+  for (var i = 0; i < TOTAL_STEPS; i++) html += '<div class="dot" id="dot-' + i + '"></div>';
+  document.getElementById('step-dots').innerHTML = html;
+  updateDots();
+}
+
+function updateDots() {
+  for (var i = 0; i < TOTAL_STEPS; i++) {
+    var d = document.getElementById('dot-' + i);
+    d.className = 'dot';
+    if (i < currentStep) d.className = 'dot done';
+    if (i === currentStep) d.className = 'dot active';
+  }
+}
+
+function goStep(n) {
+  document.querySelectorAll('.step').forEach(function(s) { s.classList.remove('active'); });
+  currentStep = n;
+  document.querySelector('[data-step="' + n + '"]').classList.add('active');
+  updateDots();
+  window.scrollTo(0, 0);
+}
+
+function initProviderGrid() {
+  var html = '';
+  for (var key in PROVIDERS) {
+    var p = PROVIDERS[key];
+    html += '<div class="provider-card" id="prov-' + key + '" onclick="selectProvider(\'' + key + '\')">'
+      + '<div class="name">' + p.name + '</div>'
+      + '<div class="models">Models load after you add a key</div>'
+      + '</div>';
+  }
+  html += '<div class="provider-card" id="prov-ollama" onclick="selectProvider(\'ollama\')">'
+    + '<div class="name">Ollama (Local)</div>'
+    + '<div class="models">Run models on your machine</div>'
+    + '</div>';
+  document.getElementById('provider-grid').innerHTML = html;
+}
+
+var _fetchTimer = null;
+var _visionFetchTimer = null;
+
+function selectProvider(key) {
+  selectedProvider = key;
+  document.querySelectorAll('.provider-card').forEach(function(c) { c.classList.remove('selected'); });
+  document.getElementById('prov-' + key).classList.add('selected');
+
+  var keyField = document.getElementById('api-key-field');
+  var ollamaArea = document.getElementById('ollama-setup-area');
+
+  if (key === 'ollama') {
+    keyField.style.display = 'none';
+    ollamaArea.style.display = 'block';
+    var mainSel = document.getElementById('main-model');
+    mainSel.innerHTML = '<option value="manual">Set via Ollama model name above</option>';
+    rebuildVisionDropdown();
+    return;
+  }
+
+  ollamaArea.style.display = 'none';
+
+  var p = PROVIDERS[key];
+
+  keyField.style.display = 'block';
+  document.getElementById('api-key-label').textContent = p.name + ' API Key';
+  document.getElementById('api-key-hint').innerHTML = '<a href="' + p.url + '" target="_blank">Open ' + p.name + ' API key page</a>';
+
+  var apiKey = document.getElementById('api-key-input').value.trim();
+  if (apiKey) {
+    fetchModelsForProvider(key, apiKey);
+  } else {
+    var mainSel = document.getElementById('main-model');
+    mainSel.innerHTML = '<option value="">Add API key to load models</option>';
+    rebuildVisionDropdown();
+  }
+}
+
+function onApiKeyInput() {
+  if (_fetchTimer) clearTimeout(_fetchTimer);
+  var apiKey = document.getElementById('api-key-input').value.trim();
+  if (!apiKey || !selectedProvider) return;
+  var mainSel = document.getElementById('main-model');
+  mainSel.innerHTML = '<option value="">Loading model list...</option>';
+  _fetchTimer = setTimeout(function() {
+    fetchModelsForProvider(selectedProvider, apiKey);
+  }, 500);
+}
+
+function onVisionApiKeyInput() {
+  if (_visionFetchTimer) clearTimeout(_visionFetchTimer);
+  var apiKey = document.getElementById('vision-api-key-input').value.trim();
+  if (!apiKey) return;
+  var imgSel = document.getElementById('image-model');
+  var selectedOpt = imgSel.options[imgSel.selectedIndex];
+  var vp = selectedOpt ? selectedOpt.getAttribute('data-provider') : '';
+  if (!vp) return;
+  _visionFetchTimer = setTimeout(function() {
+    fetchVisionModels(vp, apiKey, '');
+  }, 500);
+}
+
+function getVisionProvider() {
+  var imgSel = document.getElementById('image-model');
+  var selectedOpt = imgSel.options[imgSel.selectedIndex];
+  return selectedOpt ? selectedOpt.getAttribute('data-provider') : '';
+}
+
+async function fetchModelsForProvider(provider, apiKey) {
+  var mainSel = document.getElementById('main-model');
+  try {
+    var res = await _post('/api/models/fetch', { provider: provider, api_key: apiKey });
+    var data = await res.json();
+    if (data.models && data.models.length > 0) {
+      PROVIDERS[provider].models = data.models;
+      PROVIDERS[provider].vision = data.image_models || data.models;
+    }
+  } catch (e) {}
+
+  var p = PROVIDERS[provider];
+  if (p.models.length === 0) {
+    mainSel.innerHTML = '<option value="">No models found. Check key and try again.</option>';
+    rebuildVisionDropdown();
+    return;
+  }
+
+  mainSel.innerHTML = '';
+  p.models.forEach(function(m) {
+    var opt = document.createElement('option');
+    opt.value = m; opt.textContent = m;
+    mainSel.appendChild(opt);
+  });
+
+  rebuildVisionDropdown();
+}
+
+async function fetchVisionModels(provider, apiKey, previouslySelected) {
+  try {
+    var res = await _post('/api/models/fetch', { provider: provider, api_key: apiKey });
+    var data = await res.json();
+    if (data.image_models && data.image_models.length > 0) {
+      PROVIDERS[provider].vision = data.image_models;
+    }
+  } catch (e) {}
+
+  rebuildVisionDropdown(previouslySelected);
+}
+
+function rebuildVisionDropdown(previouslySelected) {
+  var imgSel = document.getElementById('image-model');
+  var currentVal = previouslySelected || imgSel.value;
+  imgSel.innerHTML = '<option value="">Automatic (same provider)</option>';
+
+  for (var pk in PROVIDERS) {
+    var hasModels = PROVIDERS[pk].vision.length > 0;
+    var isMain = pk === selectedProvider;
+
+    if (isMain) {
+      PROVIDERS[pk].vision.forEach(function(m) {
+        var opt = document.createElement('option');
+        opt.value = m;
+        opt.setAttribute('data-provider', pk);
+        opt.textContent = m;
+        if (m === currentVal) opt.selected = true;
+        imgSel.appendChild(opt);
+      });
+    } else if (hasModels) {
+      var optgroup = document.createElement('optgroup');
+      optgroup.label = PROVIDERS[pk].name;
+      PROVIDERS[pk].vision.forEach(function(m) {
+        var opt = document.createElement('option');
+        opt.value = m;
+        opt.setAttribute('data-provider', pk);
+        opt.textContent = m + ' (' + PROVIDERS[pk].name + ')';
+        if (m === currentVal) opt.selected = true;
+        optgroup.appendChild(opt);
+      });
+      if (optgroup.children.length > 0) {
+        imgSel.appendChild(optgroup);
+      }
+    } else {
+      var optgroup2 = document.createElement('optgroup');
+      optgroup2.label = PROVIDERS[pk].name;
+      var loadOpt = document.createElement('option');
+      loadOpt.value = '__load__' + pk;
+      loadOpt.setAttribute('data-provider', pk);
+      loadOpt.textContent = 'Add ' + PROVIDERS[pk].name + ' key to load models...';
+      optgroup2.appendChild(loadOpt);
+      imgSel.appendChild(optgroup2);
+    }
+  }
+  onVisionModelChange();
+}
+
+function onVisionModelChange() {
+  var imgSel = document.getElementById('image-model');
+  var selectedOpt = imgSel.options[imgSel.selectedIndex];
+  var visionProvider = selectedOpt ? selectedOpt.getAttribute('data-provider') : '';
+  var selectedVal = selectedOpt ? selectedOpt.value : '';
+
+  var field = document.getElementById('vision-api-key-field');
+  if (selectedVal && selectedVal.indexOf('__load__') === 0 && visionProvider) {
+    var p = PROVIDERS[visionProvider];
+    field.style.display = 'block';
+    document.getElementById('vision-api-key-label').textContent = p.name + ' API Key (photo model)';
+    document.getElementById('vision-api-key-hint').innerHTML = 'Add your ' + p.name + ' key below to load photo models. <a href="' + p.url + '" target="_blank">Open ' + p.name + ' API key page</a>';
+    document.getElementById('vision-api-key-input').focus();
+    return;
+  }
+
+  if (visionProvider && visionProvider !== selectedProvider && visionProvider !== '') {
+    var p = PROVIDERS[visionProvider];
+    var hasModels = p.vision.length > 0;
+    field.style.display = 'block';
+    document.getElementById('vision-api-key-label').textContent = p.name + ' API Key (photo model)';
+    if (hasModels) {
+      document.getElementById('vision-api-key-hint').innerHTML = 'Your photo model is from ' + p.name + '. Models are already loaded.';
+    } else {
+      document.getElementById('vision-api-key-hint').innerHTML = 'Your photo model is from ' + p.name + '. <a href="' + p.url + '" target="_blank">Open ' + p.name + ' API key page</a>';
+    }
+  } else {
+    field.style.display = 'none';
+  }
+}
+
+async function saveTelegram() {
+  var token = document.getElementById('telegram-token').value.trim();
+  var name = document.getElementById('bot-name').value.trim() || 'Clai-TALOS';
+  var err = document.getElementById('err-telegram');
+  err.textContent = '';
+
+  if (!token) { err.textContent = 'Please paste your Telegram bot token.'; return; }
+
+  try {
+    var res = await _post('/api/onboarding/telegram', { token: token, bot_name: name });
+    var data = await res.json();
+    if (data.ok) { goStep(1); }
+    else { err.textContent = data.error || 'Could not save that yet. Please try again.'; }
+  } catch (e) { err.textContent = 'Connection problem. Please try again.'; }
+}
+
+async function checkTailscale() {
+  var err = document.getElementById('err-tailscale');
+  var ok = document.getElementById('ok-tailscale');
+  err.textContent = ''; ok.textContent = '';
+
+  try {
+    var res = await fetch('/api/onboarding/tailscale');
+    var data = await res.json();
+    var statusEl = document.getElementById('ts-status');
+
+    if (data.installed && data.connected) {
+      ok.textContent = 'Tailscale is connected. Great! (' + (data.hostname || 'online') + ')';
+      statusEl.innerHTML = '';
+      setTimeout(function() { goStep(2); }, 1000);
+    } else if (data.installed && !data.connected) {
+      statusEl.innerHTML = '<div class="info-box">Tailscale is installed but not signed in yet. Run <strong>tailscale up</strong> in your terminal, or open the Tailscale app and sign in.</div>';
+      if (data.login_url) {
+        document.getElementById('ts-login-link').style.display = 'block';
+        document.getElementById('ts-link-url').href = data.login_url;
+      }
+    } else {
+      statusEl.innerHTML = '<div class="info-box">Tailscale is not installed yet. <a href="https://tailscale.com/download" target="_blank">Download it here</a>, install it, then check again.</div>';
+    }
+  } catch (e) { err.textContent = 'Could not check Tailscale right now.'; }
+}
+
+async function saveModel() {
+  var err = document.getElementById('err-model');
+  err.textContent = '';
+
+  if (!selectedProvider) { err.textContent = 'Please choose a provider.'; return; }
+
+  if (selectedProvider === 'ollama') {
+    var ollamaModel = (document.getElementById('ollama-model-name') || {}).value.trim();
+    if (!ollamaModel) { err.textContent = 'Please enter an Ollama model name.'; return; }
+
+    var statusEl = document.getElementById('ollama-pull-status');
+    statusEl.style.display = 'block';
+    statusEl.className = 'info-box';
+    statusEl.textContent = 'Setting up Ollama model: ' + ollamaModel + '...';
+
+    try {
+      var res = await _post('/api/ollama/setup', { model_name: ollamaModel });
+      var data = await res.json();
+      if (data.ok) {
+        statusEl.textContent = 'Ollama model ' + data.model + ' is ready!';
+        statusEl.style.borderColor = 'rgba(72,187,120,0.4)';
+        goStep(3);
+      } else {
+        statusEl.textContent = '';
+        err.textContent = data.error || 'Could not set up Ollama model.';
+      }
+    } catch (e) {
+      statusEl.textContent = '';
+      err.textContent = 'Connection problem. Please try again.';
+    }
+    return;
+  }
+
+  var apiKey = document.getElementById('api-key-input').value.trim();
+  if (!apiKey) { err.textContent = 'Please enter an API key.'; return; }
+
+  var mainModel = getModelValue('main-model');
+  var imageModel = getModelValue('image-model');
+
+  if (imageModel && imageModel.indexOf('__load__') === 0) {
+    err.textContent = 'Please add the photo-model API key and wait for models to load, or choose an available model.';
+    return;
+  }
+
+  var payload = {
+    provider: selectedProvider,
+    api_key: apiKey,
+    main_model: selectedProvider + '/' + mainModel,
+    image_model: imageModel
+  };
+
+  var imgSel = document.getElementById('image-model');
+  var selectedOpt = imgSel.options[imgSel.selectedIndex];
+  var visionProvider = selectedOpt ? selectedOpt.getAttribute('data-provider') : '';
+  if (visionProvider && visionProvider !== selectedProvider) {
+    var visionKey = document.getElementById('vision-api-key-input').value.trim();
+    if (!visionKey) { err.textContent = 'You selected a photo model from ' + PROVIDERS[visionProvider].name + '. Please add that provider key.'; return; }
+    payload.vision_provider = visionProvider;
+    payload.vision_api_key = visionKey;
+    payload.image_model = visionProvider + '/' + imageModel;
+  }
+
+  try {
+    var res = await _post('/api/onboarding/model', payload);
+    var data = await res.json();
+    if (data.ok) {
+      if (selectedProvider === 'gemini') goStep(4);
+      else goStep(3);
+    }
+    else { err.textContent = data.error || 'Could not save model settings yet.'; }
+  } catch (e) { err.textContent = 'Connection problem. Please try again.'; }
+}
+
+async function saveGemini() {
+  var key = document.getElementById('gemini-key').value.trim();
+  var err = document.getElementById('err-gemini');
+  err.textContent = '';
+
+  if (!key) { goStep(4); return; }
+
+  try {
+    var res = await _post('/api/onboarding/gemini', { api_key: key });
+    var data = await res.json();
+    if (data.ok) goStep(4);
+    else err.textContent = data.error || 'Could not save Gemini key.';
+  } catch (e) { err.textContent = 'Connection problem. Please try again.'; }
+}
+
+async function setupEmail() {
+  var email = document.getElementById('email-address').value.trim();
+  var appPassword = document.getElementById('email-app-password').value.trim().replace(/\s/g, '');
+  var err = document.getElementById('err-email');
+  var ok = document.getElementById('ok-email');
+  var statusEl = document.getElementById('email-status');
+  var btn = document.getElementById('email-setup-btn');
+  err.textContent = ''; ok.textContent = '';
+  statusEl.style.display = 'block';
+  statusEl.className = 'info-box';
+  statusEl.textContent = 'Installing email helper and connecting your account...';
+
+  if (!email) { err.textContent = 'Please enter your Gmail address.'; statusEl.style.display = 'none'; return; }
+  if (!appPassword) { err.textContent = 'Please enter your app password.'; statusEl.style.display = 'none'; return; }
+  if (!email.endsWith('@gmail.com')) { err.textContent = 'Automatic setup currently supports Gmail addresses only.'; statusEl.style.display = 'none'; return; }
+
+  btn.disabled = true;
+
+  try {
+    var res = await _post('/api/onboarding/email', { email: email, app_password: appPassword });
+    var data = await res.json();
+    if (data.ok) {
+      statusEl.className = 'info-box';
+      statusEl.style.borderColor = 'rgba(72,187,120,0.4)';
+      statusEl.textContent = 'Email helper installed and configured. Your assistant can now read and send email.';
+      ok.textContent = 'Email connected: ' + email;
+      setTimeout(function() { goStep(5); }, 1500);
+    } else {
+      statusEl.textContent = '';
+      err.textContent = data.error || 'Could not finish email setup.';
+    }
+  } catch (e) {
+    statusEl.textContent = '';
+    err.textContent = 'Connection problem. Please try again.';
+  }
+  btn.disabled = false;
+}
+
+var googlePollTimer = null;
+
+async function saveGoogle() {
+  var apiKey = document.getElementById('google-api-key').value.trim();
+  var clientId = document.getElementById('google-oauth-client-id').value.trim();
+  var clientSecret = document.getElementById('google-oauth-client-secret').value.trim();
+  var err = document.getElementById('err-google');
+  var ok = document.getElementById('ok-google');
+  err.textContent = ''; ok.textContent = '';
+
+  if (!apiKey && !clientId) { goStep(6); return; }
+
+  try {
+    var res = await _post('/api/onboarding/google', {
+        api_key: apiKey,
+        oauth_client_id: clientId,
+        oauth_client_secret: clientSecret
+      });
+    var data = await res.json();
+    if (data.ok) {
+      if (clientId && clientSecret) {
+        try {
+          var statusRes = await fetch('/api/google/status');
+          var status = await statusRes.json();
+          if (status.connected) {
+            ok.textContent = 'Google account connected!';
+            if (googlePollTimer) { clearInterval(googlePollTimer); googlePollTimer = null; }
+            setTimeout(function() { goStep(6); }, 1000);
+            return;
+          }
+        } catch(e) {}
+        document.getElementById('google-connect-area').style.display = 'block';
+        ok.textContent = 'Credentials saved. Click "Connect Google Account" below to finish.';
+      } else {
+        ok.textContent = 'Google API key saved.';
+        setTimeout(function() { goStep(6); }, 800);
+      }
+    } else {
+      err.textContent = data.error || 'Could not save Google settings.';
+    }
+  } catch (e) { err.textContent = 'Connection problem. Please try again.'; }
+}
+
+async function connectGoogleOnboarding() {
+  var err = document.getElementById('err-google');
+  var statusEl = document.getElementById('google-connect-status');
+  err.textContent = '';
+  statusEl.style.display = 'block';
+  statusEl.textContent = 'Opening Google sign-in...';
+
+  try {
+    var res = await _post('/api/google/connect', {});
+    var data = await res.json();
+    if (data.ok && data.auth_url) {
+      statusEl.textContent = 'Waiting for you to approve access in the other tab...';
+      window.open(data.auth_url, '_blank');
+
+      if (googlePollTimer) clearInterval(googlePollTimer);
+      googlePollTimer = setInterval(async function() {
+        try {
+          var sRes = await fetch('/api/google/status');
+          var sData = await sRes.json();
+          if (sData.connected) {
+            clearInterval(googlePollTimer);
+            googlePollTimer = null;
+            statusEl.textContent = 'Connected successfully!';
+            statusEl.style.borderColor = 'rgba(72,187,120,0.4)';
+            document.getElementById('ok-google').textContent = 'Google account connected!';
+            setTimeout(function() { goStep(6); }, 1200);
+          }
+        } catch(e) {}
+      }, 2000);
+    } else {
+      statusEl.style.display = 'none';
+      err.textContent = (data && data.error) || 'Could not start Google sign-in.';
+    }
+  } catch (e) {
+    statusEl.style.display = 'none';
+    err.textContent = 'Connection problem. Please try again.';
+  }
+}
+
+async function loadGoogleRedirectUri() {
+  try {
+    var res = await fetch('/api/google/status');
+    var data = await res.json();
+    if (data.redirect_uri) {
+      document.getElementById('google-redirect-uri-placeholder').textContent = data.redirect_uri;
+    }
+  } catch(e) {}
+}
+
+function toggleModelOverride(selectId) {
+  var sel = document.getElementById(selectId);
+  var wrap = sel.closest('.model-select-wrap');
+  var btn = wrap.querySelector('.model-override-btn');
+  var inp = wrap.querySelector('.model-override-input');
+  if (!inp) {
+    inp = document.createElement('input');
+    inp.type = 'text';
+    inp.className = 'model-override-input';
+    inp.placeholder = 'Type model name manually';
+    inp.value = sel.value;
+    wrap.insertBefore(inp, btn);
+  }
+  var isOverride = inp.style.display !== 'none' && inp.style.display !== '';
+  if (isOverride) {
+    inp.style.display = 'none';
+    sel.style.display = '';
+    btn.classList.remove('active');
+    btn.innerHTML = '&#9998;';
+  } else {
+    inp.value = sel.value;
+    inp.style.display = '';
+    sel.style.display = 'none';
+    btn.classList.add('active');
+    btn.innerHTML = '&#10005;';
+  }
+}
+
+function getModelValue(selectId) {
+  var sel = document.getElementById(selectId);
+  var wrap = sel.closest('.model-select-wrap');
+  var inp = wrap.querySelector('.model-override-input');
+  if (inp && inp.style.display !== 'none' && inp.style.display !== '') {
+    return inp.value.trim();
+  }
+  return sel.value;
+}
+
+initDots();
+initProviderGrid();
+loadGoogleRedirectUri();
+</script>
+</body>
+</html>

@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="csrf-token" content="{{CSRF_TOKEN}}">
+<title>{{BOT_NAME}} — API Keys</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0a0a0f; color: #e0e0e0; min-height: 100vh; display: flex; }
+  .sidebar { width: 220px; background: rgba(255,255,255,0.02); border-right: 1px solid rgba(255,255,255,0.06); padding: 1.5rem 0; display: flex; flex-direction: column; position: fixed; top: 0; left: 0; bottom: 0; z-index: 10; }
+  .sidebar-brand { display: flex; align-items: center; gap: 0.7rem; padding: 0 1.2rem; margin-bottom: 2rem; }
+  .sidebar-brand img { width: 36px; height: 36px; border-radius: 50%; border: 1px solid rgba(99,179,237,0.3); }
+  .sidebar-brand span { font-size: 1rem; font-weight: 600; color: #fff; }
+  .nav-items { flex: 1; }
+  .nav-item { display: flex; align-items: center; gap: 0.7rem; padding: 0.65rem 1.2rem; font-size: 0.85rem; color: #888; text-decoration: none; transition: all 0.15s; border-left: 3px solid transparent; }
+  .nav-item:hover { color: #ccc; background: rgba(255,255,255,0.03); }
+  .nav-item.active { color: #63b3ed; background: rgba(99,179,237,0.06); border-left-color: #63b3ed; }
+  .nav-item .icon { width: 18px; text-align: center; font-size: 0.9rem; }
+  .nav-bottom { padding: 0 1.2rem; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 1rem; }
+  .main { margin-left: 220px; flex: 1; padding: 2rem 2.5rem; max-width: 700px; }
+  .page-title { font-size: 1.5rem; font-weight: 600; color: #fff; margin-bottom: 0.3rem; }
+  .page-sub { font-size: 0.85rem; color: #666; margin-bottom: 2rem; }
+
+  .key-list { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.5rem; }
+  .key-item { padding: 1rem 1.2rem; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; }
+  .key-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; }
+  .key-label { font-size: 0.9rem; font-weight: 500; }
+  .badge-set { font-size: 0.68rem; padding: 0.15rem 0.5rem; border-radius: 20px; background: rgba(72,187,120,0.15); color: #48bb78; border: 1px solid rgba(72,187,120,0.3); text-transform: uppercase; letter-spacing: 0.05em; }
+  .badge-unset { font-size: 0.68rem; padding: 0.15rem 0.5rem; border-radius: 20px; background: rgba(245,101,101,0.15); color: #f56565; border: 1px solid rgba(245,101,101,0.3); text-transform: uppercase; letter-spacing: 0.05em; }
+  .key-input { width: 100%; padding: 0.55rem 0.8rem; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; color: #e0e0e0; font-size: 0.85rem; font-family: monospace; outline: none; transition: border-color 0.2s; }
+  .key-input:focus { border-color: rgba(99,179,237,0.5); }
+  .key-input::placeholder { color: #444; }
+
+  .btn { padding: 0.65rem 1.5rem; background: rgba(99,179,237,0.15); border: 1px solid rgba(99,179,237,0.3); border-radius: 8px; color: #63b3ed; font-size: 0.85rem; font-weight: 500; cursor: pointer; transition: all 0.2s; }
+  .btn:hover { background: rgba(99,179,237,0.25); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-wide { width: 100%; padding: 0.75rem; }
+  .msg { font-size: 0.8rem; margin-top: 0.75rem; min-height: 1.2em; }
+  .msg-ok { color: #48bb78; }
+  .msg-err { color: #f56565; }
+
+  .mobile-header { display: none; position: fixed; top: 0; left: 0; right: 0; height: 56px; background: #0a0a0f; border-bottom: 1px solid rgba(255,255,255,0.06); z-index: 20; align-items: center; padding: 0 1rem; gap: 0.7rem; }
+  .mobile-header img { width: 28px; height: 28px; border-radius: 50%; }
+  .mobile-header span { font-weight: 600; color: #fff; font-size: 0.95rem; }
+  .hamburger { background: none; border: none; color: #888; font-size: 1.4rem; cursor: pointer; margin-left: auto; }
+  .sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 9; }
+  @media (max-width: 768px) {
+    .sidebar { transform: translateX(-100%); transition: transform 0.2s; }
+    .sidebar.open { transform: translateX(0); }
+    .sidebar-overlay.open { display: block; }
+    .mobile-header { display: flex; }
+    .main { margin-left: 0; padding: 72px 1rem 2rem; }
+  }
+</style>
+</head>
+<body>
+<div class="mobile-header">
+  <img src="/static/clai-icon.png" alt="">
+  <span>{{BOT_NAME}}</span>
+  <button class="hamburger" onclick="toggleSidebar()">&#9776;</button>
+</div>
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
+<nav class="sidebar" id="sidebar">
+  <div class="sidebar-brand"><img src="/static/clai-icon.png" alt="Clai"><span>{{BOT_NAME}}</span></div>
+  <div class="nav-items">
+    <a href="/dashboard" class="nav-item"><span class="icon">&#9632;</span> Dashboard</a>
+    <a href="/keys" class="nav-item active"><span class="icon">&#9919;</span> API Keys</a>
+    <a href="/tools" class="nav-item"><span class="icon">&#9881;</span> Tools</a>
+    <a href="/settings" class="nav-item"><span class="icon">&#9881;</span> Settings</a>
+    <a href="/projects" class="nav-item"><span class="icon">&#9830;</span> Projects</a>
+    <a href="/static/chat.html" class="nav-item"><span class="icon">&#9993;</span> Chat</a>
+    <a href="/activity" class="nav-item"><span class="icon">&#9673;</span> Activity</a>
+  </div>
+  <div class="nav-bottom"><a href="#" class="nav-item" onclick="logout(); return false;"><span class="icon">&#10140;</span> Sign Out</a></div>
+</nav>
+
+<main class="main">
+  <h1 class="page-title">API Keys</h1>
+  <p class="page-sub">Manage service credentials</p>
+  <div class="key-list" id="key-list"></div>
+  <button class="btn btn-wide" id="save-btn" onclick="saveAll()">Save All</button>
+  <div class="msg" id="msg"></div>
+</main>
+
+<script>
+var keys = [];
+var _csrfToken = document.querySelector('meta[name="csrf-token"]') ? document.querySelector('meta[name="csrf-token"]').getAttribute('content') : '';
+
+function _post(url, body) {
+  body.csrf_token = _csrfToken;
+  return fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+}
+
+async function loadKeys() {
+  try {
+    var res = await fetch('/api/keys');
+    if (res.status === 401) { window.location.href = '/'; return; }
+    keys = await res.json();
+    render();
+  } catch (e) {}
+}
+function render() {
+  document.getElementById('key-list').innerHTML = keys.map(function(k) {
+    var badge = k.is_set ? '<span class="badge-set">Set</span>' : '<span class="badge-unset">Not set</span>';
+    var ph = k.is_set ? '••••••••' : 'Enter API key...';
+    return '<div class="key-item"><div class="key-header"><span class="key-label">' + k.label + '</span>' + badge + '</div><input type="password" class="key-input" id="key-' + k.env_key + '" placeholder="' + ph + '" autocomplete="off"></div>';
+  }).join('');
+}
+function showMsg(t, ok) {
+  var el = document.getElementById('msg');
+  el.textContent = t; el.className = 'msg ' + (ok ? 'msg-ok' : 'msg-err');
+  setTimeout(function() { el.textContent = ''; }, 3000);
+}
+async function saveAll() {
+  var btn = document.getElementById('save-btn');
+  btn.disabled = true; btn.textContent = 'Saving...';
+  var payload = {};
+  keys.forEach(function(k) { var v = document.getElementById('key-' + k.env_key).value; if (v.trim()) payload[k.env_key] = v.trim(); });
+  try {
+    var res = await _post('/api/keys', payload);
+    if (res.status === 401) { window.location.href = '/'; return; }
+    var data = await res.json();
+    if (data.ok) { showMsg('Saved', true); keys = data.keys; render(); }
+    else showMsg(data.error || 'Failed', false);
+  } catch (e) { showMsg('Network error', false); }
+  btn.disabled = false; btn.textContent = 'Save All';
+}
+function logout() { fetch('/logout', { method: 'POST' }).then(function() { window.location.href = '/'; }); }
+function toggleSidebar() { document.getElementById('sidebar').classList.toggle('open'); document.getElementById('sidebar-overlay').classList.toggle('open'); }
+loadKeys();
+</script>
+</body>
+</html>

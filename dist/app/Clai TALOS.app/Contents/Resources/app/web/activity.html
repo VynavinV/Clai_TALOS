@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="csrf-token" content="{{CSRF_TOKEN}}">
+<title>{{BOT_NAME}} — Activity</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Sora:wght@400;500;600;700&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Sora', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #050912; color: #e0e0e0; min-height: 100vh; display: flex; }
+
+  .sidebar { width: 236px; background: rgba(255,255,255,0.02); border-right: 1px solid rgba(255,255,255,0.06); padding: 1.5rem 0; display: flex; flex-direction: column; position: fixed; top: 0; left: 0; bottom: 0; z-index: 10; }
+  .sidebar-brand { display: flex; align-items: center; gap: 0.7rem; padding: 0 1.2rem; margin-bottom: 2rem; }
+  .sidebar-brand img { width: 36px; height: 36px; border-radius: 50%; border: 1px solid rgba(99,179,237,0.3); }
+  .sidebar-brand span { font-size: 1rem; font-weight: 600; color: #fff; }
+  .nav-items { flex: 1; }
+  .nav-item { display: flex; align-items: center; gap: 0.7rem; padding: 0.65rem 1.2rem; font-size: 0.85rem; color: #888; text-decoration: none; transition: all 0.15s; border-left: 3px solid transparent; }
+  .nav-item:hover { color: #ccc; background: rgba(255,255,255,0.03); }
+  .nav-item.active { color: #63b3ed; background: rgba(99,179,237,0.06); border-left-color: #63b3ed; }
+  .nav-item .icon { width: 18px; text-align: center; font-size: 0.9rem; }
+  .nav-bottom { padding: 0 1.2rem; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 1rem; }
+
+  .mobile-header { display: none; position: fixed; top: 0; left: 0; right: 0; height: 56px; background: #050912; border-bottom: 1px solid rgba(255,255,255,0.06); z-index: 20; align-items: center; padding: 0 1rem; gap: 0.7rem; }
+  .mobile-header img { width: 28px; height: 28px; border-radius: 50%; }
+  .mobile-header span { font-weight: 600; color: #fff; font-size: 0.95rem; }
+  .hamburger { background: none; border: none; color: #888; font-size: 1.4rem; cursor: pointer; margin-left: auto; }
+  .sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 9; }
+
+  .main { margin-left: 236px; flex: 1; padding: 2rem 2.5rem; max-width: 1100px; }
+  .page-title { font-size: 1.5rem; font-weight: 600; color: #fff; margin-bottom: 0.3rem; }
+  .page-sub { font-size: 0.85rem; color: #666; margin-bottom: 1.5rem; }
+
+  .live-badge { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; padding: 0.25rem 0.7rem; border-radius: 20px; background: rgba(72,187,120,0.12); color: #48bb78; border: 1px solid rgba(72,187,120,0.25); margin-left: 0.8rem; vertical-align: middle; }
+  .live-badge.off { background: rgba(245,101,101,0.12); color: #f56565; border-color: rgba(245,101,101,0.25); }
+  .live-dot { width: 6px; height: 6px; border-radius: 50%; background: #48bb78; animation: pulse-dot 1.5s ease-in-out infinite; }
+  .live-badge.off .live-dot { background: #f56565; animation: none; }
+  @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  .agent-cards { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 2rem; }
+  .agent-card { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 1.2rem 1.4rem; min-width: 200px; flex: 1; max-width: 340px; cursor: pointer; transition: all 0.2s; position: relative; }
+  .agent-card:hover { background: rgba(255,255,255,0.05); border-color: rgba(99,179,237,0.2); }
+  .agent-card.selected { border-color: rgba(99,179,237,0.5); background: rgba(99,179,237,0.06); }
+  .agent-card.idle { opacity: 0.5; }
+  .agent-card-header { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.6rem; }
+  .agent-avatar { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; font-weight: 700; color: #fff; }
+  .agent-avatar.orchestrator { background: linear-gradient(135deg, #4299e1, #63b3ed); }
+  .agent-avatar.subagent { background: linear-gradient(135deg, #9f7aea, #b794f4); }
+  .agent-name { font-size: 0.9rem; font-weight: 600; color: #fff; }
+  .agent-status { font-size: 0.7rem; padding: 0.15rem 0.5rem; border-radius: 20px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+  .agent-status.active { background: rgba(72,187,120,0.15); color: #48bb78; }
+  .agent-status.idle { background: rgba(255,255,255,0.06); color: #666; }
+  .agent-current { font-size: 0.78rem; color: #999; margin-top: 0.3rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .agent-current strong { color: #63b3ed; font-weight: 600; }
+  .agent-time { font-size: 0.68rem; color: #555; margin-top: 0.3rem; font-family: 'JetBrains Mono', monospace; }
+
+  .no-activity { text-align: center; padding: 4rem 2rem; color: #555; }
+  .no-activity .icon { font-size: 3rem; margin-bottom: 1rem; opacity: 0.3; }
+  .no-activity p { font-size: 0.9rem; }
+
+  .timeline { position: relative; }
+  .timeline::before { content: ''; position: absolute; left: 19px; top: 0; bottom: 0; width: 2px; background: rgba(255,255,255,0.04); }
+  .tl-event { display: flex; gap: 1rem; padding: 0.6rem 0; position: relative; animation: fadeSlideIn 0.3s ease-out; }
+  @keyframes fadeSlideIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  .tl-dot { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1rem; flex-shrink: 0; position: relative; z-index: 1; }
+  .tl-dot.model { background: rgba(99,179,237,0.15); color: #63b3ed; }
+  .tl-dot.tool { background: rgba(72,187,120,0.15); color: #48bb78; }
+  .tl-dot.spawn { background: rgba(159,122,234,0.15); color: #b794f4; }
+  .tl-dot.thinking { background: rgba(237,187,99,0.15); color: #edbb63; }
+  .tl-dot.error { background: rgba(245,101,101,0.15); color: #f56565; }
+  .tl-dot.done { background: rgba(72,187,120,0.15); color: #48bb78; }
+  .tl-dot.receive { background: rgba(99,179,237,0.15); color: #63b3ed; }
+  .tl-dot.command { background: rgba(237,137,54,0.15); color: #ed8936; }
+  .tl-body { flex: 1; min-width: 0; }
+  .tl-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.2rem; }
+  .tl-label { font-size: 0.82rem; font-weight: 600; color: #ddd; }
+  .tl-agent-tag { font-size: 0.62rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: rgba(255,255,255,0.06); color: #888; font-family: 'JetBrains Mono', monospace; }
+  .tl-time { font-size: 0.68rem; color: #555; font-family: 'JetBrains Mono', monospace; margin-left: auto; }
+  .tl-detail { font-size: 0.78rem; color: #999; word-break: break-word; line-height: 1.5; }
+  .tl-detail code { font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; background: rgba(255,255,255,0.05); padding: 0.15rem 0.4rem; border-radius: 4px; color: #bbb; }
+  .tl-detail.error-text { color: #f56565; }
+
+  .filter-bar { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
+  .filter-btn { padding: 0.35rem 0.8rem; border-radius: 6px; font-size: 0.75rem; font-weight: 500; cursor: pointer; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); color: #888; transition: all 0.15s; }
+  .filter-btn:hover { background: rgba(255,255,255,0.06); color: #bbb; }
+  .filter-btn.active { background: rgba(99,179,237,0.12); border-color: rgba(99,179,237,0.35); color: #63b3ed; }
+
+  .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+  .section-title { font-size: 0.95rem; font-weight: 600; color: #63b3ed; }
+  .clear-btn { font-size: 0.72rem; color: #666; cursor: pointer; background: none; border: 1px solid rgba(255,255,255,0.06); padding: 0.25rem 0.6rem; border-radius: 4px; transition: all 0.15s; }
+  .clear-btn:hover { color: #f56565; border-color: rgba(245,101,101,0.3); }
+
+  .detail-panel { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 1.2rem; margin-bottom: 1.5rem; display: none; }
+  .detail-panel.open { display: block; }
+  .detail-panel-title { font-size: 0.85rem; font-weight: 600; color: #fff; margin-bottom: 0.5rem; }
+  .detail-panel-body { font-size: 0.78rem; color: #999; font-family: 'JetBrains Mono', monospace; white-space: pre-wrap; word-break: break-all; max-height: 300px; overflow-y: auto; line-height: 1.6; background: rgba(0,0,0,0.2); border-radius: 8px; padding: 1rem; }
+
+  .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid rgba(99,179,237,0.2); border-top-color: #63b3ed; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 0.4rem; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  @media (max-width: 768px) {
+    .sidebar { transform: translateX(-100%); transition: transform 0.2s; }
+    .sidebar.open { transform: translateX(0); }
+    .sidebar-overlay.open { display: block; }
+    .mobile-header { display: flex; }
+    .main { margin-left: 0; padding: 72px 1rem 2rem; }
+    .agent-cards { flex-direction: column; }
+    .agent-card { max-width: 100%; }
+  }
+</style>
+</head>
+<body>
+<div class="mobile-header"><img src="/static/clai-icon.png" alt=""><span>{{BOT_NAME}}</span><button class="hamburger" onclick="toggleSidebar()">&#9776;</button></div>
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
+
+<nav class="sidebar" id="sidebar">
+  <div class="sidebar-brand"><img src="/static/clai-icon.png" alt="Clai"><span>{{BOT_NAME}}</span></div>
+  <div class="nav-items">
+    <a href="/dashboard" class="nav-item"><span class="icon">&#9632;</span> Home</a>
+    <a href="/keys" class="nav-item"><span class="icon">&#9919;</span> API Keys</a>
+    <a href="/tools" class="nav-item"><span class="icon">&#9881;</span> Tools</a>
+    <a href="/settings" class="nav-item"><span class="icon">&#9881;</span> Settings</a>
+    <a href="/projects" class="nav-item"><span class="icon">&#9830;</span> Projects</a>
+    <a href="/static/chat.html" class="nav-item"><span class="icon">&#9993;</span> Chat</a>
+    <a href="/activity" class="nav-item active"><span class="icon">&#9673;</span> Activity</a>
+  </div>
+  <div class="nav-bottom"><a href="#" class="nav-item" onclick="logout(); return false;"><span class="icon">&#10140;</span> Sign Out</a></div>
+</nav>
+
+<main class="main">
+  <div style="display:flex;align-items:center;">
+    <h1 class="page-title">Activity Monitor</h1>
+    <span class="live-badge" id="live-badge"><span class="live-dot"></span> Live</span>
+  </div>
+  <p class="page-sub">See exactly what your assistant is doing right now. Click any agent card to filter.</p>
+
+  <div class="agent-cards" id="agent-cards">
+    <div class="no-activity" id="no-agents" style="width:100%;padding:2rem;">
+      <p>Waiting for activity...</p>
+    </div>
+  </div>
+
+  <div class="section-header">
+    <span class="section-title">Event Timeline</span>
+    <button class="clear-btn" onclick="clearTimeline()">Clear</button>
+  </div>
+
+  <div class="filter-bar" id="filter-bar">
+    <button class="filter-btn active" data-filter="all" onclick="setFilter('all', this)">All</button>
+    <button class="filter-btn" data-filter="model" onclick="setFilter('model', this)">Model Calls</button>
+    <button class="filter-btn" data-filter="tool" onclick="setFilter('tool', this)">Tools</button>
+    <button class="filter-btn" data-filter="spawn" onclick="setFilter('spawn', this)">Subagents</button>
+    <button class="filter-btn" data-filter="command" onclick="setFilter('command', this)">Commands</button>
+    <button class="filter-btn" data-filter="error" onclick="setFilter('error', this)">Errors</button>
+  </div>
+
+  <div class="detail-panel" id="detail-panel">
+    <div class="detail-panel-title" id="detail-title">Detail</div>
+    <div class="detail-panel-body" id="detail-body"></div>
+  </div>
+
+  <div class="timeline" id="timeline">
+    <div class="no-activity" id="no-events">
+      <div class="icon">&#9673;</div>
+      <p>No activity yet. Send your assistant a message to see it work.</p>
+    </div>
+  </div>
+</main>
+
+<script>
+const API = '/api/activity';
+let events = [];
+let selectedAgent = null;
+let activeFilter = 'all';
+let es = null;
+let reconnectTimer = null;
+const MAX_VISIBLE = 150;
+
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('open');
+  document.getElementById('sidebar-overlay').classList.toggle('open');
+}
+
+function logout() {
+  document.cookie = 'talos_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+  window.location.href = '/login';
+}
+
+function formatTime(ts) {
+  const d = new Date(ts * 1000);
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function formatDuration(s) {
+  if (s < 1) return 'just now';
+  if (s < 60) return Math.round(s) + 's ago';
+  if (s < 3600) return Math.floor(s / 60) + 'm ' + Math.round(s % 60) + 's ago';
+  return Math.floor(s / 3600) + 'h ago';
+}
+
+function getEventIcon(type) {
+  const icons = {
+    model: '&#9889;',
+    tool: '&#128295;',
+    spawn: '&#128101;',
+    thinking: '&#129504;',
+    error: '&#9888;',
+    done: '&#9989;',
+    receive: '&#9993;',
+    command: '&#9000;',
+  };
+  return icons[type] || '&#9679;';
+}
+
+function truncate(s, n) {
+  if (!s) return '';
+  return s.length > n ? s.slice(0, n) + '...' : s;
+}
+
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function setFilter(filter, btn) {
+  activeFilter = filter;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderTimeline();
+}
+
+function selectAgent(agentId) {
+  if (selectedAgent === agentId) {
+    selectedAgent = null;
+    document.querySelectorAll('.agent-card').forEach(c => c.classList.remove('selected'));
+  } else {
+    selectedAgent = agentId;
+    document.querySelectorAll('.agent-card').forEach(c => {
+      c.classList.toggle('selected', c.dataset.agent === agentId);
+    });
+  }
+  renderTimeline();
+}
+
+function clearTimeline() {
+  events = [];
+  document.getElementById('timeline').innerHTML = '<div class="no-activity" id="no-events"><div class="icon">&#9673;</div><p>Timeline cleared.</p></div>';
+}
+
+function showDetail(title, body) {
+  const panel = document.getElementById('detail-panel');
+  document.getElementById('detail-title').textContent = title;
+  document.getElementById('detail-body').textContent = body;
+  panel.classList.add('open');
+}
+
+function hideDetail() {
+  document.getElementById('detail-panel').classList.remove('open');
+}
+
+function renderAgentCards() {
+  const now = Date.now() / 1000;
+  const agents = {};
+  for (const evt of events) {
+    const aid = evt.agent;
+    const age = now - evt.ts;
+    if (age > 300 && !agents[aid]) continue;
+    if (!agents[aid]) {
+      agents[aid] = { id: aid, lastEvent: evt, events: [] };
+    }
+    agents[aid].events.push(evt);
+    if (evt.ts > agents[aid].lastEvent.ts) {
+      agents[aid].lastEvent = evt;
+    }
+  }
+
+  const container = document.getElementById('agent-cards');
+  const entries = Object.values(agents).sort((a, b) => b.lastEvent.ts - a.lastEvent.ts);
+
+  if (entries.length === 0) {
+    container.innerHTML = '<div class="no-activity" id="no-agents" style="width:100%;padding:2rem;"><p>Waiting for activity...</p></div>';
+    return;
+  }
+
+  container.innerHTML = entries.map(a => {
+    const age = now - a.lastEvent.ts;
+    const isActive = age < 30;
+    const isOrch = a.id === 'orchestrator';
+    const avatarClass = isOrch ? 'orchestrator' : 'subagent';
+    const statusClass = isActive ? 'active' : 'idle';
+    const statusText = isActive ? 'Working' : 'Idle';
+    const selected = selectedAgent === a.id ? 'selected' : '';
+    const idleClass = !isActive ? 'idle' : '';
+    const displayName = isOrch ? 'Orchestrator' : a.id.replace(/^sub-/, '').charAt(0).toUpperCase() + a.id.replace(/^sub-/, '').slice(1);
+    const lastLabel = a.lastEvent.label || '';
+    const lastDetail = truncate(a.lastEvent.detail || '', 60);
+
+    return `<div class="agent-card ${selected} ${idleClass}" data-agent="${escapeHtml(a.id)}" onclick="selectAgent('${escapeHtml(a.id)}')">
+      <div class="agent-card-header">
+        <div class="agent-avatar ${avatarClass}">${isOrch ? 'O' : 'S'}</div>
+        <div>
+          <div class="agent-name">${escapeHtml(displayName)}</div>
+          <span class="agent-status ${statusClass}">${statusText}</span>
+        </div>
+      </div>
+      <div class="agent-current"><strong>${escapeHtml(lastLabel)}</strong> ${escapeHtml(lastDetail)}</div>
+      <div class="agent-time">${formatDuration(age)}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderTimeline() {
+  const now = Date.now() / 1000;
+  let filtered = events.slice().reverse();
+
+  if (selectedAgent) {
+    filtered = filtered.filter(e => e.agent === selectedAgent);
+  }
+  if (activeFilter !== 'all') {
+    filtered = filtered.filter(e => e.type === activeFilter);
+  }
+
+  filtered = filtered.slice(0, MAX_VISIBLE);
+
+  const container = document.getElementById('timeline');
+
+  if (filtered.length === 0) {
+    container.innerHTML = '<div class="no-activity" id="no-events"><div class="icon">&#9673;</div><p>No events match your filter.</p></div>';
+    return;
+  }
+
+  container.innerHTML = filtered.map(evt => {
+    const iconClass = evt.type || 'receive';
+    const icon = getEventIcon(iconClass);
+    const age = now - evt.ts;
+    const agentTag = evt.agent === 'orchestrator' ? 'orchestrator' : evt.agent;
+    const detailHtml = evt.detail ? `<div class="tl-detail${evt.type === 'error' ? ' error-text' : ''}">${escapeHtml(truncate(evt.detail, 300))}</div>` : '';
+    const hasExtra = evt.extra && (evt.extra.detail || evt.extra.command || evt.extra.tool_args);
+    const clickAttr = hasExtra ? `onclick="showEventDetail('${evt.id}')"` : '';
+    const cursorStyle = hasExtra ? 'cursor:pointer;' : '';
+
+    return `<div class="tl-event" ${clickAttr} style="${cursorStyle}">
+      <div class="tl-dot ${iconClass}">${icon}</div>
+      <div class="tl-body">
+        <div class="tl-header">
+          <span class="tl-label">${escapeHtml(evt.label || iconClass)}</span>
+          <span class="tl-agent-tag">${escapeHtml(agentTag)}</span>
+          <span class="tl-time">${formatDuration(age)}</span>
+        </div>
+        ${detailHtml}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function showEventDetail(eventId) {
+  const evt = events.find(e => e.id === eventId);
+  if (!evt || !evt.extra) return;
+  const parts = [];
+  if (evt.extra.detail) parts.push(evt.extra.detail);
+  if (evt.extra.command) parts.push('Command: ' + evt.extra.command);
+  if (evt.extra.tool_args) {
+    try {
+      parts.push('Args: ' + JSON.stringify(evt.extra.tool_args, null, 2));
+    } catch(e) {
+      parts.push('Args: ' + String(evt.extra.tool_args));
+    }
+  }
+  if (evt.extra.duration_ms) parts.push('Duration: ' + evt.extra.duration_ms + 'ms');
+  if (evt.extra.model) parts.push('Model: ' + evt.extra.model);
+  if (evt.extra.provider) parts.push('Provider: ' + evt.extra.provider);
+  if (parts.length > 0) {
+    showDetail(evt.label + ' — ' + evt.agent, parts.join('\n\n'));
+  }
+}
+
+function addEvent(evt) {
+  events.push(evt);
+  if (events.length > 500) events = events.slice(-500);
+  renderTimeline();
+  renderAgentCards();
+}
+
+function connectSSE() {
+  if (es) {
+    es.close();
+    es = null;
+  }
+
+  es = new EventSource(API + '/stream');
+  const badge = document.getElementById('live-badge');
+
+  es.onopen = () => {
+    badge.classList.remove('off');
+    badge.querySelector('.live-dot').style.animationPlayState = 'running';
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+  };
+
+  es.onmessage = (e) => {
+    try {
+      const evt = JSON.parse(e.data);
+      addEvent(evt);
+    } catch(err) {}
+  };
+
+  es.onerror = () => {
+    badge.classList.add('off');
+    badge.querySelector('.live-dot').style.animationPlayState = 'paused';
+    es.close();
+    es = null;
+    reconnectTimer = setTimeout(connectSSE, 3000);
+  };
+}
+
+async function loadHistory() {
+  try {
+    const resp = await fetch(API + '/history');
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if (Array.isArray(data)) {
+      events = data;
+      renderTimeline();
+      renderAgentCards();
+    }
+  } catch(e) {}
+}
+
+loadHistory();
+connectSSE();
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    if (es) { es.close(); es = null; }
+  } else {
+    connectSSE();
+  }
+});
+</script>
+</body>
+</html>
