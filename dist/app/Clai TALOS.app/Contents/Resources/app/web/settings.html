@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="csrf-token" content="{{CSRF_TOKEN}}">
+<title>{{BOT_NAME}} — Settings</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0a0a0f; color: #e0e0e0; min-height: 100vh; display: flex; }
+  .sidebar { width: 220px; background: rgba(255,255,255,0.02); border-right: 1px solid rgba(255,255,255,0.06); padding: 1.5rem 0; display: flex; flex-direction: column; position: fixed; top: 0; left: 0; bottom: 0; z-index: 10; }
+  .sidebar-brand { display: flex; align-items: center; gap: 0.7rem; padding: 0 1.2rem; margin-bottom: 2rem; }
+  .sidebar-brand img { width: 36px; height: 36px; border-radius: 50%; border: 1px solid rgba(99,179,237,0.3); }
+  .sidebar-brand span { font-size: 1rem; font-weight: 600; color: #fff; }
+  .nav-items { flex: 1; }
+  .nav-item { display: flex; align-items: center; gap: 0.7rem; padding: 0.65rem 1.2rem; font-size: 0.85rem; color: #888; text-decoration: none; transition: all 0.15s; border-left: 3px solid transparent; }
+  .nav-item:hover { color: #ccc; background: rgba(255,255,255,0.03); }
+  .nav-item.active { color: #63b3ed; background: rgba(99,179,237,0.06); border-left-color: #63b3ed; }
+  .nav-item .icon { width: 18px; text-align: center; font-size: 0.9rem; }
+  .nav-bottom { padding: 0 1.2rem; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 1rem; }
+  .main { margin-left: 220px; flex: 1; padding: 2rem 2.5rem; max-width: 800px; }
+  .page-title { font-size: 1.5rem; font-weight: 600; color: #fff; margin-bottom: 0.3rem; }
+  .page-sub { font-size: 0.85rem; color: #666; margin-bottom: 2rem; }
+
+  .section { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; }
+  .section-title { font-size: 0.95rem; font-weight: 600; margin-bottom: 1rem; color: #63b3ed; }
+  .form-group { margin-bottom: 1rem; }
+  .form-group label { display: block; font-size: 0.82rem; font-weight: 500; margin-bottom: 0.35rem; color: #999; }
+  .form-group input, .form-group select { width: 100%; padding: 0.6rem 0.85rem; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; color: #e0e0e0; font-size: 0.85rem; font-family: monospace; outline: none; transition: border-color 0.2s; }
+  .form-group select { font-family: inherit; appearance: none; background-image: linear-gradient(45deg, transparent 50%, #666 50%), linear-gradient(135deg, #666 50%, transparent 50%); background-position: calc(100% - 18px) 50%, calc(100% - 12px) 50%; background-size: 6px 6px, 6px 6px; background-repeat: no-repeat; }
+  .form-group input:focus { border-color: rgba(99,179,237,0.5); }
+  .form-group input::placeholder { color: #444; }
+  .form-hint { font-size: 0.72rem; color: #555; margin-top: 0.25rem; }
+
+  .badge-set { font-size: 0.65rem; padding: 0.1rem 0.45rem; border-radius: 20px; background: rgba(72,187,120,0.15); color: #48bb78; border: 1px solid rgba(72,187,120,0.3); text-transform: uppercase; margin-left: 0.4rem; }
+  .badge-unset { font-size: 0.65rem; padding: 0.1rem 0.45rem; border-radius: 20px; background: rgba(245,101,101,0.15); color: #f56565; border: 1px solid rgba(245,101,101,0.3); text-transform: uppercase; margin-left: 0.4rem; }
+
+  .provider-tabs { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 1rem; }
+  .provider-tab { padding: 0.45rem 0.9rem; border-radius: 8px; font-size: 0.8rem; font-weight: 500; cursor: pointer; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); color: #888; transition: all 0.15s; }
+  .provider-tab:hover { background: rgba(255,255,255,0.06); color: #bbb; }
+  .provider-tab.active { background: rgba(99,179,237,0.12); border-color: rgba(99,179,237,0.35); color: #63b3ed; }
+  .provider-tab .tab-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 0.4rem; vertical-align: middle; }
+  .provider-tab .tab-dot.on { background: #48bb78; }
+  .provider-tab .tab-dot.off { background: #f56565; }
+  .provider-panel { display: none; }
+  .provider-panel.active { display: block; }
+  .provider-desc { font-size: 0.75rem; color: #666; margin-bottom: 0.8rem; }
+  .model-select-wrap { position: relative; display: flex; align-items: center; gap: 0.35rem; }
+  .model-select-wrap select { padding-right: 2rem; flex: 1; }
+  .model-select-wrap .model-provider-tag { position: absolute; right: 0.8rem; top: 50%; transform: translateY(-50%); font-size: 0.6rem; color: #555; text-transform: uppercase; letter-spacing: 0.05em; pointer-events: none; }
+  .model-override-btn { background: none; border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; color: #666; cursor: pointer; padding: 0.4rem 0.5rem; font-size: 0.8rem; line-height: 1; transition: all 0.15s; flex-shrink: 0; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; }
+  .model-override-btn:hover { color: #63b3ed; border-color: rgba(99,179,237,0.3); background: rgba(99,179,237,0.06); }
+  .model-override-btn.active { color: #63b3ed; border-color: rgba(99,179,237,0.4); background: rgba(99,179,237,0.1); }
+  .model-override-input { display: none; flex: 1; padding: 0.6rem 0.85rem; background: rgba(255,255,255,0.04); border: 1px solid rgba(99,179,237,0.3); border-radius: 8px; color: #e0e0e0; font-size: 0.85rem; font-family: monospace; outline: none; }
+  .model-override-input:focus { border-color: rgba(99,179,237,0.5); }
+  .model-override-input::placeholder { color: #444; }
+  .vision-section { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid rgba(255,255,255,0.06); }
+  .active-model-bar { display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem 0.9rem; background: rgba(72,187,120,0.08); border: 1px solid rgba(72,187,120,0.2); border-radius: 8px; margin-bottom: 1rem; font-size: 0.82rem; }
+  .active-model-bar .label { color: #888; }
+  .active-model-bar .value { color: #48bb78; font-weight: 600; font-family: monospace; }
+
+  .btn { padding: 0.6rem 1.3rem; background: rgba(99,179,237,0.15); border: 1px solid rgba(99,179,237,0.3); border-radius: 8px; color: #63b3ed; font-size: 0.82rem; font-weight: 500; cursor: pointer; transition: all 0.2s; margin-right: 0.5rem; }
+  .btn:hover { background: rgba(99,179,237,0.25); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-danger { background: rgba(245,101,101,0.15); border-color: rgba(245,101,101,0.3); color: #f56565; }
+  .btn-danger:hover { background: rgba(245,101,101,0.25); }
+  .msg { font-size: 0.82rem; margin-top: 1rem; min-height: 1.2em; }
+  .msg-ok { color: #48bb78; } .msg-err { color: #f56565; }
+  .status-line { font-size: 0.8rem; color: #888; margin-top: 0.5rem; }
+  .google-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.8rem; }
+  .usage-wrap { margin-top: 0.3rem; }
+  .usage-slider { width: 100%; height: 10px; border-radius: 999px; appearance: none; outline: none; background: rgba(255,255,255,0.12); pointer-events: none; }
+  .usage-slider.safe { accent-color: #48bb78; }
+  .usage-slider.warning { accent-color: #d69e2e; }
+  .usage-slider.critical { accent-color: #f56565; }
+
+  .mobile-header { display: none; position: fixed; top: 0; left: 0; right: 0; height: 56px; background: #0a0a0f; border-bottom: 1px solid rgba(255,255,255,0.06); z-index: 20; align-items: center; padding: 0 1rem; gap: 0.7rem; }
+  .mobile-header img { width: 28px; height: 28px; border-radius: 50%; }
+  .mobile-header span { font-weight: 600; color: #fff; font-size: 0.95rem; }
+  .hamburger { background: none; border: none; color: #888; font-size: 1.4rem; cursor: pointer; margin-left: auto; }
+  .sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 9; }
+  @media (max-width: 768px) {
+    .sidebar { transform: translateX(-100%); transition: transform 0.2s; }
+    .sidebar.open { transform: translateX(0); }
+    .sidebar-overlay.open { display: block; }
+    .mobile-header { display: flex; }
+    .main { margin-left: 0; padding: 72px 1rem 2rem; }
+  }
+</style>
+</head>
+<body>
+<div class="mobile-header"><img src="/static/clai-icon.png" alt=""><span>{{BOT_NAME}}</span><button class="hamburger" onclick="toggleSidebar()">&#9776;</button></div>
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
+<nav class="sidebar" id="sidebar">
+  <div class="sidebar-brand"><img src="/static/clai-icon.png" alt="Clai"><span>{{BOT_NAME}}</span></div>
+  <div class="nav-items">
+    <a href="/dashboard" class="nav-item"><span class="icon">&#9632;</span> Dashboard</a>
+    <a href="/keys" class="nav-item"><span class="icon">&#9919;</span> API Keys</a>
+    <a href="/tools" class="nav-item"><span class="icon">&#9881;</span> Tools</a>
+    <a href="/settings" class="nav-item active"><span class="icon">&#9881;</span> Settings</a>
+    <a href="/projects" class="nav-item"><span class="icon">&#9830;</span> Projects</a>
+    <a href="/static/chat.html" class="nav-item"><span class="icon">&#9993;</span> Chat</a>
+    <a href="/activity" class="nav-item"><span class="icon">&#9673;</span> Activity</a>
+  </div>
+  <div class="nav-bottom"><a href="#" class="nav-item" onclick="logout(); return false;"><span class="icon">&#10140;</span> Sign Out</a></div>
+</nav>
+
+<main class="main">
+  <h1 class="page-title">Settings</h1>
+  <p class="page-sub">Simple controls for names, keys, models, and safety limits. You can update these anytime.</p>
+
+  <div class="section">
+    <div class="section-title">Basic Setup</div>
+    <div class="form-group">
+      <label>Assistant Name</label>
+      <input type="text" id="bot-name" placeholder="Clai-TALOS">
+    </div>
+    <div class="form-group">
+      <label>Telegram Bot Token (from @BotFather)</label>
+      <input type="password" id="telegram-token" placeholder="From @BotFather">
+      <div class="form-hint">If you change this, restart the assistant once.</div>
+    </div>
+    <div class="form-group">
+      <label>Dashboard Port</label>
+      <input type="text" id="web-port" placeholder="8080">
+      <div class="form-hint">Default is 8080. Change only if this port is already in use.</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">AI Model Setup</div>
+    <div class="active-model-bar">
+      <span class="label">Current text model:</span>
+      <span class="value" id="active-model-display">checking...</span>
+    </div>
+    <div class="provider-tabs" id="provider-tabs"></div>
+
+    <div id="provider-panels"></div>
+
+    <div class="vision-section">
+      <div class="form-group">
+        <label>Photo Model <span class="form-hint" style="display:inline;margin-left:0.3rem;">(used when you send images)</span></label>
+        <div class="model-select-wrap">
+          <select id="image-model"></select>
+          <button class="model-override-btn" onclick="toggleModelOverride('image-model')" title="Type model name manually">&#9998;</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="vision-section">
+      <div class="form-group">
+        <label>Quick Reply Model <span class="form-hint" style="display:inline;margin-left:0.3rem;">(used by the /fast command)</span></label>
+        <div class="model-select-wrap">
+          <select id="fast-model"></select>
+          <button class="model-override-btn" onclick="toggleModelOverride('fast-model')" title="Type model name manually">&#9998;</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Google Connection</div>
+    <div class="form-group"><label>Google API Key <span id="google-api-status"></span></label><input type="password" id="google-api-key"></div>
+    <div class="form-group"><label>OAuth Client ID</label><input type="text" id="google-oauth-client-id"></div>
+    <div class="form-group"><label>OAuth Client Secret</label><input type="password" id="google-oauth-client-secret"></div>
+    <div class="form-group"><label>OAuth Redirect URL</label><input type="text" id="google-oauth-redirect-uri" placeholder="Leave blank for automatic"><div class="form-hint">Most people can leave this empty.</div></div>
+    <div class="form-group"><label>Apps Script URL</label><input type="text" id="google-apps-script-url" placeholder="https://script.google.com/macros/s/.../exec"></div>
+    <div class="form-group"><label>OAuth Scopes</label><input type="text" id="google-oauth-scopes" placeholder="Leave blank to use safe defaults"></div>
+    <div class="status-line" id="google-connection-status">Google account: checking status...</div>
+    <div class="form-hint" id="google-redirect-hint" style="margin-bottom:0.8rem;"></div>
+    <div id="google-redirect-notice" style="display:none; margin-bottom:0.8rem; padding:0.7rem 1rem; background:rgba(214,158,46,0.1); border:1px solid rgba(214,158,46,0.3); border-radius:8px; font-size:0.82rem; color:#d69e2e;">
+      <strong>Before connecting:</strong> Add the redirect URL below to your Google Cloud Console OAuth app's "Authorized redirect URIs".<br>
+      Google Cloud Console &rarr; APIs & Services &rarr; Credentials &rarr; your OAuth client &rarr; Authorized redirect URIs<br>
+      <code id="google-redirect-notice-url" style="color:#63b3ed;"></code>
+    </div>
+    <div class="google-actions">
+      <button class="btn" id="connect-google-btn" onclick="connectGoogle()">Connect Google Account</button>
+      <button class="btn" id="test-google-btn" onclick="testGoogleConnection()">Check Connection</button>
+      <button class="btn btn-danger" id="disconnect-google-btn" onclick="disconnectGoogle()">Disconnect Account</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Email Helper (Himalaya)</div>
+    <div class="form-group"><label>Program Name</label><input type="text" id="himalaya-bin" placeholder="himalaya"></div>
+    <div class="form-group"><label>Config File Path</label><input type="text" id="himalaya-config" placeholder="Optional"></div>
+    <div class="form-group"><label>Default Email Account</label><input type="text" id="himalaya-default-account" placeholder="Optional"></div>
+    <button class="btn" id="reconfigure-email-btn" onclick="toggleEmailReconfigure()">Reconfigure Gmail</button>
+    <div id="email-reconfigure-area" style="display:none; margin-top:1rem;">
+      <div class="form-hint" style="margin-bottom:0.8rem;">
+        Re-run the Gmail setup. You need a <a href="https://myaccount.google.com/apppasswords" target="_blank">Google App Password</a>.
+      </div>
+      <div class="form-group"><label>Gmail Address</label><input type="email" id="reconfig-email-address" placeholder="you@gmail.com" autocomplete="email"></div>
+      <div class="form-group"><label>App Password</label><input type="password" id="reconfig-email-password" placeholder="xxxx xxxx xxxx xxxx" autocomplete="off"></div>
+      <div class="status-line" id="reconfig-email-status"></div>
+      <button class="btn" id="reconfig-email-submit-btn" onclick="reconfigureEmail()">Install and Connect</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Safety Limits (Advanced)</div>
+    <div class="form-group"><label>Maximum Helper Rounds</label><input type="text" id="max-tool-rounds" placeholder="5" inputmode="numeric"></div>
+    <div class="form-group"><label>Maximum Actions Per Round</label><input type="text" id="max-tool-calls-per-round" placeholder="20" inputmode="numeric"></div>
+    <div class="form-group"><label>Command Timeout (seconds)</label><input type="text" id="max-command-timeout" placeholder="120" inputmode="numeric"></div>
+    <div class="form-group"><label>Maximum Workflow Steps</label><input type="text" id="max-workflow-steps" placeholder="12" inputmode="numeric"></div>
+    <div class="form-group"><label>Sub-helper Rounds</label><input type="text" id="max-subagent-tool-rounds" placeholder="5" inputmode="numeric"></div>
+    <div class="form-group"><label>Sub-helper Actions Per Round</label><input type="text" id="max-subagent-tool-calls-per-round" placeholder="15" inputmode="numeric"></div>
+    <div class="form-group">
+      <label>Auto Tidy Threshold (characters)</label>
+      <input type="text" id="max-context-chars" placeholder="120000" inputmode="numeric">
+      <div class="form-hint">If chat history gets too long, TALOS tidies it automatically and keeps going.</div>
+    </div>
+    <div class="form-group">
+      <label>Current Memory Usage</label>
+      <div class="usage-wrap">
+        <input type="range" id="context-usage-slider" class="usage-slider safe" min="0" max="120000" value="0" aria-label="Context usage compared to threshold">
+        <div class="status-line" id="context-usage-label">Checking memory usage...</div>
+        <div class="form-hint" id="context-usage-detail">This meter updates live for your current chat profile.</div>
+      </div>
+    </div>
+  </div>
+
+  <button class="btn" onclick="saveSettings()">Save Changes</button>
+  <button class="btn" onclick="hotReload()">Apply Without Restart</button>
+  <button class="btn btn-danger" onclick="restartBot()">Restart Assistant</button>
+  <div class="msg" id="msg"></div>
+</main>
+
+<script>
+var googlePollTimer = null;
+var contextUsageTimer = null;
+var _csrfToken = document.querySelector('meta[name="csrf-token"]') ? document.querySelector('meta[name="csrf-token"]').getAttribute('content') : '';
+
+function _post(url, body) {
+  body.csrf_token = _csrfToken;
+  return fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+}
+
+var PROVIDERS = [
+  { id: 'zhipu', name: 'ZhipuAI', env_key: 'ZHIPUAI_API_KEY', url: 'https://open.bigmodel.cn/', desc: 'GLM models for chat and reasoning' },
+  { id: 'openai', name: 'OpenAI', env_key: 'OPENAI_API_KEY', url: 'https://platform.openai.com/api-keys', desc: 'GPT and reasoning models' },
+  { id: 'anthropic', name: 'Anthropic', env_key: 'ANTHROPIC_API_KEY', url: 'https://console.anthropic.com/settings/keys', desc: 'Claude conversational models' },
+  { id: 'gemini', name: 'Gemini', env_key: 'GEMINI_API_KEY', url: 'https://aistudio.google.com/app/apikey', desc: 'Gemini models and optional web search' },
+  { id: 'nvidia', name: 'NVIDIA', env_key: 'NVIDIA_API_KEY', url: 'https://build.nvidia.com/', desc: 'NVIDIA hosted AI models' },
+  { id: 'cerebras', name: 'Cerebras', env_key: 'CEREBRAS_API_KEY', url: 'https://cloud.cerebras.ai/', desc: 'High-speed Llama inference' },
+  { id: 'openrouter', name: 'OpenRouter', env_key: 'OPENROUTER_API_KEY', url: 'https://openrouter.ai/keys', desc: 'Access 200+ models through one API' },
+  { id: 'ollama', name: 'Ollama', env_key: '', url: 'https://ollama.com', desc: 'Local models, no API key needed' },
+];
+
+var _providerModels = {};
+var _providerKeys = {};
+var _activeProvider = '';
+var _fetchTimer = null;
+var _baseUrlValues = { zhipu: '', nvidia: '', cerebras: '', openrouter: '', ollama: '' };
+
+function _saveBaseUrls() {
+  var el;
+  el = document.getElementById('client-base-url');
+  if (el) _baseUrlValues.zhipu = el.value;
+  el = document.getElementById('nvidia-base-url');
+  if (el) _baseUrlValues.nvidia = el.value;
+  el = document.getElementById('cerebras-base-url');
+  if (el) _baseUrlValues.cerebras = el.value;
+  el = document.getElementById('openrouter-base-url');
+  if (el) _baseUrlValues.openrouter = el.value;
+  el = document.getElementById('ollama-base-url');
+  if (el) _baseUrlValues.ollama = el.value;
+}
+
+function _prov(id) { return PROVIDERS.find(function(p) { return p.id === id; }); }
+
+function renderProviderTabs() {
+  var html = '';
+  PROVIDERS.forEach(function(p) {
+    var hasKey = p.id === 'ollama' ? !!_ollamaModel : !!_providerKeys[p.env_key];
+    var isActive = p.id === _activeProvider;
+    html += '<div class="provider-tab' + (isActive ? ' active' : '') + '" onclick="switchProvider(\'' + p.id + '\')">'
+      + '<span class="tab-dot ' + (hasKey ? 'on' : 'off') + '"></span>'
+      + p.name + '</div>';
+  });
+  document.getElementById('provider-tabs').innerHTML = html;
+}
+
+function _selectedModelId() {
+  if (!_currentMainModel) return '';
+  if (_currentMainModel.indexOf('/') !== -1) return _currentMainModel.split('/').slice(1).join('/');
+  return _currentMainModel;
+}
+
+function _selectedProvider() {
+  if (!_currentMainModel) return _activeProvider;
+  if (_currentMainModel.indexOf('/') !== -1) return _currentMainModel.split('/')[0];
+  return _activeProvider;
+}
+
+function renderProviderPanels() {
+  _saveBaseUrls();
+  var selModelId = _selectedModelId();
+  var selProvider = _selectedProvider();
+  var html = '';
+  PROVIDERS.forEach(function(p) {
+    var isActive = p.id === _activeProvider;
+
+    if (p.id === 'ollama') {
+      html += '<div class="provider-panel' + (isActive ? ' active' : '') + '" id="panel-ollama">'
+        + '<div class="provider-desc">' + p.desc + '. <a href="' + p.url + '" target="_blank">Install Ollama</a> first, then type a model name.</div>'
+        + '<div class="form-group">'
+        + '<label>Model Name <span id="key-badge-ollama">' + (_ollamaModel ? '<span class="badge-set">Set</span>' : '<span class="badge-unset">Not set</span>') + '</span></label>'
+        + '<input type="text" id="key-ollama" placeholder="e.g. llama3, mistral, deepseek-r1" value="' + (_ollamaModel || '') + '" autocomplete="off">'
+        + '<div class="form-hint">Type the model name. It will be pulled automatically if not already downloaded. Browse at <a href="https://ollama.com/library" target="_blank">ollama.com/library</a>.</div>'
+        + '</div>'
+        + '<div class="form-group">'
+        + '<label>Base URL</label>'
+        + '<input type="text" id="ollama-base-url" placeholder="http://localhost:11434/v1" value="' + (_baseUrlValues.ollama || '') + '">'
+        + '<div class="form-hint">Default is http://localhost:11434/v1. Change only if Ollama runs on a different port/host.</div>'
+        + '</div>'
+        + '<div id="ollama-status" class="status-line">' + (_ollamaModel ? 'Active model: ' + _ollamaModel : '') + '</div>'
+        + '<button class="btn" onclick="setupOllama()">Install & Pull Model</button>'
+        + '</div>';
+      return;
+    }
+
+    var hasKey = !!_providerKeys[p.env_key];
+    var models = _providerModels[p.id] || [];
+    html += '<div class="provider-panel' + (isActive ? ' active' : '') + '" id="panel-' + p.id + '">'
+      + '<div class="provider-desc">' + p.desc + '</div>'
+      + '<div class="form-group">'
+      + '<label>' + p.name + ' API Key <span id="key-badge-' + p.id + '">' + (hasKey ? '<span class="badge-set">Added</span>' : '<span class="badge-unset">Not added</span>') + '</span></label>'
+      + '<input type="password" id="key-' + p.id + '" placeholder="' + (hasKey ? 'Leave blank to keep your saved key' : 'Paste your ' + p.name + ' API key') + '" autocomplete="off" oninput="onKeyInput(\'' + p.id + '\')">'
+      + '<div class="form-hint"><a href="' + p.url + '" target="_blank">Open ' + p.name + ' key page</a></div>'
+      + '</div>'
+      + '<div class="form-group">'
+      + '<label>Main Text Model</label>'
+      + '<div class="model-select-wrap">'
+      + '<select id="model-' + p.id + '" onchange="onModelChange(\'' + p.id + '\')">'
+      + (models.length > 0 ? models.map(function(m) { return '<option value="' + m + '"' + (p.id === selProvider && m === selModelId ? ' selected' : '') + '>' + m + '</option>'; }).join('') : '<option value="">Add an API key to load models</option>')
+      + '</select>'
+      + '<button class="model-override-btn" onclick="toggleModelOverride(\'model-' + p.id + '\')" title="Type model name manually">&#9998;</button>'
+      + '</div>'
+      + '</div>';
+    if (p.id === 'zhipu') {
+      html += '<div class="form-group" style="margin-top:0.5rem;">'
+        + '<label>Base URL</label>'
+        + '<input type="text" id="client-base-url" placeholder="https://api.z.ai/api/coding/paas/v4" value="' + (_baseUrlValues.zhipu || '') + '">'
+        + '</div>';
+    }
+    if (p.id === 'nvidia') {
+      html += '<div class="form-group" style="margin-top:0.5rem;">'
+        + '<label>Base URL</label>'
+        + '<input type="text" id="nvidia-base-url" placeholder="https://integrate.api.nvidia.com/v1" value="' + (_baseUrlValues.nvidia || '') + '">'
+        + '</div>';
+    }
+    if (p.id === 'cerebras') {
+      html += '<div class="form-group" style="margin-top:0.5rem;">'
+        + '<label>Base URL</label>'
+        + '<input type="text" id="cerebras-base-url" placeholder="https://api.cerebras.ai/v1" value="' + (_baseUrlValues.cerebras || '') + '">'
+        + '</div>';
+    }
+    if (p.id === 'openrouter') {
+      html += '<div class="form-group" style="margin-top:0.5rem;">'
+        + '<label>Base URL</label>'
+        + '<input type="text" id="openrouter-base-url" placeholder="https://openrouter.ai/api/v1" value="' + (_baseUrlValues.openrouter || '') + '">'
+        + '</div>';
+    }
+    html += '</div>';
+  });
+  document.getElementById('provider-panels').innerHTML = html;
+  updateActiveModelDisplay();
+}
+
+function updateActiveModelDisplay() {
+  var el = document.getElementById('active-model-display');
+  if (!el) return;
+  if (_currentMainModel) {
+    el.textContent = _currentMainModel;
+  } else {
+    el.textContent = 'automatic (first available)';
+  }
+}
+
+function switchProvider(id) {
+  _activeProvider = id;
+  renderProviderTabs();
+  renderProviderPanels();
+}
+
+function onKeyInput(providerId) {
+  if (_fetchTimer) clearTimeout(_fetchTimer);
+  var input = document.getElementById('key-' + providerId);
+  var apiKey = input.value.trim();
+  if (!apiKey) return;
+  var sel = document.getElementById('model-' + providerId);
+  sel.innerHTML = '<option value="">Loading model list...</option>';
+  _fetchTimer = setTimeout(function() {
+    fetchModelsForProvider(providerId, apiKey);
+  }, 600);
+}
+
+async function fetchModelsForProvider(providerId, apiKey) {
+  var sel = document.getElementById('model-' + providerId);
+  var prevVal = sel ? sel.value : '';
+  try {
+    var res = await _post('/api/models/fetch', { provider: providerId, api_key: apiKey });
+    var data = await res.json();
+    if (data.models && data.models.length > 0) {
+      _providerModels[providerId] = data.models;
+    }
+  } catch (e) {}
+
+  var models = _providerModels[providerId] || [];
+  if (models.length === 0) {
+    sel.innerHTML = '<option value="">No models found. Check your key and try again.</option>';
+    return;
+  }
+  sel.innerHTML = models.map(function(m) { return '<option value="' + m + '"' + (m === prevVal ? ' selected' : '') + '>' + m + '</option>'; }).join('');
+}
+
+function onModelChange(providerId) {
+  var sel = document.getElementById('model-' + providerId);
+  var wrap = sel.closest('.model-select-wrap');
+  var inp = wrap.querySelector('.model-override-input');
+  if (inp && inp.style.display !== 'none' && inp.style.display !== '') return;
+  _currentMainModel = providerId + '/' + sel.value;
+}
+
+function toggleModelOverride(selectId) {
+  var sel = document.getElementById(selectId);
+  var wrap = sel.closest('.model-select-wrap');
+  var btn = wrap.querySelector('.model-override-btn');
+  var inp = wrap.querySelector('.model-override-input');
+  if (!inp) {
+    inp = document.createElement('input');
+    inp.type = 'text';
+    inp.className = 'model-override-input';
+    inp.placeholder = 'Type model name manually';
+    inp.value = sel.value;
+    inp.addEventListener('input', function() {
+      var baseId = selectId.replace(/^model-/, '');
+      if (baseId === selectId) baseId = null;
+      if (baseId && baseId !== 'image' && baseId !== 'fast') {
+        _currentMainModel = baseId + '/' + inp.value;
+      }
+    });
+    wrap.insertBefore(inp, btn);
+  }
+  var isOverride = inp.style.display !== 'none' && inp.style.display !== '';
+  if (isOverride) {
+    inp.style.display = 'none';
+    sel.style.display = '';
+    btn.classList.remove('active');
+    btn.innerHTML = '&#9998;';
+    var baseId = selectId.replace(/^model-/, '');
+    if (baseId && baseId !== 'image' && baseId !== 'fast') {
+      _currentMainModel = baseId + '/' + sel.value;
+    }
+  } else {
+    inp.value = sel.value;
+    inp.style.display = '';
+    sel.style.display = 'none';
+    btn.classList.add('active');
+    btn.innerHTML = '&#10005;';
+    var baseId2 = selectId.replace(/^model-/, '');
+    if (baseId2 && baseId2 !== 'image' && baseId2 !== 'fast') {
+      _currentMainModel = baseId2 + '/' + inp.value;
+    }
+  }
+}
+
+function getModelValue(selectId) {
+  var sel = document.getElementById(selectId);
+  var wrap = sel.closest('.model-select-wrap');
+  var inp = wrap.querySelector('.model-override-input');
+  if (inp && inp.style.display !== 'none' && inp.style.display !== '') {
+    return inp.value.trim();
+  }
+  return sel.value;
+}
+
+var _currentMainModel = '';
+var _ollamaModel = '';
+
+async function loadSettings() {
+  try {
+    var res = await fetch('/api/settings');
+    if (res.status === 401) { window.location.href = '/'; return; }
+    var d = await res.json();
+    document.getElementById('bot-name').value = d.BOT_NAME || '';
+    document.getElementById('telegram-token').value = d.TELEGRAM_BOT_TOKEN || '';
+    document.getElementById('web-port').value = d.WEB_PORT || '8080';
+    document.getElementById('google-api-key').value = d.GOOGLE_API_KEY || '';
+    document.getElementById('google-oauth-client-id').value = d.GOOGLE_OAUTH_CLIENT_ID || '';
+    document.getElementById('google-oauth-client-secret').value = d.GOOGLE_OAUTH_CLIENT_SECRET || '';
+    document.getElementById('google-oauth-redirect-uri').value = d.GOOGLE_OAUTH_REDIRECT_URI || '';
+    document.getElementById('google-apps-script-url').value = d.GOOGLE_APPS_SCRIPT_URL || '';
+    document.getElementById('google-oauth-scopes').value = d.GOOGLE_OAUTH_SCOPES || '';
+    document.getElementById('himalaya-bin').value = d.HIMALAYA_BIN || '';
+    document.getElementById('himalaya-config').value = d.HIMALAYA_CONFIG || '';
+    document.getElementById('himalaya-default-account').value = d.HIMALAYA_DEFAULT_ACCOUNT || '';
+    document.getElementById('max-tool-rounds').value = d.MAX_TOOL_ROUNDS || '5';
+    document.getElementById('max-tool-calls-per-round').value = d.MAX_TOOL_CALLS_PER_ROUND || '20';
+    document.getElementById('max-command-timeout').value = d.MAX_COMMAND_TIMEOUT || '120';
+    document.getElementById('max-workflow-steps').value = d.MAX_WORKFLOW_STEPS || '12';
+    document.getElementById('max-subagent-tool-rounds').value = d.MAX_SUBAGENT_TOOL_ROUNDS || '5';
+    document.getElementById('max-subagent-tool-calls-per-round').value = d.MAX_SUBAGENT_TOOL_CALLS_PER_ROUND || '15';
+    document.getElementById('max-context-chars').value = d.MAX_CONTEXT_CHARS || '120000';
+
+    _providerKeys = {
+      ZHIPUAI_API_KEY: d.ZHIPUAI_API_KEY || '',
+      OPENAI_API_KEY: d.OPENAI_API_KEY || '',
+      ANTHROPIC_API_KEY: d.ANTHROPIC_API_KEY || '',
+      GEMINI_API_KEY: d.GEMINI_API_KEY || '',
+      NVIDIA_API_KEY: d.NVIDIA_API_KEY || '',
+      CEREBRAS_API_KEY: d.CEREBRAS_API_KEY || '',
+      OPENROUTER_API_KEY: d.OPENROUTER_API_KEY || '',
+    };
+
+    _currentMainModel = d.MAIN_MODEL || '';
+    _ollamaModel = d.OLLAMA_MODEL || '';
+
+    var mainProvider = '';
+    var mainModelId = _currentMainModel;
+    if (_currentMainModel && _currentMainModel.indexOf('/') !== -1) {
+      var parts = _currentMainModel.split('/');
+      mainProvider = parts[0];
+      mainModelId = parts.slice(1).join('/');
+    } else if (_currentMainModel) {
+      for (var i = 0; i < PROVIDERS.length; i++) {
+        var p = PROVIDERS[i];
+        if (p.id === 'ollama' && _ollamaModel) {
+          mainProvider = 'ollama';
+          break;
+        }
+        if (_providerKeys[p.env_key]) {
+          mainProvider = p.id;
+          break;
+        }
+      }
+    }
+
+    _activeProvider = mainProvider || 'zhipu';
+
+    await loadAllProviderModels();
+    renderProviderTabs();
+    renderProviderPanels();
+
+    _baseUrlValues.zhipu = d.CLIENT_BASE_URL || '';
+    _baseUrlValues.nvidia = d.NVIDIA_BASE_URL || '';
+    _baseUrlValues.cerebras = d.CEREBRAS_BASE_URL || '';
+    _baseUrlValues.openrouter = d.OPENROUTER_BASE_URL || '';
+    _baseUrlValues.ollama = d.OLLAMA_BASE_URL || '';
+    var cbu = document.getElementById('client-base-url');
+    if (cbu) cbu.value = _baseUrlValues.zhipu;
+    var nbu = document.getElementById('nvidia-base-url');
+    if (nbu) nbu.value = _baseUrlValues.nvidia;
+    var csbu = document.getElementById('cerebras-base-url');
+    if (csbu) csbu.value = _baseUrlValues.cerebras;
+    var orbu = document.getElementById('openrouter-base-url');
+    if (orbu) orbu.value = _baseUrlValues.openrouter;
+    var obu = document.getElementById('ollama-base-url');
+    if (obu) obu.value = _baseUrlValues.ollama;
+
+    await loadImageModels(d);
+    await loadFastModels(d);
+    updateStatus('google-api', d.GOOGLE_API_KEY);
+    await loadGoogleStatus();
+    await loadContextUsage();
+    startContextUsagePolling();
+  } catch (e) {}
+}
+
+async function loadAllProviderModels() {
+  var promises = PROVIDERS.map(function(p) {
+    if (p.id === 'ollama') {
+    return fetch('/api/models/fetch', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ provider: 'ollama', api_key: '' })
+    }).then(function(res) { return res.json(); }).then(function(data) {
+        if (data.models && data.models.length > 0) {
+          _providerModels['ollama'] = data.models;
+        }
+      }).catch(function() {});
+    }
+    var key = _providerKeys[p.env_key];
+    if (!key) return Promise.resolve();
+    return fetch('/api/models/fetch', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ provider: p.id, api_key: key })
+    }).then(function(res) { return res.json(); }).then(function(data) {      if (data.models && data.models.length > 0) {
+        _providerModels[p.id] = data.models;
+      }
+    }).catch(function() {});
+  });
+  await Promise.all(promises);
+}
+
+async function loadImageModels(d) {
+  try {
+    var res = await fetch('/api/models');
+    if (res.status === 401) return;
+    var models = await res.json();
+    var is = document.getElementById('image-model');
+    is.innerHTML = '<option value="">Use the main text model</option>';
+    (models.image_models || []).forEach(function(m) { is.innerHTML += '<option value="' + m + '">' + m + '</option>'; });
+    if (d.IMAGE_MODEL) is.value = d.IMAGE_MODEL;
+    window._allModels = models.all_models || [];
+  } catch (e) {}
+}
+
+async function loadFastModels(d) {
+  try {
+    var allModels = window._allModels || [];
+    var fs = document.getElementById('fast-model');
+    fs.innerHTML = '<option value="">Not set (optional)</option>';
+    allModels.forEach(function(m) { fs.innerHTML += '<option value="' + m + '">' + m + '</option>'; });
+    if (d.FAST_MODEL) fs.value = d.FAST_MODEL;
+  } catch (e) {}
+}
+
+function updateStatus(key, val) {
+  var el = document.getElementById(key + '-status');
+  if (el) el.innerHTML = val ? '<span class="badge-set">Added</span>' : '<span class="badge-unset">Not added</span>';
+}
+
+function showMsg(t, ok) { var el = document.getElementById('msg'); el.textContent = t; el.className = 'msg ' + (ok ? 'msg-ok' : 'msg-err'); setTimeout(function() { el.textContent = ''; }, 4000); }
+
+function toInt(v, fallback) {
+  var n = parseInt(v, 10);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function renderContextUsage(data) {
+  var slider = document.getElementById('context-usage-slider');
+  var label = document.getElementById('context-usage-label');
+  var detail = document.getElementById('context-usage-detail');
+
+  var threshold = Math.max(10000, toInt(data.threshold_chars, 120000));
+  var used = Math.max(0, toInt(data.used_chars, 0));
+  var percent = Number(data.percent || 0);
+  var state = String(data.state || 'safe');
+
+  slider.max = String(Math.max(threshold, used, 1));
+  slider.value = String(Math.min(used, toInt(slider.max, threshold)));
+
+  slider.classList.remove('safe', 'warning', 'critical');
+  if (state !== 'warning' && state !== 'critical') state = 'safe';
+  slider.classList.add(state);
+
+  var clampedPercent = Math.max(0, Math.min(100, percent));
+  var color = state === 'critical' ? '#f56565' : (state === 'warning' ? '#d69e2e' : '#48bb78');
+  slider.style.background = 'linear-gradient(90deg, ' + color + ' 0%, ' + color + ' ' + clampedPercent + '%, rgba(255,255,255,0.12) ' + clampedPercent + '%, rgba(255,255,255,0.12) 100%)';
+
+  label.textContent = 'Used ' + used.toLocaleString() + ' / ' + threshold.toLocaleString() + ' chars (' + clampedPercent.toFixed(1) + '%)';
+  detail.textContent = 'Remaining: ' + Math.max(0, threshold - used).toLocaleString() + ' characters. Saved messages: ' + toInt(data.history_messages, 0) + '.';
+}
+
+async function loadContextUsage() {
+  try {
+    var res = await fetch('/api/context-usage');
+    if (res.status === 401) { window.location.href = '/'; return; }
+    var data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'failed');
+    renderContextUsage(data);
+  } catch (e) {
+    var label = document.getElementById('context-usage-label');
+    var detail = document.getElementById('context-usage-detail');
+    if (label) label.textContent = 'Memory usage is unavailable right now';
+    if (detail) detail.textContent = 'Live memory info could not be loaded. Please try again in a moment.';
+  }
+}
+
+function startContextUsagePolling() {
+  if (contextUsageTimer) clearInterval(contextUsageTimer);
+  contextUsageTimer = setInterval(loadContextUsage, 3000);
+}
+
+async function saveSettings() {
+  _saveBaseUrls();
+  var mainModel = _currentMainModel;
+  var activeProv = _prov(_activeProvider);
+  var activeKeyInput = document.getElementById('key-' + _activeProvider);
+  var activeKeyVal = activeKeyInput ? activeKeyInput.value.trim() : '';
+
+  if (_activeProvider === 'ollama') {
+    var ollamaInput = document.getElementById('key-ollama');
+    var ollamaName = ollamaInput ? ollamaInput.value.trim() : '';
+    if (ollamaName) {
+      mainModel = 'ollama/' + ollamaName;
+      _ollamaModel = ollamaName;
+    }
+  }
+
+  var p = {
+    BOT_NAME: document.getElementById('bot-name').value.trim(),
+    TELEGRAM_BOT_TOKEN: document.getElementById('telegram-token').value.trim(),
+    WEB_PORT: document.getElementById('web-port').value.trim() || '8080',
+    GOOGLE_API_KEY: document.getElementById('google-api-key').value.trim(),
+    GOOGLE_OAUTH_CLIENT_ID: document.getElementById('google-oauth-client-id').value.trim(),
+    GOOGLE_OAUTH_CLIENT_SECRET: document.getElementById('google-oauth-client-secret').value.trim(),
+    GOOGLE_OAUTH_REDIRECT_URI: document.getElementById('google-oauth-redirect-uri').value.trim(),
+    GOOGLE_APPS_SCRIPT_URL: document.getElementById('google-apps-script-url').value.trim(),
+    GOOGLE_OAUTH_SCOPES: document.getElementById('google-oauth-scopes').value.trim(),
+    HIMALAYA_BIN: document.getElementById('himalaya-bin').value.trim(),
+    HIMALAYA_CONFIG: document.getElementById('himalaya-config').value.trim(),
+    HIMALAYA_DEFAULT_ACCOUNT: document.getElementById('himalaya-default-account').value.trim(),
+    CLIENT_BASE_URL: (document.getElementById('client-base-url') || {}).value || _baseUrlValues.zhipu || '',
+    NVIDIA_BASE_URL: (document.getElementById('nvidia-base-url') || {}).value || _baseUrlValues.nvidia || '',
+    CEREBRAS_BASE_URL: (document.getElementById('cerebras-base-url') || {}).value || _baseUrlValues.cerebras || '',
+    OPENROUTER_BASE_URL: (document.getElementById('openrouter-base-url') || {}).value || _baseUrlValues.openrouter || '',
+    OLLAMA_BASE_URL: (document.getElementById('ollama-base-url') || {}).value || _baseUrlValues.ollama || '',
+    OLLAMA_MODEL: (document.getElementById('key-ollama') || {}).value || _ollamaModel || '',
+    MAIN_MODEL: mainModel,
+    IMAGE_MODEL: getModelValue('image-model'),
+    FAST_MODEL: getModelValue('fast-model'),
+    MAX_TOOL_ROUNDS: document.getElementById('max-tool-rounds').value.trim(),
+    MAX_TOOL_CALLS_PER_ROUND: document.getElementById('max-tool-calls-per-round').value.trim(),
+    MAX_COMMAND_TIMEOUT: document.getElementById('max-command-timeout').value.trim(),
+    MAX_WORKFLOW_STEPS: document.getElementById('max-workflow-steps').value.trim(),
+    MAX_SUBAGENT_TOOL_ROUNDS: document.getElementById('max-subagent-tool-rounds').value.trim(),
+    MAX_SUBAGENT_TOOL_CALLS_PER_ROUND: document.getElementById('max-subagent-tool-calls-per-round').value.trim(),
+    MAX_CONTEXT_CHARS: document.getElementById('max-context-chars').value.trim()
+  };
+
+  if (activeProv && activeKeyVal) {
+    p[activeProv.env_key] = activeKeyVal;
+  }
+
+  try {
+    var res = await _post('/api/settings', p);
+    if (res.status === 401) { window.location.href = '/'; return; }
+    var d = await res.json();
+    if (d.ok) {
+      showMsg('Your settings were saved.', true);
+      if (activeKeyVal && activeProv) {
+        _providerKeys[activeProv.env_key] = activeKeyVal;
+      }
+      renderProviderTabs();
+      renderProviderPanels();
+      updateActiveModelDisplay();
+      updateStatus('google-api', p.GOOGLE_API_KEY);
+      await loadGoogleStatus();
+      await loadContextUsage();
+    }
+    else showMsg(d.error || 'Could not save settings.', false);
+  } catch (e) { showMsg('Connection problem. Please try again.', false); }
+}
+
+async function loadGoogleStatus() {
+  try {
+    var res = await fetch('/api/google/status');
+    if (res.status === 401) return;
+    var d = await res.json();
+    var connected = !!d.connected, hasClient = !!d.has_oauth_client;
+    var txt = connected ? 'Google account: connected' : hasClient ? 'Google account: ready to connect' : 'Google account: add OAuth Client ID first';
+    document.getElementById('google-connection-status').textContent = txt;
+    document.getElementById('google-redirect-hint').textContent = 'Redirect URL: ' + (d.redirect_uri || '(automatic)');
+    document.getElementById('connect-google-btn').disabled = !hasClient;
+    document.getElementById('test-google-btn').disabled = !connected;
+    document.getElementById('disconnect-google-btn').disabled = !connected;
+
+    var notice = document.getElementById('google-redirect-notice');
+    var noticeUrl = document.getElementById('google-redirect-notice-url');
+    if (hasClient && !connected && d.redirect_uri) {
+      notice.style.display = 'block';
+      noticeUrl.textContent = d.redirect_uri;
+    } else {
+      notice.style.display = 'none';
+    }
+  } catch (e) { document.getElementById('google-connection-status').textContent = 'Google status unavailable right now'; }
+}
+
+async function connectGoogle() {
+  document.getElementById('connect-google-btn').disabled = true;
+  try {
+    var res = await _post('/api/google/connect', {});
+    var d = await res.json();
+    if (d.ok && d.auth_url) {
+      var w = window.open(d.auth_url, '_blank', 'noopener');
+      if (!w) window.location.href = d.auth_url;
+      showMsg('A new tab opened. Please finish Google sign-in there.', true);
+      if (googlePollTimer) clearInterval(googlePollTimer);
+      var n = 0;
+      googlePollTimer = setInterval(async function() { n++; await loadGoogleStatus(); if (n >= 30) clearInterval(googlePollTimer); }, 3000);
+    } else showMsg(d.error || 'Could not start Google connection.', false);
+  } catch (e) { showMsg('Connection problem. Please try again.', false); }
+  document.getElementById('connect-google-btn').disabled = false;
+}
+
+async function testGoogleConnection() {
+  try {
+    var res = await _post('/api/google/test', {});
+    var d = await res.json();
+    showMsg(d.ok ? (d.warning || 'Connection check passed.') : (d.error || 'Connection check failed.'), d.ok && !d.warning);
+  } catch (e) { showMsg('Connection problem. Please try again.', false); }
+}
+
+async function disconnectGoogle() {
+  if (!confirm('Disconnect your Google account from this assistant?')) return;
+  try { var res = await _post('/api/google/disconnect', {}); var d = await res.json(); showMsg(d.ok ? 'Google account disconnected.' : (d.error || 'Could not disconnect Google account.'), d.ok); await loadGoogleStatus(); } catch (e) { showMsg('Connection problem. Please try again.', false); }
+}
+
+async function hotReload() {
+  try { var res = await _post('/api/reload', {}); var d = await res.json(); showMsg(d.ok ? 'Changes applied.' : (d.error || 'Could not apply changes.'), d.ok); } catch (e) { showMsg('Connection problem. Please try again.', false); }
+}
+
+async function restartBot() {
+  if (!confirm('Restart the assistant now?')) return;
+  try { var res = await _post('/api/restart', {}); var d = await res.json(); if (d.ok) { showMsg('Restarting assistant...', true); setTimeout(function() { location.reload(); }, 2000); } else showMsg(d.error || 'Could not restart the assistant.', false); } catch (e) { showMsg('Connection problem. Please try again.', false); }
+}
+
+function toggleEmailReconfigure() {
+  var area = document.getElementById('email-reconfigure-area');
+  area.style.display = area.style.display === 'none' ? 'block' : 'none';
+}
+
+async function reconfigureEmail() {
+  var email = document.getElementById('reconfig-email-address').value.trim();
+  var password = document.getElementById('reconfig-email-password').value.trim();
+  var status = document.getElementById('reconfig-email-status');
+  var btn = document.getElementById('reconfig-email-submit-btn');
+  status.textContent = '';
+  status.style.color = '';
+
+  if (!email) { status.style.color = '#f56565'; status.textContent = 'Please enter your Gmail address.'; return; }
+  if (!email.endsWith('@gmail.com')) { status.style.color = '#f56565'; status.textContent = 'Only Gmail addresses are supported.'; return; }
+  if (!password) { status.style.color = '#f56565'; status.textContent = 'Please enter your app password.'; return; }
+
+  btn.disabled = true;
+  status.style.color = '#63b3ed';
+  status.textContent = 'Configuring email...';
+
+  try {
+    var res = await _post('/api/onboarding/email', { email: email, app_password: password });
+    var d = await res.json();
+    if (d.ok) {
+      status.style.color = '#48bb78';
+      status.textContent = 'Email configured: ' + email;
+      document.getElementById('reconfig-email-password').value = '';
+      await loadSettings();
+    } else {
+      status.style.color = '#f56565';
+      status.textContent = d.error || 'Could not configure email.';
+    }
+  } catch (e) {
+    status.style.color = '#f56565';
+    status.textContent = 'Connection problem. Please try again.';
+  }
+  btn.disabled = false;
+}
+
+async function setupOllama() {
+  var modelName = (document.getElementById('key-ollama') || {}).value || '';
+  var statusEl = document.getElementById('ollama-status');
+  if (!modelName.trim()) { statusEl.textContent = 'Please enter a model name.'; statusEl.style.color = '#f56565'; return; }
+  statusEl.textContent = 'Pulling model ' + modelName.trim() + '... This may take a few minutes on first download.';
+  statusEl.style.color = '#63b3ed';
+  try {
+    var res = await _post('/api/ollama/setup', { model_name: modelName.trim() });
+    var d = await res.json();
+    if (d.ok) {
+      _ollamaModel = modelName.trim();
+      _currentMainModel = 'ollama/' + _ollamaModel;
+      statusEl.textContent = 'Model ' + d.model + ' is ready.';
+      statusEl.style.color = '#48bb78';
+      renderProviderTabs();
+      updateActiveModelDisplay();
+      showMsg('Ollama model set: ' + d.model, true);
+    } else {
+      statusEl.textContent = d.error || 'Could not set up Ollama model.';
+      statusEl.style.color = '#f56565';
+    }
+  } catch (e) {
+    statusEl.textContent = 'Connection problem. Please try again.';
+    statusEl.style.color = '#f56565';
+  }
+}
+
+function logout() { fetch('/logout', { method: 'POST' }).then(function() { window.location.href = '/'; }); }
+function toggleSidebar() { document.getElementById('sidebar').classList.toggle('open'); document.getElementById('sidebar-overlay').classList.toggle('open'); }
+loadSettings();
+</script>
+</body>
+</html>

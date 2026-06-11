@@ -1,0 +1,16 @@
+services:
+  talos:
+    image: "${TALOS_IMAGE:-ghcr.io/vynavinv/clai-talos}:${TALOS_TAG:-latest}"
+    container_name: clai-talos
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8080}:8080"
+    environment:
+      TALOS_DATA_DIR: /data
+      WEB_PORT: "8080"
+      TZ: "${TZ:-UTC}"
+    volumes:
+      - talos-data:/data
+
+volumes:
+  talos-data:
