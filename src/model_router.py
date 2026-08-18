@@ -396,6 +396,24 @@ def _build_openai_result(reply_text: str, tool_calls: list[dict], reasoning: str
     }
 
 
+async def _aclose_stream_chain(stream: Any) -> None:
+    """Finalize the SSE decoder/iterator once a stream is done with.
+
+    Matters most when the stream is abandoned part-way (a timeout cancels the
+    round), where the generators would otherwise sit suspended until garbage
+    collection rather than being closed on the spot.
+    """
+    for attr in ("_iterator", "_decoder"):
+        candidate = getattr(stream, attr, None)
+        aclose = getattr(candidate, "aclose", None)
+        if aclose is None:
+            continue
+        try:
+            await aclose()
+        except Exception:
+            logger.debug("Ignoring error while closing %s of stream", attr, exc_info=True)
+
+
 async def _stream_openai_chat(client: Any, kwargs: dict[str, Any]) -> dict:
     """Run an OpenAI-compatible chat completion in streaming mode.
 
@@ -411,40 +429,47 @@ async def _stream_openai_chat(client: Any, kwargs: dict[str, Any]) -> dict:
     partial_tools: dict[int, dict[str, str]] = {}
 
     stream = await client.chat.completions.create(**stream_kwargs)
-    async for chunk in stream:
-        if not getattr(chunk, "choices", None):
-            continue
-        delta = getattr(chunk.choices[0], "delta", None)
-        if delta is None:
-            continue
+    # `async with` guarantees the HTTP response is released even if the caller
+    # is cancelled mid-stream, which otherwise leaks pooled connections.
+    try:
+        async with stream:
+            async for chunk in stream:
+                if not getattr(chunk, "choices", None):
+                    continue
+                delta = getattr(chunk.choices[0], "delta", None)
+                if delta is None:
+                    continue
 
-        reasoning_piece = _reasoning_from_delta(delta)
-        if reasoning_piece:
-            reasoning_parts.append(reasoning_piece)
-            await _emit_delta("reasoning", reasoning_piece)
+                reasoning_piece = _reasoning_from_delta(delta)
+                if reasoning_piece:
+                    reasoning_parts.append(reasoning_piece)
+                    await _emit_delta("reasoning", reasoning_piece)
 
-        piece = getattr(delta, "content", None)
-        if piece:
-            content_parts.append(piece)
-            await _emit_delta("content", piece)
+                piece = getattr(delta, "content", None)
+                if piece:
+                    content_parts.append(piece)
+                    await _emit_delta("content", piece)
 
-        for tc in (getattr(delta, "tool_calls", None) or []):
-            idx = getattr(tc, "index", 0) or 0
-            slot = partial_tools.setdefault(idx, {"id": "", "name": "", "arguments": ""})
-            tc_id = getattr(tc, "id", None)
-            if tc_id:
-                slot["id"] = tc_id
-            fn = getattr(tc, "function", None)
-            if fn is None:
-                continue
-            fn_name = getattr(fn, "name", None)
-            if fn_name:
-                slot["name"] = fn_name
-                await _emit_delta("tool", f"{fn_name}(")
-            fn_args = getattr(fn, "arguments", None)
-            if fn_args:
-                slot["arguments"] += fn_args
-                await _emit_delta("tool_args", fn_args)
+                for tc in (getattr(delta, "tool_calls", None) or []):
+                    idx = getattr(tc, "index", 0) or 0
+                    slot = partial_tools.setdefault(idx, {"id": "", "name": "", "arguments": ""})
+                    tc_id = getattr(tc, "id", None)
+                    if tc_id:
+                        slot["id"] = tc_id
+                    fn = getattr(tc, "function", None)
+                    if fn is None:
+                        continue
+                    fn_name = getattr(fn, "name", None)
+                    if fn_name:
+                        slot["name"] = fn_name
+                        await _emit_delta("tool", f"{fn_name}(")
+                    fn_args = getattr(fn, "arguments", None)
+                    if fn_args:
+                        slot["arguments"] += fn_args
+                        await _emit_delta("tool_args", fn_args)
+
+    finally:
+        await _aclose_stream_chain(stream)
 
     tool_calls = []
     for idx in sorted(partial_tools):

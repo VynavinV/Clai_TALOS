@@ -1404,10 +1404,10 @@ async def handle_root(request):
     if validate_session(token):
         if needs_onboarding():
             return web.HTTPFound("/onboarding")
-        return web.Response(
-            text=render_template("dashboard.html", BOT_NAME=BOT_NAME),
-            content_type="text/html",
-        )
+        # Go through _serve_auth_page so the CSRF token is substituted and its
+        # cookie set; rendering directly left a literal "{{CSRF_TOKEN}}" in the
+        # page and broke POSTs made from the dashboard served at "/".
+        return _serve_auth_page(request, "dashboard.html")
 
     # Not logged in -> login page
     cleanup_csrf()

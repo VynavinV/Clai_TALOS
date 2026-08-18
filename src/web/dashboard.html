@@ -907,10 +907,6 @@
     </div>
   </div>
 
-  <!-- Remote dashboard container: if `DASHBOARD_REMOTE_URL` is set, the client will fetch and embed that page here -->
-  <div id="remote-dashboard-container" style="margin:1rem 0; display:block;">
-    <!-- remote content will be injected here when configured -->
-  </div>
   <div class="board">
     <div class="board-main">
       <section class="panel">
@@ -1152,49 +1148,6 @@ function toggleSidebar() {
 
 poll();
 setInterval(poll, 5000);
-
-// If a remote dashboard URL is provided via templating variable `DASHBOARD_REMOTE_URL`,
-// attempt to fetch and embed it into the page. This allows the dashboard to display
-// content hosted on GitHub (Pages or raw content) while keeping the main UI local.
-(function() {
-  try {
-    var REMOTE_DASH_URL = "{{DASHBOARD_REMOTE_URL}}";
-    if (REMOTE_DASH_URL && REMOTE_DASH_URL.length > 6) {
-      (async function() {
-        var container = document.getElementById('remote-dashboard-container');
-        if (!container) {
-          container = document.createElement('div');
-          container.id = 'remote-dashboard-container';
-          document.querySelector('.main').insertBefore(container, document.querySelector('.board'));
-        }
-        try {
-          var r = await fetch(REMOTE_DASH_URL, { cache: 'no-cache' });
-          if (r.ok) {
-            var text = await r.text();
-            // Inject fetched HTML. Note: scripts in fetched HTML will not execute.
-            container.innerHTML = text;
-            container.className = 'panel';
-          } else {
-            // Fallback to iframe if fetch fails
-            var iframe = document.createElement('iframe');
-            iframe.src = REMOTE_DASH_URL;
-            iframe.style.width = '100%';
-            iframe.style.height = '600px';
-            iframe.style.border = '0';
-            container.appendChild(iframe);
-          }
-        } catch (err) {
-          var iframe = document.createElement('iframe');
-          iframe.src = REMOTE_DASH_URL;
-          iframe.style.width = '100%';
-          iframe.style.height = '600px';
-          iframe.style.border = '0';
-          container.appendChild(iframe);
-        }
-      })();
-    }
-  } catch (e) {}
-})();
 
 (function() {
   var events = [];

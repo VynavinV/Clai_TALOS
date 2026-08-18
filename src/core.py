@@ -164,7 +164,10 @@ async def process_message(user_id: int, text: str, send_func, model_override: st
         )
         await _cancel_task(watchdog_task)
         await _cancel_task(watcher_task)
-        if reply and reply.strip():
+        if AI.was_already_sent(reply):
+            # The agent answered through send_telegram_message; the user has it.
+            logger.info("Final reply already delivered via message tool; not resending")
+        elif reply and reply.strip():
             await _send_with_optional_voice(send_func, reply, stream=True)
         else:
             await _send_with_optional_voice(

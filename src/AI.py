@@ -340,6 +340,45 @@ _REPEATABLE_TOOLS = {
 }
 
 
+class AlreadySentReply(str):
+    """A final reply the agent already delivered through a message tool.
+
+    Behaves as a normal string everywhere, but lets `core.process_message`
+    recognise text the user has already received so it is not sent twice.
+    """
+
+    __slots__ = ()
+
+
+def was_already_sent(reply: object) -> bool:
+    return isinstance(reply, AlreadySentReply)
+
+
+# Tools whose only effect is delivering text to the user. A round made up
+# solely of these means the model has answered rather than done more work.
+_USER_FACING_MESSAGE_TOOLS = {"send_telegram_message", "send_voice_message"}
+
+_HANDOFF_RE = re.compile(
+    r"\b(i(?:'ll| will| am going to| can| shall)|let me|give me|hold on|"
+    r"stand by|starting|getting started|working on|i'm on it)\b",
+    re.IGNORECASE,
+)
+
+
+def _message_defers_work(text: str) -> bool:
+    """True when a message promises future work rather than concluding the turn."""
+    stripped = (text or "").strip()
+    if not stripped:
+        return True
+    if _is_low_value_progress_message(stripped):
+        return True
+    if _looks_like_completion_message(stripped):
+        return False
+    # Only treat the opening as a promise, so a long answer that merely contains
+    # "I will" partway through still counts as a real answer.
+    return bool(_HANDOFF_RE.match(stripped)) or bool(_HANDOFF_RE.match(stripped[:40]))
+
+
 def _tool_call_signature(tool_name: str, tool_args: dict) -> str:
     """Stable key identifying "this exact call again"."""
     try:
@@ -2102,7 +2141,15 @@ async def _execute_tool_call(
                 return json.dumps({"sent": False, "skipped": "low_value_progress"})
             if send_func:
                 await _send_via_send_func(send_func, message)
-                return json.dumps({"sent": True})
+                # Spell out what this is: a bare {"sent": true} gets misread by
+                # weaker models as a new user message, which sends them looking
+                # for more work to do.
+                return json.dumps({
+                    "tool": "send_telegram_message",
+                    "sent": True,
+                    "note": "This is tool output, not a message from the user. Your text was delivered.",
+                    "instruction": "Do not send it again. If it answered the user, stop calling tools and write your final answer.",
+                })
             return json.dumps({"error": "No Telegram send function available"})
 
         elif tool_name == "send_voice_message":
@@ -2554,6 +2601,9 @@ async def _run_agent(
 
     model_id = _MODELS.get(model.lower(), model)
     guard = _LoopGuard(is_orchestrator=_parent_agent_id is None)
+    # Consecutive rounds whose only action was messaging the user.
+    message_only_rounds = 0
+    last_user_message = ""
 
     def _with_activity_meta(extra: dict | None = None) -> dict:
         payload = dict(extra or {})
@@ -2777,6 +2827,48 @@ async def _run_agent(
 
         if using_default_tools and any(tc["name"] in {"create_tool", "delete_tool"} for tc in tool_calls):
             tools = _get_all_tools(include_subagent=allow_subagent, include_telegram=send_func is not None)
+
+        # A round spent only messaging the user IS the model's answer — weaker
+        # models reply through send_telegram_message instead of returning text,
+        # then read the "{sent: true}" result as a fresh user turn and invent
+        # more work. Close the turn out instead of handing them another round.
+        messaged = [tc for tc in allowed_calls if tc["name"] in _USER_FACING_MESSAGE_TOOLS]
+        if messaged and len(messaged) == len(allowed_calls):
+            message_only_rounds += 1
+            texts = [
+                str(tc["arguments"].get("message") or tc["arguments"].get("text") or "").strip()
+                for tc in messaged if isinstance(tc["arguments"], dict)
+            ]
+            spoken = "\n\n".join(t for t in texts if t)
+            if spoken:
+                last_user_message = spoken
+            # One round of grace for "on it, starting now"; otherwise the model
+            # has said its piece and the turn is over.
+            if spoken and not _message_defers_work(spoken):
+                await _t.emit(
+                    "done", _agent_id, "Responded",
+                    "Answered the user through a message tool",
+                    _with_activity_meta({"text": spoken[:_STREAM_MAX_EVENT_CHARS], "via": "send_telegram_message"}),
+                )
+                return AlreadySentReply(spoken)
+            if message_only_rounds >= 2:
+                await _t.emit(
+                    "done", _agent_id, "Responded",
+                    "Only sent messages for two rounds — closing the turn",
+                    _with_activity_meta({"text": last_user_message[:_STREAM_MAX_EVENT_CHARS]}),
+                )
+                return AlreadySentReply(last_user_message)
+            messages.append({
+                "role": "user",
+                "content": (
+                    "[SYSTEM] Your message was delivered to the user. Do not send it again. "
+                    "The tool results above are tool output, not new messages from the user. "
+                    "If you have finished, reply with your final answer as plain text and call no tools. "
+                    "Otherwise continue with real work."
+                ),
+            })
+        else:
+            message_only_rounds = 0
 
         if guard.note_round(bool(tool_calls) and not allowed_calls):
             logger.warning(f"{_agent_id} made no progress for {guard.stalled_rounds} rounds; ending tool loop")
@@ -3082,7 +3174,11 @@ Based on this analysis and the user's current request, proceed with any tasks ne
     db.add_message(user_id, "user", text)
     db.add_message(user_id, "assistant", reply)
     _schedule_summary(user_id, model, speed_mode=speed_mode, reasoning_enabled=reasoning_enabled)
-    return _sanitize_response(reply)
+    sanitized = _sanitize_response(reply)
+    # Preserve the "already delivered" marker through sanitising.
+    if was_already_sent(reply):
+        return AlreadySentReply(sanitized)
+    return sanitized
 
 
 async def respond_with_image(user_id: int, text: str, image_b64: str, send_func: SendFunc | None = None) -> str:
