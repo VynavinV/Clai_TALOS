@@ -386,8 +386,8 @@
           </div>
           <div class="field">
             <label>Keep model loaded</label>
-            <input type="text" id="ollama-keep-alive" placeholder="5m" autocomplete="off">
-            <div class="hint">How long to keep the model in memory between messages, e.g. 5m or 1h.</div>
+            <input type="text" id="ollama-keep-alive" placeholder="30m" autocomplete="off">
+            <div class="hint">TALOS keeps the model loaded (default 30m) so replies start instantly. Use -1 to never unload, or a shorter time to free RAM sooner.</div>
           </div>
           <div class="field">
             <label>Max response tokens</label>

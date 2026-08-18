@@ -223,6 +223,11 @@ def reload_clients():
     _OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
     _OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
 
+    # Config just changed: the warm-up loop should re-check which local model
+    # to hold in memory instead of waiting out its cycle.
+    import ollama_setup
+    ollama_setup.request_warm_refresh()
+
 
 def _get_openai_client():
     global _openai_client
@@ -892,11 +897,8 @@ def _env_int(name: str) -> int | None:
 
 def ollama_options() -> dict[str, Any]:
     """Ollama-specific generation options configured in Settings."""
-    options: dict[str, Any] = {}
-    num_ctx = _env_int("OLLAMA_NUM_CTX")
-    if num_ctx:
-        options["num_ctx"] = num_ctx
-    return options
+    import ollama_setup
+    return ollama_setup.generation_options()
 
 
 async def call_ollama(
@@ -919,15 +921,15 @@ async def call_ollama(
         kwargs["max_tokens"] = max_tokens
 
     # num_ctx / keep_alive are Ollama extensions, passed through extra_body.
-    extra_body: dict[str, Any] = {}
+    # keep_alive is always sent, but note that Ollama's OpenAI-compatible
+    # endpoint currently ignores it and falls back to its own 5-minute TTL --
+    # ollama_setup.keep_warm_loop is what actually keeps the model resident.
+    import ollama_setup
+    extra_body: dict[str, Any] = {"keep_alive": ollama_setup.keep_alive_value()}
     options = ollama_options()
     if options:
         extra_body["options"] = options
-    keep_alive = os.getenv("OLLAMA_KEEP_ALIVE", "").strip()
-    if keep_alive:
-        extra_body["keep_alive"] = keep_alive
-    if extra_body:
-        kwargs["extra_body"] = extra_body
+    kwargs["extra_body"] = extra_body
 
     if tools:
         kwargs["tools"] = _tools_to_openai(tools)

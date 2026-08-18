@@ -157,6 +157,7 @@ _telegram_runtime_app: Application | None = None
 _telegram_runtime_token: str = ""
 _telegram_runtime_lock: asyncio.Lock | None = None
 
+logger = logging.getLogger("talos")
 security_logger = logging.getLogger("talos.security")
 security_logger.setLevel(logging.INFO)
 handler = logging.FileHandler(SECURITY_LOG)
@@ -2295,7 +2296,7 @@ async def handle_api_settings_post(request):
         "GOOGLE_OAUTH_REDIRECT_URI", "GOOGLE_APPS_SCRIPT_URL", "GOOGLE_OAUTH_SCOPES",
         "HIMALAYA_BIN", "HIMALAYA_CONFIG", "HIMALAYA_DEFAULT_ACCOUNT",
         "PIPER_VOICE", "CLIENT_BASE_URL", "NVIDIA_BASE_URL", "CEREBRAS_BASE_URL", "OPENROUTER_BASE_URL", "OLLAMA_BASE_URL", "OLLAMA_MODEL",
-        "OLLAMA_NUM_CTX", "OLLAMA_TEMPERATURE", "OLLAMA_MAX_TOKENS", "OLLAMA_KEEP_ALIVE", "OLLAMA_TIMEOUT_S",
+        "OLLAMA_NUM_CTX", "OLLAMA_TEMPERATURE", "OLLAMA_MAX_TOKENS", "OLLAMA_KEEP_ALIVE", "OLLAMA_KEEP_WARM", "OLLAMA_TIMEOUT_S",
         "OTA_CHANNEL",
     ]
 
@@ -3104,11 +3105,39 @@ async def handle_api_restart(request):
         return web.json_response({"error": "Restart failed."}, status=500)
 
 
+def _ollama_models_to_keep_warm() -> list[str]:
+    """The Ollama models TALOS is actually configured to use, if any."""
+    main_model = os.getenv("MAIN_MODEL", "").strip()
+    candidates = [main_model]
+    try:
+        candidates.extend(db.list_active_models())
+    except Exception:
+        logger.debug("Could not read per-user models for Ollama warm-up", exc_info=True)
+
+    names: list[str] = []
+    for model in candidates:
+        model = (model or "").strip()
+        if not model:
+            continue
+        provider, model_id = model_router.resolve_model(model)
+        if provider == "ollama" and model_id and model_id not in names:
+            names.append(model_id)
+
+    # Nothing configured yet (fresh install mid-onboarding): fall back to the
+    # model the Ollama setup step picked, so it is warm when the user first asks.
+    if not names and not main_model:
+        fallback = os.getenv("OLLAMA_MODEL", "").strip()
+        if fallback:
+            names.append(fallback)
+    return names
+
+
 async def main():
     global start_time
     start_time = time.time()
 
     cron_stop = asyncio.Event()
+    warm_stop = asyncio.Event()
 
     db.init()
     memory.init()
@@ -3227,6 +3256,9 @@ async def main():
         print("Complete onboarding at the dashboard to connect Telegram.")
 
     cron_task = asyncio.create_task(cron_jobs.cron_loop(cron_stop))
+    warm_task = asyncio.create_task(
+        ollama_setup.keep_warm_loop(warm_stop, _ollama_models_to_keep_warm)
+    )
 
     try:
         await asyncio.Event().wait()
@@ -3235,6 +3267,8 @@ async def main():
     finally:
         cron_stop.set()
         cron_task.cancel()
+        warm_stop.set()
+        warm_task.cancel()
         await _stop_telegram_runtime()
         await runner.cleanup()
 

@@ -318,6 +318,15 @@ def set_model_for_all(model: str) -> int:
         return cursor.rowcount
 
 
+def list_active_models() -> list[str]:
+    """Every model users are currently pointed at."""
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT model FROM user_settings WHERE model IS NOT NULL AND model != ''"
+        ).fetchall()
+    return [row["model"] for row in rows]
+
+
 def set_image_model(user_id: int, image_model: str) -> None:
     with _conn() as conn:
         conn.execute(

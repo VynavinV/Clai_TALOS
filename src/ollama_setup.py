@@ -8,15 +8,51 @@ container, or on another host — and so model pulls can report live progress.
 import asyncio
 import json
 import logging
+import math
 import os
+import re
 import shutil
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Callable
 
 import httpx
 
 logger = logging.getLogger("talos.ollama")
 
 DEFAULT_BASE_URL = "http://localhost:11434/v1"
+
+# Ollama unloads an idle model 5 minutes after the last request by default, so
+# the next message pays the full weight-load cost again. TALOS keeps its model
+# resident instead: it sends a longer keep_alive and re-arms it on a timer.
+DEFAULT_KEEP_ALIVE = "30m"
+
+# How many distinct models to hold in memory at once. Warming more than this
+# thrashes RAM on the kind of machine people run Ollama on.
+MAX_WARM_MODELS = 2
+
+# Upper bound on the re-arm cycle. It has to stay well under Ollama's own
+# 5-minute default TTL: the OpenAI-compatible /v1/chat/completions endpoint
+# silently ignores keep_alive, so every chat resets the model's timer to that
+# default no matter what we ask for. Only the native /api/generate preload below
+# sets a longer TTL, so we re-issue it on this cycle.
+_WARM_INTERVAL_CAP_S = 120.0
+_WARM_INTERVAL_FLOOR_S = 60.0
+
+# Loading a large model from cold disk can take minutes.
+_PRELOAD_READ_TIMEOUT_S = 600.0
+
+_DURATION_UNITS = {
+    "ns": 1e-9,
+    "us": 1e-6,
+    "\u00b5s": 1e-6,
+    "ms": 1e-3,
+    "s": 1.0,
+    "m": 60.0,
+    "h": 3600.0,
+}
+
+_warm_wake = asyncio.Event()
+_warm_state: dict[str, bool] = {}
+_warm_loop: asyncio.AbstractEventLoop | None = None
 
 # Curated starting points shown in the UI when nothing is installed yet.
 SUGGESTED_MODELS = [
@@ -57,6 +93,60 @@ def _fmt_size(num_bytes: Any) -> str:
 
 def cli_available() -> bool:
     return bool(shutil.which("ollama"))
+
+
+def keep_alive_value() -> str:
+    """The keep_alive to send with every request, honouring Settings."""
+    return os.getenv("OLLAMA_KEEP_ALIVE", "").strip() or DEFAULT_KEEP_ALIVE
+
+
+def keep_alive_seconds() -> float:
+    """`keep_alive` in seconds. A negative duration means "never unload"."""
+    raw = keep_alive_value().lower()
+    if raw.startswith("-"):
+        return math.inf
+    try:
+        return float(raw)  # a bare number is seconds, same as Ollama reads it
+    except ValueError:
+        pass
+    total = 0.0
+    for amount, unit in re.findall(r"(\d+(?:\.\d+)?)(ns|us|\u00b5s|ms|s|m|h)", raw):
+        total += float(amount) * _DURATION_UNITS[unit]
+    if total <= 0:
+        logger.warning(f"OLLAMA_KEEP_ALIVE={raw!r} is not a duration; using {DEFAULT_KEEP_ALIVE}")
+        return 1800.0
+    return total
+
+
+def warm_enabled() -> bool:
+    """Whether TALOS should hold the model in memory between messages.
+
+    Set OLLAMA_KEEP_WARM=0 (or a keep_alive of 0) to give the RAM back as soon
+    as a reply finishes, at the cost of a reload on the next message.
+    """
+    raw = os.getenv("OLLAMA_KEEP_WARM", "").strip().lower()
+    if raw in {"0", "false", "off", "no", "n"}:
+        return False
+    return keep_alive_seconds() > 0
+
+
+def generation_options() -> dict[str, Any]:
+    """The Ollama `options` block configured in Settings.
+
+    Every request has to send the same options: changing num_ctx between calls
+    makes Ollama drop the loaded model and load it again.
+    """
+    options: dict[str, Any] = {}
+    raw = os.getenv("OLLAMA_NUM_CTX", "").strip()
+    if raw:
+        try:
+            num_ctx = int(float(raw))
+        except ValueError:
+            logger.warning(f"OLLAMA_NUM_CTX={raw!r} is not a number; ignoring")
+            num_ctx = 0
+        if num_ctx > 0:
+            options["num_ctx"] = num_ctx
+    return options
 
 
 async def get_status(base_url: str | None = None) -> dict:
@@ -226,3 +316,112 @@ async def pull_model(model_name: str, base_url: str | None = None) -> AsyncItera
     except Exception as exc:
         logger.exception("Ollama pull failed")
         yield {"stage": "error", "error": str(exc)}
+
+
+async def preload_model(model_name: str, base_url: str | None = None) -> bool:
+    """Load a model into Ollama's memory without generating anything.
+
+    An empty prompt makes Ollama load the weights and return straight away, and
+    the keep_alive we send (re)starts the unload timer.
+    """
+    root = native_base_url(base_url)
+    payload: dict[str, Any] = {
+        "model": model_name,
+        "prompt": "",
+        "stream": False,
+        "keep_alive": keep_alive_value(),
+    }
+    options = generation_options()
+    if options:
+        payload["options"] = options
+
+    try:
+        timeout = httpx.Timeout(connect=5.0, read=_PRELOAD_READ_TIMEOUT_S, write=30.0, pool=10.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(f"{root}/api/generate", json=payload)
+            resp.raise_for_status()
+        return True
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        logger.debug(f"Could not preload Ollama model {model_name}: {exc}")
+        return False
+
+
+def request_warm_refresh() -> None:
+    """Wake the keep-warm loop so a model change is preloaded immediately.
+
+    Safe to call from any thread — config can be saved off the event loop.
+    """
+    loop = _warm_loop
+    try:
+        running = asyncio.get_running_loop()
+    except RuntimeError:
+        running = None
+    if loop is None or running is loop:
+        _warm_wake.set()
+        return
+    try:
+        loop.call_soon_threadsafe(_warm_wake.set)
+    except RuntimeError:
+        pass
+
+
+def _note_warm_result(model_name: str, warmed: bool) -> None:
+    """Log only when a model's warm state flips, so the loop stays quiet."""
+    if _warm_state.get(model_name) == warmed:
+        return
+    _warm_state[model_name] = warmed
+    if warmed:
+        logger.info(f"Ollama model {model_name} loaded and kept warm")
+    else:
+        logger.warning(f"Could not keep Ollama model {model_name} warm; is Ollama running?")
+
+
+async def _wait_for_wake(stop: asyncio.Event, timeout: float) -> None:
+    waiters = [asyncio.ensure_future(stop.wait()), asyncio.ensure_future(_warm_wake.wait())]
+    try:
+        await asyncio.wait(waiters, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        for waiter in waiters:
+            waiter.cancel()
+
+
+async def keep_warm_loop(stop: asyncio.Event, models_fn: Callable[[], list[str]]) -> None:
+    """Keep the configured Ollama model(s) resident for as long as TALOS runs.
+
+    Ollama evicts an idle model once keep_alive expires, so the first message
+    after a quiet stretch would otherwise wait for the weights to come back off
+    disk. This preloads at startup and re-arms the timer on a shorter cycle.
+    `models_fn` is re-read every pass, so switching models in Settings is picked
+    up without a restart (immediately, via `request_warm_refresh`).
+    """
+    global _warm_loop
+    _warm_loop = asyncio.get_running_loop()
+
+    while not stop.is_set():
+        _warm_wake.clear()
+
+        try:
+            models = [m for m in dict.fromkeys(models_fn() or []) if m][:MAX_WARM_MODELS]
+        except Exception:
+            logger.debug("Could not resolve which Ollama models to keep warm", exc_info=True)
+            models = []
+        if not warm_enabled():
+            models = []
+
+        for name in models:
+            if stop.is_set():
+                return
+            _note_warm_result(name, await preload_model(name))
+
+        for name in list(_warm_state):
+            if name not in models:
+                del _warm_state[name]
+
+        keep_alive = keep_alive_seconds()
+        interval = (
+            _WARM_INTERVAL_CAP_S if keep_alive <= 0
+            else max(_WARM_INTERVAL_FLOOR_S, min(keep_alive / 2, _WARM_INTERVAL_CAP_S))
+        )
+        await _wait_for_wake(stop, interval)
