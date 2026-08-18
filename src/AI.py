@@ -324,6 +324,7 @@ def _build_subagent_system(user_id: int, role: str, task: str, context: str = ""
 _MAX_AGENT_TELEGRAM_MESSAGES = int(os.getenv("MAX_AGENT_TELEGRAM_MESSAGES", "5"))
 _MAX_IDENTICAL_TOOL_CALLS = int(os.getenv("MAX_IDENTICAL_TOOL_CALLS", "1"))
 _MAX_STALLED_ROUNDS = int(os.getenv("MAX_STALLED_ROUNDS", "2"))
+_MAX_EMPTY_ROUNDS = int(os.getenv("MAX_EMPTY_ROUNDS", "2"))
 
 # Streamed model output is batched before hitting the activity feed so a fast
 # model does not flood the SSE channel with one event per token.
@@ -1665,6 +1666,115 @@ def _get_all_tools(include_subagent: bool = True, include_telegram: bool = False
 
 
 # ---------------------------------------------------------------------------
+# On-demand tool loading
+# ---------------------------------------------------------------------------
+#
+# The full tool set is ~7k tokens of JSON schema on every request. A hosted
+# model swallows that without noticing; a local model on CPU spends minutes
+# prefilling it before it can write a single token, on every message. So local
+# models start with a small core set plus `load_tools`, and pull in the schemas
+# for a category only once they decide they need it. The system prompt already
+# lists what exists, so the model knows what it can ask for.
+
+_TOOL_CATEGORIES: dict[str, tuple[str, tuple[str, ...]]] = {
+    "email": ("read, search, send and reply to email", ("email_execute",)),
+    "browser": (
+        "drive a real browser, scrape pages",
+        ("browser_start_chrome_debug", "browser_connect", "browser_run",
+         "browser_state", "browser_disconnect", "scrape_url"),
+    ),
+    "documents": ("spreadsheets and Word documents", ("spreadsheet_execute", "docx_execute")),
+    "google": ("Google Workspace (Drive, Calendar, Sheets, ...)", ("google_execute",)),
+    "projects": ("create and manage web projects", ("create_project", "migrate_project", "list_projects")),
+    "scheduling": ("recurring/scheduled jobs", ("schedule_cron", "list_cron", "remove_cron")),
+    "memory": (
+        "remember and recall facts about the user",
+        ("save_memory", "search_memories", "list_memories", "delete_memory", "update_memory"),
+    ),
+    "attachments": (
+        "send photos, files and screenshots to the user",
+        ("send_telegram_photo", "send_telegram_document", "send_telegram_screenshot"),
+    ),
+    "custom_tools": ("build and manage your own tools", ("create_tool", "delete_tool", "list_dynamic_tools")),
+    "assistant": ("PA system and model preferences", ("pa_system", "set_model_prefs")),
+}
+
+_LOAD_TOOLS_NAME = "load_tools"
+
+_LAZY_TOOLS_NOTE = (
+    "[Tool loading]\n"
+    "Only a core set of tools is loaded right now: running commands, reading and writing "
+    "files, web search, and messaging the user. Everything else listed above — "
+    + ", ".join(_TOOL_CATEGORIES)
+    + " — has to be loaded before you can call it: call load_tools with the categories you "
+    "need, then call the tool itself in the same turn. Never tell the user a capability is "
+    "unavailable just because its tool is not loaded yet."
+)
+
+
+def _category_of_tool(tool_name: str, dynamic_names: set[str]) -> str | None:
+    """The category a tool is deferred behind, or None if it is always loaded."""
+    for category, (_, names) in _TOOL_CATEGORIES.items():
+        if tool_name in names:
+            return category
+    if tool_name in dynamic_names:
+        return "custom_tools"
+    return None
+
+
+def _load_tools_definition() -> dict:
+    menu = "; ".join(f"{name} ({desc})" for name, (desc, _) in _TOOL_CATEGORIES.items())
+    return {
+        "type": "function",
+        "function": {
+            "name": _LOAD_TOOLS_NAME,
+            "description": (
+                "Load the tools you need for this task. They become available immediately, "
+                "in the same turn. Categories: " + menu + "."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "categories": {
+                        "type": "array",
+                        "items": {"type": "string", "enum": sorted(_TOOL_CATEGORIES)},
+                        "description": "Categories to load",
+                    }
+                },
+                "required": ["categories"],
+            },
+        },
+    }
+
+
+def _visible_tools(all_tools: list[dict], loaded: set[str]) -> list[dict]:
+    """`all_tools` minus the categories that have not been asked for yet."""
+    dynamic_names = {
+        d.get("function", {}).get("name", "")
+        for d in dynamic_tools.get_tool_definitions()
+    }
+    visible = []
+    for tool in all_tools:
+        name = tool.get("function", {}).get("name", "")
+        category = _category_of_tool(name, dynamic_names)
+        if category is None or category in loaded:
+            visible.append(tool)
+    visible.append(_load_tools_definition())
+    return visible
+
+
+def _lazy_tools_enabled(model: str) -> bool:
+    """On for local models, where prompt size costs real time. Overridable."""
+    raw = os.getenv("TALOS_LAZY_TOOLS", "").strip().lower()
+    if raw in {"1", "true", "on", "yes"}:
+        return True
+    if raw in {"0", "false", "off", "no"}:
+        return False
+    provider, _ = model_router.resolve_model(model)
+    return provider == "ollama"
+
+
+# ---------------------------------------------------------------------------
 # Tool execution (fully async)
 # ---------------------------------------------------------------------------
 
@@ -2597,14 +2707,38 @@ async def _run_agent(
     messages.append({"role": "user", "content": prompt})
 
     using_default_tools = tools is None
+    # Local models pay for every token of schema up front, so they get a core
+    # set plus `load_tools` and pull the rest in when they need it.
+    lazy_tools = using_default_tools and _lazy_tools_enabled(model)
+    loaded_categories: set[str] = set()
+
+    if lazy_tools:
+        # Without this the model sees tools named in the system prompt that are
+        # not in its schema, and stalls instead of asking for them.
+        if messages and messages[0]["role"] == "system":
+            messages[0] = {
+                "role": "system",
+                "content": messages[0]["content"] + "\n\n" + _LAZY_TOOLS_NOTE,
+            }
+        else:
+            messages.insert(0, {"role": "system", "content": _LAZY_TOOLS_NOTE})
+
+    def _build_tools() -> list[dict]:
+        all_tools = _get_all_tools(
+            include_subagent=allow_subagent, include_telegram=send_func is not None
+        )
+        return _visible_tools(all_tools, loaded_categories) if lazy_tools else all_tools
+
     if using_default_tools:
-        tools = _get_all_tools(include_subagent=allow_subagent, include_telegram=send_func is not None)
+        tools = _build_tools()
 
     model_id = _MODELS.get(model.lower(), model)
     guard = _LoopGuard(is_orchestrator=_parent_agent_id is None)
     # Consecutive rounds whose only action was messaging the user.
     message_only_rounds = 0
     last_user_message = ""
+    # Rounds that produced neither text nor a tool call.
+    empty_rounds = 0
 
     # The orchestrator's agent id is the same string on every turn, so activity
     # events need a per-turn id as well -- without it the dashboard merges this
@@ -2747,6 +2881,29 @@ async def _run_agent(
                 content_text = cleaned_content
                 logger.warning(f"Model emitted {len(text_tools)} tool call(s) as text, intercepted and routing to execution")
                 messages.append({"role": "assistant", "content": content_text})
+            elif not str(content_text).strip() and empty_rounds < _MAX_EMPTY_ROUNDS:
+                # Reasoning models sometimes spend the whole turn inside their
+                # thinking block and stop without writing an answer. Ask once
+                # rather than handing the user an empty reply.
+                empty_rounds += 1
+                logger.warning(
+                    f"{model_id} returned no content and no tool calls; nudging "
+                    f"(attempt {empty_rounds}/{_MAX_EMPTY_ROUNDS})"
+                )
+                await _t.emit(
+                    "thinking", _agent_id, "Empty response",
+                    f"Model wrote nothing — retrying ({empty_rounds}/{_MAX_EMPTY_ROUNDS})",
+                    _with_activity_meta({"duration_ms": round(elapsed), "model": model_id}),
+                )
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "[SYSTEM] Your last turn produced no output at all. Write your answer "
+                        "to the user now as plain text, or call a tool if you still need "
+                        "information first. Do not end your turn empty again."
+                    ),
+                })
+                continue
             else:
                 await _t.emit(
                     "done", _agent_id, "Responded", f"Final answer in {elapsed:.0f}ms",
@@ -2789,7 +2946,60 @@ async def _run_agent(
         subagent_calls = [tc for tc in allowed_calls if tc["name"] == "spawn_subagent"]
         other_calls = [tc for tc in allowed_calls if tc["name"] != "spawn_subagent"]
 
+        tools_dirty = False
+
+        def _load_categories(names) -> list[str]:
+            """Mark categories loaded; returns the ones that were new."""
+            nonlocal tools_dirty
+            added = []
+            for raw in names or []:
+                category = str(raw).strip().lower()
+                if category in _TOOL_CATEGORIES and category not in loaded_categories:
+                    loaded_categories.add(category)
+                    added.append(category)
+            if added:
+                tools_dirty = True
+            return added
+
         for tc in other_calls:
+            if lazy_tools and tc["name"] == _LOAD_TOOLS_NAME:
+                args = tc["arguments"] if isinstance(tc["arguments"], dict) else {}
+                requested = args.get("categories") or []
+                if isinstance(requested, str):
+                    requested = [requested]
+                added = _load_categories(requested)
+                unknown = [
+                    str(c) for c in requested
+                    if str(c).strip().lower() not in _TOOL_CATEGORIES
+                ]
+                available = sorted(
+                    name for category in loaded_categories
+                    for name in _TOOL_CATEGORIES[category][1]
+                )
+                results[tc["id"]] = json.dumps({
+                    "loaded": added,
+                    "already_loaded": sorted(loaded_categories - set(added)),
+                    "unknown_categories": unknown,
+                    "tools_now_available": available,
+                    "instruction": "These tools are ready to use. Call the one you need now.",
+                })
+                await _t.emit(
+                    "tool", _agent_id, "Tools loaded", ", ".join(added) or "nothing new",
+                    _with_activity_meta({"tool": _LOAD_TOOLS_NAME, "categories": added}),
+                )
+                continue
+
+            # A model may call a deferred tool by name without loading it first.
+            # Load the category and run it rather than burning a round on an error.
+            if lazy_tools:
+                dynamic_names = {
+                    d.get("function", {}).get("name", "")
+                    for d in dynamic_tools.get_tool_definitions()
+                }
+                category = _category_of_tool(tc["name"], dynamic_names)
+                if category and category not in loaded_categories:
+                    _load_categories([category])
+
             results[tc["id"]] = await _execute_tool_call(
                 tc["name"], tc["arguments"],
                 user_id if user_id is not None else 0,
@@ -2833,8 +3043,11 @@ async def _run_agent(
                 _with_activity_meta({"tool": tc["name"], "text": str(result_text)[:_STREAM_MAX_EVENT_CHARS]}),
             )
 
-        if using_default_tools and any(tc["name"] in {"create_tool", "delete_tool"} for tc in tool_calls):
-            tools = _get_all_tools(include_subagent=allow_subagent, include_telegram=send_func is not None)
+        if using_default_tools and (
+            tools_dirty
+            or any(tc["name"] in {"create_tool", "delete_tool"} for tc in tool_calls)
+        ):
+            tools = _build_tools()
 
         # A round spent only messaging the user IS the model's answer — weaker
         # models reply through send_telegram_message instead of returning text,
@@ -2959,13 +3172,10 @@ async def _run_subagent(
     subagent_rounds, subagent_calls = _subagent_limits_for_speed(speed_mode)
     system = _build_subagent_system(user_id, role, task, context)
     history = db.get_history(user_id)
-    tools = _get_all_tools(include_subagent=False, include_telegram=send_func is not None)
-
     return await _run_agent(
         model, task,
         system=system,
         history=history,
-        tools=tools,
         user_id=user_id,
         send_func=send_func,
         allow_subagent=False,
@@ -3129,7 +3339,6 @@ Based on this analysis and the user's current request, proceed with any tasks ne
                     model, agent_prompt,
                     system=system,
                     history=history,
-                    tools=_get_all_tools(include_subagent=True, include_telegram=send_func is not None),
                     user_id=user_id,
                     send_func=send_func,
                     allow_subagent=True,
@@ -3160,7 +3369,6 @@ Based on this analysis and the user's current request, proceed with any tasks ne
                     model, text,
                     system=system,
                     history=history,
-                    tools=_get_all_tools(include_subagent=True, include_telegram=send_func is not None),
                     user_id=user_id,
                     send_func=send_func,
                     allow_subagent=True,
@@ -3250,7 +3458,6 @@ Based on this analysis and the user's request, proceed with any tasks needed. If
                 main_model, agent_prompt,
                 system=system,
                 history=history,
-                tools=_get_all_tools(include_subagent=True, include_telegram=send_func is not None),
                 user_id=user_id,
                 send_func=send_func,
                 allow_subagent=True,
