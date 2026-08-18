@@ -307,6 +307,17 @@ def set_model(user_id: int, model: str) -> None:
         )
 
 
+def set_model_for_all(model: str) -> int:
+    """Point every existing user at `model`.
+
+    `get_model` prefers the per-user row over MAIN_MODEL, so a stale row would
+    otherwise keep overriding a model the user just picked in Settings.
+    """
+    with _conn() as conn:
+        cursor = conn.execute("UPDATE user_settings SET model = ?", (model,))
+        return cursor.rowcount
+
+
 def set_image_model(user_id: int, image_model: str) -> None:
     with _conn() as conn:
         conn.execute(

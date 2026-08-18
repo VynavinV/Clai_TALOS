@@ -31,6 +31,7 @@ import model_router
 import core
 import google_integration
 import activity_tracker
+import ollama_setup
 import app_paths
 import ota_update
 from auth_policy import MIN_DASHBOARD_PASSWORD_LENGTH, validate_dashboard_password
@@ -1598,11 +1599,12 @@ async def handle_api_onboarding_model(request):
         if vision_env_key:
             env_vars[vision_env_key] = vision_api_key
 
-    with open(ENV_FILE, "w") as f:
-        for k, v in env_vars.items():
-            f.write(f"{k}={v}\n")
-
-    load_dotenv(dotenv_path=ENV_FILE, override=True)
+    _write_env_vars(env_vars)
+    if main_model:
+        try:
+            db.set_model_for_all(main_model)
+        except Exception:
+            logger.exception("Could not sync main model to user settings")
     AI.reload_clients()
 
     return web.json_response({"ok": True})
@@ -2179,6 +2181,11 @@ async def handle_api_settings_get(request):
         "OPENROUTER_BASE_URL": env_vars.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
         "OLLAMA_BASE_URL": env_vars.get("OLLAMA_BASE_URL", "http://localhost:11434/v1"),
         "OLLAMA_MODEL": env_vars.get("OLLAMA_MODEL", ""),
+        "OLLAMA_NUM_CTX": env_vars.get("OLLAMA_NUM_CTX", ""),
+        "OLLAMA_TEMPERATURE": env_vars.get("OLLAMA_TEMPERATURE", ""),
+        "OLLAMA_MAX_TOKENS": env_vars.get("OLLAMA_MAX_TOKENS", ""),
+        "OLLAMA_KEEP_ALIVE": env_vars.get("OLLAMA_KEEP_ALIVE", ""),
+        "OLLAMA_TIMEOUT_S": env_vars.get("OLLAMA_TIMEOUT_S", ""),
         "OTA_CHANNEL": env_vars.get("OTA_CHANNEL", "stable"),
         "MAX_TOOL_ROUNDS": env_vars.get("MAX_TOOL_ROUNDS", "5"),
         "MAX_TOOL_CALLS_PER_ROUND": env_vars.get("MAX_TOOL_CALLS_PER_ROUND", "20"),
@@ -2287,7 +2294,9 @@ async def handle_api_settings_post(request):
         "GOOGLE_API_KEY", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET",
         "GOOGLE_OAUTH_REDIRECT_URI", "GOOGLE_APPS_SCRIPT_URL", "GOOGLE_OAUTH_SCOPES",
         "HIMALAYA_BIN", "HIMALAYA_CONFIG", "HIMALAYA_DEFAULT_ACCOUNT",
-        "PIPER_VOICE", "CLIENT_BASE_URL", "NVIDIA_BASE_URL", "CEREBRAS_BASE_URL", "OPENROUTER_BASE_URL", "OLLAMA_BASE_URL", "OLLAMA_MODEL", "OTA_CHANNEL",
+        "PIPER_VOICE", "CLIENT_BASE_URL", "NVIDIA_BASE_URL", "CEREBRAS_BASE_URL", "OPENROUTER_BASE_URL", "OLLAMA_BASE_URL", "OLLAMA_MODEL",
+        "OLLAMA_NUM_CTX", "OLLAMA_TEMPERATURE", "OLLAMA_MAX_TOKENS", "OLLAMA_KEEP_ALIVE", "OLLAMA_TIMEOUT_S",
+        "OTA_CHANNEL",
     ]
 
     def _is_masked(val: str) -> bool:
@@ -2346,11 +2355,13 @@ async def handle_api_settings_post(request):
                         status=400,
                     )
 
-    with open(ENV_FILE, "w") as f:
-        for k, v in env_vars.items():
-            f.write(f"{k}={v}\n")
-
-    load_dotenv(dotenv_path=ENV_FILE, override=True)
+    _write_env_vars(env_vars)
+    saved_main_model = str(env_vars.get("MAIN_MODEL", "")).strip()
+    if saved_main_model:
+        try:
+            db.set_model_for_all(saved_main_model)
+        except Exception:
+            logger.exception("Could not sync main model to user settings")
     AI.reload_clients()
 
     new_bot_name = str(env_vars.get("BOT_NAME", "")).strip()
@@ -2400,8 +2411,91 @@ async def handle_api_models_fetch(request):
     return web.json_response(result)
 
 
+def _write_env_vars(env_vars: dict) -> None:
+    with open(ENV_FILE, "w") as f:
+        for k, v in env_vars.items():
+            f.write(f"{k}={v}\n")
+    load_dotenv(dotenv_path=ENV_FILE, override=True)
+
+
+@require_auth
+async def handle_api_ollama_status(request):
+    base_url = request.query.get("base_url", "") or None
+    status = await ollama_setup.get_status(base_url)
+    env_vars = _read_env_file()
+    status["config"] = {
+        "OLLAMA_BASE_URL": env_vars.get("OLLAMA_BASE_URL", ollama_setup.DEFAULT_BASE_URL),
+        "OLLAMA_MODEL": env_vars.get("OLLAMA_MODEL", ""),
+        "OLLAMA_NUM_CTX": env_vars.get("OLLAMA_NUM_CTX", ""),
+        "OLLAMA_TEMPERATURE": env_vars.get("OLLAMA_TEMPERATURE", ""),
+        "OLLAMA_MAX_TOKENS": env_vars.get("OLLAMA_MAX_TOKENS", ""),
+        "OLLAMA_KEEP_ALIVE": env_vars.get("OLLAMA_KEEP_ALIVE", ""),
+        "OLLAMA_TIMEOUT_S": env_vars.get("OLLAMA_TIMEOUT_S", ""),
+    }
+    return web.json_response(status)
+
+
+@require_auth
+async def handle_api_ollama_model_info(request):
+    model_name = request.query.get("model", "").strip()
+    if not model_name:
+        return web.json_response({"error": "Model name is required."}, status=400)
+    return web.json_response(await ollama_setup.show_model(model_name, request.query.get("base_url") or None))
+
+
+_OLLAMA_ADVANCED_KEYS = {
+    "OLLAMA_NUM_CTX": (256, 1048576),
+    "OLLAMA_MAX_TOKENS": (16, 1048576),
+    "OLLAMA_TIMEOUT_S": (30, 3600),
+}
+
+
+def _collect_ollama_settings(body: dict) -> tuple[dict, str]:
+    """Validate the optional Ollama tuning fields. Returns (env updates, error)."""
+    updates: dict[str, str] = {}
+
+    base_url = str(body.get("base_url", "")).strip()
+    if base_url:
+        updates["OLLAMA_BASE_URL"] = base_url
+
+    keep_alive = str(body.get("keep_alive", "")).strip()
+    if keep_alive:
+        updates["OLLAMA_KEEP_ALIVE"] = keep_alive
+
+    temperature = str(body.get("temperature", "")).strip()
+    if temperature:
+        try:
+            value = float(temperature)
+        except ValueError:
+            return {}, "Temperature must be a number."
+        if not 0.0 <= value <= 2.0:
+            return {}, "Temperature must be between 0 and 2."
+        updates["OLLAMA_TEMPERATURE"] = str(value)
+
+    key_by_field = {
+        "num_ctx": "OLLAMA_NUM_CTX",
+        "max_tokens": "OLLAMA_MAX_TOKENS",
+        "timeout_s": "OLLAMA_TIMEOUT_S",
+    }
+    for field, env_key in key_by_field.items():
+        raw = str(body.get(field, "")).strip()
+        if not raw:
+            continue
+        try:
+            value = int(raw)
+        except ValueError:
+            return {}, f"{field} must be a whole number."
+        lo, hi = _OLLAMA_ADVANCED_KEYS[env_key]
+        if not lo <= value <= hi:
+            return {}, f"{field} must be between {lo} and {hi}."
+        updates[env_key] = str(value)
+
+    return updates, ""
+
+
 @require_auth_csrf
 async def handle_api_ollama_setup(request):
+    """Pull an Ollama model, streaming progress to the browser as NDJSON."""
     try:
         body = await request.json()
     except Exception:
@@ -2411,52 +2505,86 @@ async def handle_api_ollama_setup(request):
     if not model_name:
         return web.json_response({"error": "Model name is required."}, status=400)
 
-    import shutil
-    import subprocess
+    advanced, error = _collect_ollama_settings(body)
+    if error:
+        return web.json_response({"error": error}, status=400)
 
-    ollama_bin = shutil.which("ollama")
-
-    if not ollama_bin:
-        return web.json_response({"error": "Ollama is not installed. Install it from https://ollama.com then restart."}, status=400)
-
-    try:
-        check = subprocess.run(
-            [ollama_bin, "list"],
-            capture_output=True, text=True, timeout=10,
-        )
-        if check.returncode != 0:
-            return web.json_response({"error": "Ollama does not appear to be running. Start it first."}, status=400)
-    except Exception:
-        return web.json_response({"error": "Could not check Ollama status. Is it running?"}, status=400)
+    set_as_main = bool(body.get("set_as_main", True))
 
     env_vars = _read_env_file()
-    env_vars["OLLAMA_MODEL"] = model_name
+    env_vars.update(advanced)
+    base_url = env_vars.get("OLLAMA_BASE_URL", ollama_setup.DEFAULT_BASE_URL)
 
-    with open(ENV_FILE, "w") as f:
-        for k, v in env_vars.items():
-            f.write(f"{k}={v}\n")
+    status = await ollama_setup.get_status(base_url)
+    if not status["reachable"]:
+        return web.json_response({"error": status["error"] or "Could not reach the Ollama server."}, status=400)
 
-    load_dotenv(dotenv_path=ENV_FILE, override=True)
-    model_router.reload_clients()
-
-    pull_result = subprocess.run(
-        [ollama_bin, "pull", model_name],
-        capture_output=True, text=True, timeout=300,
+    resp = web.StreamResponse(
+        status=200,
+        headers={
+            "Content-Type": "application/x-ndjson",
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
     )
+    await resp.prepare(request)
 
-    if pull_result.returncode != 0:
-        return web.json_response({
-            "ok": False,
-            "error": f"Model saved but pull failed: {pull_result.stderr.strip()}",
-            "stdout": pull_result.stdout,
-            "stderr": pull_result.stderr,
-        })
+    async def send(event: dict) -> None:
+        await resp.write((json.dumps(event, separators=(",", ":")) + "\n").encode())
 
-    return web.json_response({
+    already_installed = any(m["name"] == model_name for m in status["models"])
+    await send({
+        "stage": "start",
+        "model": model_name,
+        "server_version": status["version"],
+        "already_installed": already_installed,
+        "message": (
+            f"Model {model_name} is already downloaded — verifying."
+            if already_installed
+            else f"Downloading {model_name} from the Ollama library."
+        ),
+    })
+
+    failed = ""
+    try:
+        async for event in ollama_setup.pull_model(model_name, base_url):
+            if event.get("stage") == "error":
+                failed = str(event.get("error", "Pull failed."))
+                await send(event)
+                break
+            await send(event)
+    except (asyncio.CancelledError, ConnectionResetError):
+        return resp
+
+    if failed:
+        await send({"stage": "finished", "ok": False, "error": failed})
+        return resp
+
+    await send({"stage": "configuring", "message": "Saving configuration."})
+
+    env_vars["OLLAMA_MODEL"] = model_name
+    if set_as_main:
+        env_vars["MAIN_MODEL"] = "ollama/" + model_name
+    _write_env_vars(env_vars)
+
+    if set_as_main:
+        try:
+            db.set_model_for_all("ollama/" + model_name)
+        except Exception:
+            logger.exception("Could not sync main model to user settings")
+    AI.reload_clients()
+
+    info = await ollama_setup.show_model(model_name, base_url)
+    await send({
+        "stage": "finished",
         "ok": True,
         "model": model_name,
-        "output": pull_result.stdout.strip(),
+        "main_model": "ollama/" + model_name if set_as_main else "",
+        "info": info,
+        "message": f"{model_name} is ready and set as your main model." if set_as_main
+                   else f"{model_name} is ready.",
     })
+    return resp
 
 
 @require_auth
@@ -3048,6 +3176,8 @@ async def main():
     web_app.router.add_get("/api/models", handle_api_models)
     web_app.router.add_post("/api/models/fetch", handle_api_models_fetch)
     web_app.router.add_post("/api/ollama/setup", handle_api_ollama_setup)
+    web_app.router.add_get("/api/ollama/status", handle_api_ollama_status)
+    web_app.router.add_get("/api/ollama/model-info", handle_api_ollama_model_info)
     web_app.router.add_post("/api/chat", handle_api_chat)
     web_app.router.add_get("/api/activity/history", handle_api_activity_history)
     web_app.router.add_get("/api/activity/stream", handle_api_activity_stream)

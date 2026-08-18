@@ -7,7 +7,7 @@ from typing import Any
 class ActivityTracker:
     def __init__(self):
         self._events: list[dict] = []
-        self._max_events = 500
+        self._max_events = 2000
         self._subscribers: list[asyncio.Queue] = []
         self._lock = asyncio.Lock()
 
@@ -28,17 +28,20 @@ class ActivityTracker:
         async with self._lock:
             self._events.append(evt)
             self._trim()
-            dead = []
             for q in self._subscribers:
                 try:
                     q.put_nowait(evt)
                 except asyncio.QueueFull:
-                    dead.append(q)
-            for q in dead:
-                self._subscribers.remove(q)
+                    # A slow client should lose its oldest event, not its whole
+                    # subscription — streamed output fills queues quickly.
+                    try:
+                        q.get_nowait()
+                        q.put_nowait(evt)
+                    except (asyncio.QueueEmpty, asyncio.QueueFull):
+                        pass
 
     async def subscribe(self) -> asyncio.Queue:
-        q: asyncio.Queue = asyncio.Queue(maxsize=200)
+        q: asyncio.Queue = asyncio.Queue(maxsize=1000)
         async with self._lock:
             self._subscribers.append(q)
         return q

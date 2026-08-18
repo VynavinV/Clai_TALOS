@@ -71,8 +71,6 @@ def _build_activity_send(send_func, state: dict):
 
 
 async def _stuck_watchdog(send_func, state: dict, interrupt_queue: asyncio.Queue | None) -> None:
-    tracker = activity_tracker.get_tracker()
-    queue = await tracker.subscribe()
     try:
         while True:
             await asyncio.sleep(_STUCK_CHECK_INTERVAL_S)
@@ -99,8 +97,8 @@ async def _stuck_watchdog(send_func, state: dict, interrupt_queue: asyncio.Queue
 
             await _send_with_optional_voice(send_func, f"Detected a hang ({elapsed}s no progress). Injecting recovery — trying to unstick myself.")
             state["last_activity"] = time.monotonic()
-    finally:
-        await tracker.unsubscribe(queue)
+    except asyncio.CancelledError:
+        pass
 
 
 async def _real_activity_watcher(state: dict) -> None:
@@ -110,7 +108,7 @@ async def _real_activity_watcher(state: dict) -> None:
         while True:
             evt = await queue.get()
             evt_type = evt.get("type", "")
-            if evt_type in {"thinking", "model", "tool", "command", "spawn", "done", "receive"}:
+            if evt_type in {"thinking", "model", "tool", "command", "spawn", "done", "receive", "stream", "reasoning", "result"}:
                 state["last_real_activity"] = time.monotonic()
     except asyncio.CancelledError:
         pass

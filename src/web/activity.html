@@ -80,6 +80,45 @@
   .tl-detail code { font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; background: rgba(255,255,255,0.05); padding: 0.15rem 0.4rem; border-radius: 4px; color: #bbb; }
   .tl-detail.error-text { color: #f56565; }
 
+  .tl-dot.stream { background: rgba(99,179,237,0.15); color: #63b3ed; }
+  .tl-dot.reasoning { background: rgba(159,122,234,0.15); color: #b794f4; }
+  .tl-dot.result { background: rgba(72,187,120,0.12); color: #68d391; }
+  .tl-dot.blocked { background: rgba(245,101,101,0.15); color: #f56565; }
+
+  /* Streamed model output rendered verbatim, in place, as it arrives. */
+  .tl-stream {
+    margin-top: 0.4rem; padding: 0.7rem 0.85rem; border-radius: 8px;
+    background: rgba(0,0,0,0.28); border: 1px solid rgba(255,255,255,0.06);
+    font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.74rem;
+    line-height: 1.65; color: #cbd5e1; white-space: pre-wrap; word-break: break-word;
+    max-height: 260px; overflow-y: auto;
+  }
+  .tl-stream.reasoning { color: #a78bda; border-color: rgba(159,122,234,0.18); background: rgba(159,122,234,0.05); font-style: italic; }
+  .tl-stream.tool_args { color: #68d391; border-color: rgba(72,187,120,0.18); background: rgba(72,187,120,0.05); }
+  .tl-stream-kind {
+    display: inline-block; font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.08em;
+    color: #6b7280; margin-bottom: 0.35rem; font-family: 'Sora', sans-serif; font-weight: 600;
+  }
+  .tl-caret { display: inline-block; width: 7px; height: 0.9em; background: #63b3ed; vertical-align: text-bottom; animation: caret-blink 1s step-end infinite; }
+  @keyframes caret-blink { 50% { opacity: 0; } }
+
+  .live-panel {
+    background: rgba(255,255,255,0.02); border: 1px solid rgba(99,179,237,0.18);
+    border-radius: 12px; padding: 1rem 1.2rem; margin-bottom: 1.5rem; display: none;
+  }
+  .live-panel.open { display: block; }
+  .live-panel-head { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.6rem; }
+  .live-panel-title { font-size: 0.85rem; font-weight: 600; color: #fff; }
+  .live-panel-meta { font-size: 0.68rem; color: #666; font-family: 'JetBrains Mono', monospace; margin-left: auto; }
+  .live-panel-body {
+    font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.76rem; line-height: 1.7;
+    color: #dbe3ec; white-space: pre-wrap; word-break: break-word;
+    max-height: 320px; overflow-y: auto; background: rgba(0,0,0,0.25);
+    border-radius: 8px; padding: 0.9rem 1rem;
+  }
+  .live-panel-body .reasoning-run { color: #a78bda; font-style: italic; }
+  .live-panel-body .tool-run { color: #68d391; }
+
   .filter-bar { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
   .filter-btn { padding: 0.35rem 0.8rem; border-radius: 6px; font-size: 0.75rem; font-weight: 500; cursor: pointer; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); color: #888; transition: all 0.15s; }
   .filter-btn:hover { background: rgba(255,255,255,0.06); color: #bbb; }
@@ -141,6 +180,15 @@
     </div>
   </div>
 
+  <div class="live-panel" id="live-panel">
+    <div class="live-panel-head">
+      <span class="spinner" id="live-spinner"></span>
+      <span class="live-panel-title" id="live-panel-title">Model output</span>
+      <span class="live-panel-meta" id="live-panel-meta"></span>
+    </div>
+    <div class="live-panel-body" id="live-panel-body"></div>
+  </div>
+
   <div class="section-header">
     <span class="section-title">Event Timeline</span>
     <button class="clear-btn" onclick="clearTimeline()">Clear</button>
@@ -148,8 +196,10 @@
 
   <div class="filter-bar" id="filter-bar">
     <button class="filter-btn active" data-filter="all" onclick="setFilter('all', this)">All</button>
+    <button class="filter-btn" data-filter="stream" onclick="setFilter('stream', this)">Model Output</button>
     <button class="filter-btn" data-filter="model" onclick="setFilter('model', this)">Model Calls</button>
     <button class="filter-btn" data-filter="tool" onclick="setFilter('tool', this)">Tools</button>
+    <button class="filter-btn" data-filter="result" onclick="setFilter('result', this)">Results</button>
     <button class="filter-btn" data-filter="spawn" onclick="setFilter('spawn', this)">Subagents</button>
     <button class="filter-btn" data-filter="command" onclick="setFilter('command', this)">Commands</button>
     <button class="filter-btn" data-filter="error" onclick="setFilter('error', this)">Errors</button>
@@ -209,8 +259,74 @@ function getEventIcon(type) {
     done: '&#9989;',
     receive: '&#9993;',
     command: '&#9000;',
+    stream: '&#9998;',
+    reasoning: '&#129504;',
+    result: '&#8617;',
+    blocked: '&#128683;',
   };
   return icons[type] || '&#9679;';
+}
+
+/* Streamed deltas arrive as many small events. They are keyed by
+   agent + round + kind and concatenated into one growing transcript, so the
+   timeline shows a single block that fills in rather than a wall of fragments. */
+const transcripts = new Map();
+
+function streamKey(evt) {
+  const x = evt.extra || {};
+  return [evt.agent, x.round == null ? '?' : x.round, x.kind || 'content'].join('|');
+}
+
+function ingestStream(evt) {
+  const key = streamKey(evt);
+  const text = (evt.extra && evt.extra.text) || evt.detail || '';
+  let entry = transcripts.get(key);
+  if (!entry) {
+    entry = { key: key, anchorId: evt.id, agent: evt.agent, kind: (evt.extra && evt.extra.kind) || 'content', text: text, ts: evt.ts, lastTs: evt.ts };
+    transcripts.set(key, entry);
+    return { entry: entry, isNew: true };
+  }
+  entry.text += text;
+  entry.lastTs = evt.ts;
+  return { entry: entry, isNew: false };
+}
+
+function rebuildTranscripts() {
+  transcripts.clear();
+  for (const evt of events) {
+    if (evt.type === 'stream') ingestStream(evt);
+  }
+}
+
+const KIND_LABELS = { content: 'Model output', reasoning: 'Thinking', tool: 'Tool call', tool_args: 'Tool arguments' };
+
+function renderLivePanel() {
+  const panel = document.getElementById('live-panel');
+  const now = Date.now() / 1000;
+
+  let newest = null;
+  for (const entry of transcripts.values()) {
+    if (selectedAgent && entry.agent !== selectedAgent) continue;
+    if (!newest || entry.lastTs > newest.lastTs) newest = entry;
+  }
+
+  if (!newest || (now - newest.lastTs) > 120) {
+    panel.classList.remove('open');
+    return;
+  }
+
+  panel.classList.add('open');
+  const streaming = (now - newest.lastTs) < 4;
+  document.getElementById('live-spinner').style.display = streaming ? 'inline-block' : 'none';
+  document.getElementById('live-panel-title').textContent =
+    (KIND_LABELS[newest.kind] || newest.kind) + ' — ' + newest.agent;
+  document.getElementById('live-panel-meta').textContent =
+    newest.text.length + ' chars · ' + formatDuration(now - newest.lastTs);
+
+  const body = document.getElementById('live-panel-body');
+  const atBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 40;
+  body.innerHTML = escapeHtml(newest.text) + (streaming ? '<span class="tl-caret"></span>' : '');
+  if (atBottom) body.scrollTop = body.scrollHeight;
 }
 
 function truncate(s, n) {
@@ -242,10 +358,13 @@ function selectAgent(agentId) {
     });
   }
   renderTimeline();
+  renderLivePanel();
 }
 
 function clearTimeline() {
   events = [];
+  transcripts.clear();
+  document.getElementById('live-panel').classList.remove('open');
   document.getElementById('timeline').innerHTML = '<div class="no-activity" id="no-events"><div class="icon">&#9673;</div><p>Timeline cleared.</p></div>';
 }
 
@@ -336,8 +455,33 @@ function renderTimeline() {
     const icon = getEventIcon(iconClass);
     const age = now - evt.ts;
     const agentTag = evt.agent === 'orchestrator' ? 'orchestrator' : evt.agent;
-    const detailHtml = evt.detail ? `<div class="tl-detail${evt.type === 'error' ? ' error-text' : ''}">${escapeHtml(truncate(evt.detail, 300))}</div>` : '';
-    const hasExtra = evt.extra && (evt.extra.detail || evt.extra.command || evt.extra.tool_args);
+
+    if (evt.type === 'stream') {
+      const entry = transcripts.get(streamKey(evt));
+      const kind = (evt.extra && evt.extra.kind) || 'content';
+      const text = entry ? entry.text : (evt.extra && evt.extra.text) || '';
+      const streaming = entry && (now - entry.lastTs) < 4;
+      const round = evt.extra && evt.extra.round;
+      return `<div class="tl-event">
+        <div class="tl-dot ${kind === 'reasoning' ? 'reasoning' : 'stream'}">${icon}</div>
+        <div class="tl-body">
+          <div class="tl-header">
+            <span class="tl-label">${escapeHtml(KIND_LABELS[kind] || kind)}${round ? ' · round ' + round : ''}</span>
+            <span class="tl-agent-tag">${escapeHtml(agentTag)}</span>
+            <span class="tl-time">${formatDuration(age)}</span>
+          </div>
+          <div class="tl-stream ${escapeHtml(kind)}">${escapeHtml(text)}${streaming ? '<span class="tl-caret"></span>' : ''}</div>
+        </div>
+      </div>`;
+    }
+
+    const bodyText = (evt.extra && evt.extra.text) || evt.detail || '';
+    const showsBlock = bodyText && (evt.type === 'reasoning' || evt.type === 'result' || evt.type === 'done');
+    const detailHtml = showsBlock
+      ? `<div class="tl-stream ${evt.type === 'reasoning' ? 'reasoning' : ''}">${escapeHtml(truncate(bodyText, 1600))}</div>`
+      : (evt.detail ? `<div class="tl-detail${evt.type === 'error' || evt.type === 'blocked' ? ' error-text' : ''}">${escapeHtml(truncate(evt.detail, 300))}</div>` : '');
+
+    const hasExtra = evt.extra && (evt.extra.detail || evt.extra.command || evt.extra.tool_args || evt.extra.tool_args_full);
     const clickAttr = hasExtra ? `onclick="showEventDetail('${evt.id}')"` : '';
     const cursorStyle = hasExtra ? 'cursor:pointer;' : '';
 
@@ -361,13 +505,15 @@ function showEventDetail(eventId) {
   const parts = [];
   if (evt.extra.detail) parts.push(evt.extra.detail);
   if (evt.extra.command) parts.push('Command: ' + evt.extra.command);
-  if (evt.extra.tool_args) {
+  const args = evt.extra.tool_args_full || evt.extra.tool_args;
+  if (args) {
     try {
-      parts.push('Args: ' + JSON.stringify(evt.extra.tool_args, null, 2));
+      parts.push('Args: ' + JSON.stringify(args, null, 2));
     } catch(e) {
-      parts.push('Args: ' + String(evt.extra.tool_args));
+      parts.push('Args: ' + String(args));
     }
   }
+  if (evt.extra.text) parts.push(evt.extra.text);
   if (evt.extra.duration_ms) parts.push('Duration: ' + evt.extra.duration_ms + 'ms');
   if (evt.extra.model) parts.push('Model: ' + evt.extra.model);
   if (evt.extra.provider) parts.push('Provider: ' + evt.extra.provider);
@@ -377,10 +523,21 @@ function showEventDetail(eventId) {
 }
 
 function addEvent(evt) {
-  events.push(evt);
-  if (events.length > 500) events = events.slice(-500);
+  if (evt.type === 'stream') {
+    const { isNew } = ingestStream(evt);
+    // Only the first fragment of a transcript gets a timeline row; later
+    // fragments grow that row's text in place.
+    if (isNew) events.push(evt);
+  } else {
+    events.push(evt);
+  }
+  if (events.length > 500) {
+    events = events.slice(-500);
+    rebuildTranscripts();
+  }
   renderTimeline();
   renderAgentCards();
+  renderLivePanel();
 }
 
 function connectSSE() {
@@ -421,14 +578,32 @@ async function loadHistory() {
     const data = await resp.json();
     if (Array.isArray(data)) {
       events = data;
+      rebuildTranscripts();
+      // Keep one timeline row per transcript rather than one per fragment.
+      const seenStreams = new Set();
+      events = events.filter(evt => {
+        if (evt.type !== 'stream') return true;
+        const key = streamKey(evt);
+        if (seenStreams.has(key)) return false;
+        seenStreams.add(key);
+        return true;
+      });
       renderTimeline();
       renderAgentCards();
+      renderLivePanel();
     }
   } catch(e) {}
 }
 
 loadHistory();
 connectSSE();
+
+// Keep "x ago" labels and the streaming caret honest between events.
+setInterval(() => {
+  if (document.hidden) return;
+  renderAgentCards();
+  renderLivePanel();
+}, 2000);
 
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {

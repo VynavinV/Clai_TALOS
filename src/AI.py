@@ -122,6 +122,7 @@ def reload_clients():
     global _MAX_COMMAND_TIMEOUT, _MAX_WORKFLOW_STEPS, _MAX_ORCHESTRATOR_WALL_TIMEOUT_S
     global _MAX_SUBAGENT_TOOL_ROUNDS, _MAX_SUBAGENT_TOOL_CALLS_PER_ROUND, _MAX_SUBAGENT_WALL_TIMEOUT_S
     global _SUBAGENT_MAX_TELEGRAM_MESSAGES, _SUBAGENT_MAX_TELEGRAM_MESSAGE_CHARS, _SUBAGENT_MIN_UPDATE_INTERVAL_S
+    global _MAX_AGENT_TELEGRAM_MESSAGES, _MAX_IDENTICAL_TOOL_CALLS, _MAX_STALLED_ROUNDS
     _tools_guide_cache = None
     model_router.reload_clients()
     load_dotenv(dotenv_path=app_paths.env_file_path(), override=True)
@@ -136,6 +137,9 @@ def reload_clients():
     _SUBAGENT_MAX_TELEGRAM_MESSAGES = int(os.getenv("SUBAGENT_MAX_TELEGRAM_MESSAGES", "3"))
     _SUBAGENT_MAX_TELEGRAM_MESSAGE_CHARS = int(os.getenv("SUBAGENT_MAX_TELEGRAM_MESSAGE_CHARS", "260"))
     _SUBAGENT_MIN_UPDATE_INTERVAL_S = float(os.getenv("SUBAGENT_MIN_UPDATE_INTERVAL_S", "30"))
+    _MAX_AGENT_TELEGRAM_MESSAGES = int(os.getenv("MAX_AGENT_TELEGRAM_MESSAGES", "5"))
+    _MAX_IDENTICAL_TOOL_CALLS = int(os.getenv("MAX_IDENTICAL_TOOL_CALLS", "1"))
+    _MAX_STALLED_ROUNDS = int(os.getenv("MAX_STALLED_ROUNDS", "2"))
 
 
 def list_models() -> list[str]:
@@ -238,6 +242,14 @@ def _build_system(user_id: int, current_message: str = "", include_memories: boo
         "You can spawn multiple subagents in a single response - they will run in PARALLEL. "
         "After all subagents complete, synthesize their results into a final coherent response. "
         "Keep the user informed: if spawning subagents, tell the user what you're delegating and why.\n\n"
+        "CRITICAL — Answering vs. messaging:\n"
+        "Your final plain-text response is already delivered to the user. send_telegram_message is ONLY for "
+        "progress updates during long multi-step work — it is not how you answer.\n"
+        "1. For a question you can answer directly, just write the answer as text. Call NO tools.\n"
+        "2. Never send the same message twice, and never send more than a couple of updates per turn.\n"
+        "3. Never invent work that was not requested. If the user asked a question, answer it — "
+        "do not create projects, files, or demos they did not ask for.\n"
+        "4. When you have nothing new to do, stop calling tools and write your final answer.\n\n"
         "CRITICAL — Command Loop Prevention:\n"
         "Many shell commands (cp, mv, mkdir, chmod, ln, etc.) succeed SILENTLY with no output. "
         "An empty stdout with exit code 0 means SUCCESS, not failure. Do NOT re-run a command "
@@ -306,6 +318,133 @@ def _build_subagent_system(user_id: int, role: str, task: str, context: str = ""
         parts.append(f"[Previous conversation summary]\n{summary}")
 
     return "\n\n".join(parts) if parts else None
+
+
+_MAX_AGENT_TELEGRAM_MESSAGES = int(os.getenv("MAX_AGENT_TELEGRAM_MESSAGES", "5"))
+_MAX_IDENTICAL_TOOL_CALLS = int(os.getenv("MAX_IDENTICAL_TOOL_CALLS", "1"))
+_MAX_STALLED_ROUNDS = int(os.getenv("MAX_STALLED_ROUNDS", "2"))
+
+# Streamed model output is batched before hitting the activity feed so a fast
+# model does not flood the SSE channel with one event per token.
+_STREAM_FLUSH_CHARS = int(os.getenv("STREAM_FLUSH_CHARS", "80"))
+_STREAM_FLUSH_INTERVAL_S = float(os.getenv("STREAM_FLUSH_INTERVAL_S", "0.35"))
+_STREAM_MAX_EVENT_CHARS = 2000
+
+# Tools that are safe (and often necessary) to repeat with identical arguments.
+_REPEATABLE_TOOLS = {
+    "read_file",
+    "list_files",
+    "list_projects",
+    "list_tools",
+    "get_memories",
+}
+
+
+def _tool_call_signature(tool_name: str, tool_args: dict) -> str:
+    """Stable key identifying "this exact call again"."""
+    try:
+        args_repr = json.dumps(tool_args, sort_keys=True, ensure_ascii=False, default=str)
+    except (TypeError, ValueError):
+        args_repr = str(sorted(tool_args.items())) if isinstance(tool_args, dict) else str(tool_args)
+    return f"{tool_name}:{args_repr}"
+
+
+class _LoopGuard:
+    """Stops a model from burning its rounds repeating itself.
+
+    Small local models in particular tend to re-issue the same tool call every
+    round — most visibly by sending the user the same Telegram message over and
+    over. Instead of executing those, we hand the model an explicit refusal so it
+    has a chance to change course, and abandon the loop if it will not.
+    """
+
+    def __init__(self, is_orchestrator: bool = True):
+        self._call_counts: dict[str, int] = {}
+        self._sent_messages: set[str] = set()
+        self._telegram_sends = 0
+        self._max_telegram = max(1, min(int(_MAX_AGENT_TELEGRAM_MESSAGES), 20)) if is_orchestrator else 10**6
+        self._max_identical = max(1, min(int(_MAX_IDENTICAL_TOOL_CALLS), 10))
+        self.stalled_rounds = 0
+
+    def check(self, tool_name: str, tool_args: dict) -> str | None:
+        """Return a blocking tool result, or None to let the call through."""
+        if tool_name in {"send_telegram_message", "send_voice_message"}:
+            text = str(tool_args.get("message") or tool_args.get("text") or "").strip().lower()
+            normalized = " ".join(text.split())
+            if normalized and normalized in self._sent_messages:
+                return json.dumps({
+                    "sent": False,
+                    "blocked": "duplicate_message",
+                    "instruction": (
+                        "You already sent this exact message. Do not send it again. "
+                        "Either do real work with another tool or write your final answer now."
+                    ),
+                })
+            if self._telegram_sends >= self._max_telegram:
+                return json.dumps({
+                    "sent": False,
+                    "blocked": "message_limit_reached",
+                    "instruction": (
+                        f"You have already sent {self._telegram_sends} messages this turn, which is the limit. "
+                        "Stop sending updates and write your final answer as plain text instead."
+                    ),
+                })
+            if normalized:
+                self._sent_messages.add(normalized)
+            self._telegram_sends += 1
+            return None
+
+        if tool_name in _REPEATABLE_TOOLS:
+            return None
+
+        signature = _tool_call_signature(tool_name, tool_args)
+        self._call_counts[signature] = self._call_counts.get(signature, 0) + 1
+        if self._call_counts[signature] > self._max_identical:
+            return json.dumps({
+                "error": "repeated_tool_call",
+                "instruction": (
+                    f"You have already called {tool_name} with these exact arguments "
+                    f"{self._call_counts[signature] - 1} time(s) and have the result above. "
+                    "Do not call it again. Use the result you already have, try a different "
+                    "approach, or write your final answer."
+                ),
+            })
+        return None
+
+    def note_round(self, all_blocked: bool) -> bool:
+        """Record a round's outcome. Returns True when the agent should give up."""
+        if all_blocked:
+            self.stalled_rounds += 1
+        else:
+            self.stalled_rounds = 0
+        return self.stalled_rounds >= max(1, int(_MAX_STALLED_ROUNDS))
+
+
+def _preview_tool_args(tool_args: dict) -> dict:
+    """Short, scalar-only argument preview for the activity timeline row."""
+    if not isinstance(tool_args, dict):
+        return {}
+    return {k: str(v)[:100] for k, v in tool_args.items() if isinstance(v, (str, int, float, bool))}
+
+
+_MAX_ACTIVITY_ARG_CHARS = 4000
+
+
+def _full_tool_args(tool_args: dict) -> dict:
+    """Full arguments (including nested values) for the activity detail panel."""
+    if not isinstance(tool_args, dict):
+        return {}
+    full = {}
+    for key, value in tool_args.items():
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            text = str(value)
+        else:
+            try:
+                text = json.dumps(value, ensure_ascii=False)
+            except (TypeError, ValueError):
+                text = str(value)
+        full[key] = text[:_MAX_ACTIVITY_ARG_CHARS]
+    return full
 
 
 def _safe_json_loads(raw: str | None, default: dict | None = None) -> dict:
@@ -1511,21 +1650,17 @@ async def _execute_tool_call(
     try:
         if tool_name == "execute_command":
             command = str(tool_args.get("command", "")).strip()
-            await _t.emit("command", _agent_id, "Command", f"Running: {command[:120]}", _with_activity_meta({"command": command}))
-        elif tool_name == "spawn_subagent":
-            pass
-        else:
-            await _t.emit("tool", _agent_id, "Tool call", f"Calling {tool_name}", _with_activity_meta({"tool": tool_name, "tool_args": {k: str(v)[:100] for k, v in tool_args.items() if isinstance(v, (str, int, float, bool))}}))
-
-        if tool_name == "execute_command":
-            command = str(tool_args.get("command", "")).strip()
             _tool_detail = f"Running: {command[:120]}"
             await _t.emit("command", _agent_id, "Command", _tool_detail, _with_activity_meta({"command": command}))
         elif tool_name == "spawn_subagent":
             pass
         else:
             _tool_detail = f"Calling {tool_name}"
-            await _t.emit("tool", _agent_id, "Tool call", _tool_detail, _with_activity_meta({"tool": tool_name, "tool_args": {k: str(v)[:100] for k, v in tool_args.items() if isinstance(v, (str, int, float, bool))}}))
+            await _t.emit("tool", _agent_id, "Tool call", _tool_detail, _with_activity_meta({
+                "tool": tool_name,
+                "tool_args": _preview_tool_args(tool_args),
+                "tool_args_full": _full_tool_args(tool_args),
+            }))
 
         if tool_name == "execute_command":
             timeout = tool_args.get("timeout", 30)
@@ -2418,12 +2553,52 @@ async def _run_agent(
         tools = _get_all_tools(include_subagent=allow_subagent, include_telegram=send_func is not None)
 
     model_id = _MODELS.get(model.lower(), model)
+    guard = _LoopGuard(is_orchestrator=_parent_agent_id is None)
 
     def _with_activity_meta(extra: dict | None = None) -> dict:
         payload = dict(extra or {})
         if _parent_agent_id:
             payload.setdefault("parent_agent", _parent_agent_id)
         return payload
+
+    def _make_stream_sink(round_no: int):
+        """Batch model deltas into activity events so the UI can render them live."""
+        tracker = activity_tracker.get_tracker()
+        buffers: dict[str, list[str]] = {}
+        last_flush = {"at": time.monotonic()}
+        seq = {"n": 0}
+
+        async def _flush(kind: str, force: bool = False) -> None:
+            chunk = "".join(buffers.get(kind, ()))
+            if not chunk:
+                return
+            now = time.monotonic()
+            if not force and len(chunk) < _STREAM_FLUSH_CHARS and (now - last_flush["at"]) < _STREAM_FLUSH_INTERVAL_S:
+                return
+            buffers[kind] = []
+            last_flush["at"] = now
+            seq["n"] += 1
+            await tracker.emit(
+                "stream", _agent_id, "Streaming", chunk[:_STREAM_MAX_EVENT_CHARS],
+                _with_activity_meta({
+                    "kind": kind,
+                    "text": chunk[:_STREAM_MAX_EVENT_CHARS],
+                    "seq": seq["n"],
+                    "round": round_no,
+                    "model": model_id,
+                }),
+            )
+
+        async def _sink(kind: str, text: str) -> None:
+            buffers.setdefault(kind, []).append(text)
+            await _flush(kind)
+
+        async def _finish() -> None:
+            for kind in list(buffers):
+                await _flush(kind, force=True)
+
+        _sink.finish = _finish
+        return _sink
 
     def _drain_interrupts() -> list[dict]:
         if not interrupt_event or not interrupt_queue:
@@ -2470,6 +2645,8 @@ async def _run_agent(
             "content": "\n\n".join(parts),
         }
 
+    _t = activity_tracker.get_tracker()
+
     for _ in range(max_rounds):
         interrupts = _drain_interrupts()
         if interrupts:
@@ -2477,18 +2654,29 @@ async def _run_agent(
             if msg:
                 messages.append(msg)
 
-        _t = activity_tracker.get_tracker()
         await _t.emit("thinking", _agent_id, "Thinking", f"Round {_ + 1}/{max_rounds} — calling model {model_id}", _with_activity_meta())
 
         t0 = time.monotonic()
-        response = await model_router.call_model(
-            model_id,
-            messages,
-            tools,
-            speed_mode=speed_mode,
-            reasoning_enabled=reasoning_enabled,
-        )
+        sink = _make_stream_sink(_ + 1)
+        try:
+            response = await model_router.call_model(
+                model_id,
+                messages,
+                tools,
+                speed_mode=speed_mode,
+                reasoning_enabled=reasoning_enabled,
+                on_delta=sink,
+            )
+        finally:
+            await sink.finish()
         elapsed = (time.monotonic() - t0) * 1000
+
+        reasoning_text = str(response.get("reasoning") or "")
+        if reasoning_text.strip():
+            await _t.emit(
+                "reasoning", _agent_id, "Reasoning", reasoning_text[:300],
+                _with_activity_meta({"text": reasoning_text[:_STREAM_MAX_EVENT_CHARS], "model": model_id}),
+            )
 
         tool_calls = response.get("tool_calls", [])
         content_text = response.get("content", "")
@@ -2502,7 +2690,10 @@ async def _run_agent(
                 logger.warning(f"Model emitted {len(text_tools)} tool call(s) as text, intercepted and routing to execution")
                 messages.append({"role": "assistant", "content": content_text})
             else:
-                await _t.emit("done", _agent_id, "Responded", f"Final answer in {elapsed:.0f}ms", _with_activity_meta({"duration_ms": round(elapsed)}))
+                await _t.emit(
+                    "done", _agent_id, "Responded", f"Final answer in {elapsed:.0f}ms",
+                    _with_activity_meta({"duration_ms": round(elapsed), "text": str(content_text)[:_STREAM_MAX_EVENT_CHARS]}),
+                )
                 interrupt_texts = _drain_interrupts()
                 if interrupt_texts:
                     msg = _build_interruption_message(interrupt_texts)
@@ -2520,12 +2711,26 @@ async def _run_agent(
         if tool_calls:
             names = [tc["name"] for tc in tool_calls]
             await _t.emit("model", _agent_id, "Model decided", f"{len(tool_calls)} tool(s): {', '.join(names)}", _with_activity_meta({"duration_ms": round(elapsed), "model": model_id}))
-        
-        subagent_calls = [tc for tc in tool_calls if tc["name"] == "spawn_subagent"]
-        other_calls = [tc for tc in tool_calls if tc["name"] != "spawn_subagent"]
-        
+
+        # Refuse repeats before executing anything: a model stuck in a loop gets
+        # told to change course instead of re-running the same side effect.
         results: dict[str, str] = {}
-        
+        allowed_calls = []
+        for tc in tool_calls:
+            blocked = guard.check(tc["name"], tc["arguments"] if isinstance(tc["arguments"], dict) else {})
+            if blocked is None:
+                allowed_calls.append(tc)
+                continue
+            results[tc["id"]] = blocked
+            logger.warning(f"Loop guard blocked repeated call to {tc['name']} by {_agent_id}")
+            await _t.emit(
+                "blocked", _agent_id, "Repeat blocked", f"Skipped duplicate {tc['name']} call",
+                _with_activity_meta({"tool": tc["name"], "detail": blocked}),
+            )
+
+        subagent_calls = [tc for tc in allowed_calls if tc["name"] == "spawn_subagent"]
+        other_calls = [tc for tc in allowed_calls if tc["name"] != "spawn_subagent"]
+
         for tc in other_calls:
             results[tc["id"]] = await _execute_tool_call(
                 tc["name"], tc["arguments"],
@@ -2559,28 +2764,58 @@ async def _run_agent(
                     results[item[0]] = item[1]
         
         for tc in tool_calls:
+            result_text = results.get(tc["id"], json.dumps({"error": "execution failed"}))
             messages.append({
                 "role": "tool",
                 "tool_call_id": tc["id"],
-                "content": results.get(tc["id"], json.dumps({"error": "execution failed"})),
+                "content": result_text,
             })
+            await _t.emit(
+                "result", _agent_id, "Tool result", f"{tc['name']} → {str(result_text)[:160]}",
+                _with_activity_meta({"tool": tc["name"], "text": str(result_text)[:_STREAM_MAX_EVENT_CHARS]}),
+            )
 
         if using_default_tools and any(tc["name"] in {"create_tool", "delete_tool"} for tc in tool_calls):
             tools = _get_all_tools(include_subagent=allow_subagent, include_telegram=send_func is not None)
+
+        if guard.note_round(bool(tool_calls) and not allowed_calls):
+            logger.warning(f"{_agent_id} made no progress for {guard.stalled_rounds} rounds; ending tool loop")
+            await _t.emit(
+                "blocked", _agent_id, "Loop stopped",
+                "Every tool call was a repeat — stopping and summarizing instead.",
+                _with_activity_meta(),
+            )
+            messages.append({
+                "role": "user",
+                "content": (
+                    "[SYSTEM] You repeated the same tool calls without making progress, so tool use is "
+                    "now disabled for this turn. Write your final answer to the user as plain text now."
+                ),
+            })
+            break
     
+    async def _wrap_up() -> dict:
+        """Final, tool-free call so the agent always produces a written answer."""
+        sink = _make_stream_sink(max_rounds + 1)
+        try:
+            return await model_router.call_model(
+                model_id,
+                messages,
+                None,
+                speed_mode=speed_mode,
+                reasoning_enabled=reasoning_enabled,
+                on_delta=sink,
+            )
+        finally:
+            await sink.finish()
+
     try:
         interrupt_texts = _drain_interrupts()
         if interrupt_texts:
             msg = _build_interruption_message(interrupt_texts)
             if msg:
                 messages.append(msg)
-        response = await model_router.call_model(
-            model_id,
-            messages,
-            None,
-            speed_mode=speed_mode,
-            reasoning_enabled=reasoning_enabled,
-        )
+        response = await _wrap_up()
         final_content = response.get("content", "I could not generate a response right now.")
 
         interrupt_texts = _drain_interrupts()
@@ -2589,20 +2824,19 @@ async def _run_agent(
             if msg:
                 messages.append(response.get("message", {"role": "assistant", "content": final_content}))
                 messages.append(msg)
-                response = await model_router.call_model(
-                    model_id,
-                    messages,
-                    None,
-                    speed_mode=speed_mode,
-                    reasoning_enabled=reasoning_enabled,
-                )
+                response = await _wrap_up()
                 final_content = response.get("content", final_content)
 
         sanitized = _sanitize_response(final_content)
+        await _t.emit(
+            "done", _agent_id, "Responded", "Final answer",
+            _with_activity_meta({"text": str(sanitized or final_content)[:_STREAM_MAX_EVENT_CHARS]}),
+        )
         if sanitized and sanitized.strip():
             return sanitized
         return "I ran out of processing rounds before finishing. Break the task into smaller pieces and try again."
     except Exception:
+        logger.exception(f"{_agent_id} wrap-up call failed")
         return "I ran out of processing rounds before finishing. Break the task into smaller pieces and try again."
 
 

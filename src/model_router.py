@@ -4,6 +4,7 @@ import logging
 import asyncio
 import time
 from typing import Any
+from contextvars import ContextVar
 from urllib.parse import urlparse, urlunparse
 from dotenv import load_dotenv
 import app_paths
@@ -316,7 +317,12 @@ def _get_ollama_client():
     global _ollama_client
     if _ollama_client is None:
         from openai import AsyncOpenAI
-        _ollama_client = AsyncOpenAI(api_key="ollama", base_url=_OLLAMA_BASE_URL)
+        _ollama_client = AsyncOpenAI(
+            api_key="ollama",
+            base_url=_OLLAMA_BASE_URL,
+            timeout=_model_timeout_for_speed("normal", "ollama"),
+            max_retries=0,
+        )
     return _ollama_client
 
 
@@ -334,6 +340,166 @@ def _safe_json_loads(raw, default=None):
 
 def _tools_to_openai(tools: list[dict] | None) -> list[dict] | None:
     return tools
+
+
+# ---------------------------------------------------------------------------
+# Streaming support
+#
+# `call_model` accepts an optional `on_delta` coroutine. Providers backed by the
+# OpenAI-compatible async client stream their response and hand each delta to
+# that callback so the UI can show the model's thinking/output as it arrives.
+# Providers without streaming support still emit one final delta so callers can
+# treat every provider uniformly.
+# ---------------------------------------------------------------------------
+
+_STREAM_SINK: ContextVar[Any] = ContextVar("talos_stream_sink", default=None)
+
+
+async def _emit_delta(kind: str, text: str) -> None:
+    """Push a streamed fragment to the sink installed by `call_model`, if any."""
+    if not text:
+        return
+    sink = _STREAM_SINK.get()
+    if sink is None:
+        return
+    try:
+        await sink(kind, text)
+    except Exception:
+        logger.debug("stream sink raised; dropping delta", exc_info=True)
+
+
+def _streaming_wanted() -> bool:
+    return _STREAM_SINK.get() is not None
+
+
+def _reasoning_from_delta(delta: Any) -> str:
+    for attr in ("reasoning_content", "reasoning", "thinking"):
+        value = getattr(delta, attr, None)
+        if isinstance(value, str) and value:
+            return value
+    return ""
+
+
+def _build_openai_result(reply_text: str, tool_calls: list[dict], reasoning: str = "") -> dict:
+    return {
+        "content": reply_text,
+        "reasoning": reasoning,
+        "tool_calls": tool_calls,
+        "message": {
+            "role": "assistant",
+            "content": reply_text,
+            "tool_calls": [
+                {"id": tc["id"], "type": "function", "function": {"name": tc["name"], "arguments": json.dumps(tc["arguments"])}}
+                for tc in tool_calls
+            ] if tool_calls else None,
+        },
+    }
+
+
+async def _stream_openai_chat(client: Any, kwargs: dict[str, Any]) -> dict:
+    """Run an OpenAI-compatible chat completion in streaming mode.
+
+    Accumulates content, reasoning, and tool-call argument fragments into the
+    same result shape the non-streaming path returns.
+    """
+    stream_kwargs = dict(kwargs)
+    stream_kwargs["stream"] = True
+
+    content_parts: list[str] = []
+    reasoning_parts: list[str] = []
+    # index -> {"id", "name", "arguments"} accumulated across deltas
+    partial_tools: dict[int, dict[str, str]] = {}
+
+    stream = await client.chat.completions.create(**stream_kwargs)
+    async for chunk in stream:
+        if not getattr(chunk, "choices", None):
+            continue
+        delta = getattr(chunk.choices[0], "delta", None)
+        if delta is None:
+            continue
+
+        reasoning_piece = _reasoning_from_delta(delta)
+        if reasoning_piece:
+            reasoning_parts.append(reasoning_piece)
+            await _emit_delta("reasoning", reasoning_piece)
+
+        piece = getattr(delta, "content", None)
+        if piece:
+            content_parts.append(piece)
+            await _emit_delta("content", piece)
+
+        for tc in (getattr(delta, "tool_calls", None) or []):
+            idx = getattr(tc, "index", 0) or 0
+            slot = partial_tools.setdefault(idx, {"id": "", "name": "", "arguments": ""})
+            tc_id = getattr(tc, "id", None)
+            if tc_id:
+                slot["id"] = tc_id
+            fn = getattr(tc, "function", None)
+            if fn is None:
+                continue
+            fn_name = getattr(fn, "name", None)
+            if fn_name:
+                slot["name"] = fn_name
+                await _emit_delta("tool", f"{fn_name}(")
+            fn_args = getattr(fn, "arguments", None)
+            if fn_args:
+                slot["arguments"] += fn_args
+                await _emit_delta("tool_args", fn_args)
+
+    tool_calls = []
+    for idx in sorted(partial_tools):
+        slot = partial_tools[idx]
+        if not slot["name"]:
+            continue
+        tool_calls.append({
+            "id": slot["id"] or f"call_{idx}",
+            "name": slot["name"],
+            "arguments": _safe_json_loads(slot["arguments"], {}),
+        })
+
+    reply_text = "".join(content_parts)
+    return _build_openai_result(reply_text, tool_calls, "".join(reasoning_parts))
+
+
+def _collect_openai_response(response: Any) -> dict:
+    """Normalize a non-streaming OpenAI-compatible response."""
+    choice = response.choices[0]
+    reply_text = choice.message.content or ""
+    reasoning = ""
+    for attr in ("reasoning_content", "reasoning"):
+        value = getattr(choice.message, attr, None)
+        if isinstance(value, str) and value:
+            reasoning = value
+            break
+
+    tool_calls = []
+    for tc in (getattr(choice.message, "tool_calls", None) or []):
+        fn = getattr(tc, "function", None)
+        name = getattr(fn, "name", None)
+        if not name:
+            continue
+        tool_calls.append({
+            "id": getattr(tc, "id", None) or f"tool_{len(tool_calls)}",
+            "name": name,
+            "arguments": _safe_json_loads(getattr(fn, "arguments", None), {}),
+        })
+
+    return _build_openai_result(reply_text, tool_calls, reasoning)
+
+
+async def _openai_chat(client: Any, kwargs: dict[str, Any]) -> dict:
+    """Stream when a sink is listening, otherwise use the plain request path."""
+    if _streaming_wanted():
+        try:
+            return await _stream_openai_chat(client, kwargs)
+        except Exception:
+            logger.warning("Streaming call failed, retrying without streaming", exc_info=True)
+    response = await client.chat.completions.create(**kwargs)
+    result = _collect_openai_response(response)
+    await _emit_delta("content", result.get("content", ""))
+    return result
+
+
 
 
 def _tools_to_anthropic(tools: list[dict] | None) -> list[dict] | None:
@@ -366,31 +532,7 @@ async def call_openai(
         kwargs["tools"] = _tools_to_openai(tools)
         kwargs["tool_choice"] = "auto"
 
-    response = await client.chat.completions.create(**kwargs)
-    choice = response.choices[0]
-    reply_text = choice.message.content or ""
-
-    tool_calls = []
-    if choice.message.tool_calls:
-        for tc in choice.message.tool_calls:
-            tool_calls.append({
-                "id": tc.id,
-                "name": tc.function.name,
-                "arguments": _safe_json_loads(tc.function.arguments, {}),
-            })
-
-    return {
-        "content": reply_text,
-        "tool_calls": tool_calls,
-        "message": {
-            "role": "assistant",
-            "content": reply_text,
-            "tool_calls": [
-                {"id": tc["id"], "type": "function", "function": {"name": tc["name"], "arguments": json.dumps(tc["arguments"])}}
-                for tc in tool_calls
-            ] if tool_calls else None,
-        }
-    }
+    return await _openai_chat(client, kwargs)
 
 
 async def call_anthropic(
@@ -443,10 +585,26 @@ async def call_anthropic(
         kwargs["tools"] = _tools_to_anthropic(tools)
         kwargs["tool_choice"] = {"type": "auto"}
 
-    response = await client.messages.create(**kwargs)
-
     reply_text = ""
     tool_calls = []
+
+    if _streaming_wanted():
+        async with client.messages.stream(**kwargs) as stream:
+            async for event in stream.text_stream:
+                reply_text += event
+                await _emit_delta("content", event)
+            response = await stream.get_final_message()
+        for block in response.content:
+            if block.type == "tool_use":
+                await _emit_delta("tool", f"{block.name}(")
+                tool_calls.append({
+                    "id": block.id,
+                    "name": block.name,
+                    "arguments": block.input if isinstance(block.input, dict) else _safe_json_loads(getattr(block, "input", None), {}),
+                })
+        return _build_openai_result(reply_text, tool_calls)
+
+    response = await client.messages.create(**kwargs)
 
     for block in response.content:
         if block.type == "text":
@@ -458,18 +616,8 @@ async def call_anthropic(
                 "arguments": block.input if isinstance(block.input, dict) else _safe_json_loads(getattr(block, "input", None), {}),
             })
 
-    return {
-        "content": reply_text,
-        "tool_calls": tool_calls,
-        "message": {
-            "role": "assistant",
-            "content": reply_text,
-            "tool_calls": [
-                {"id": tc["id"], "type": "function", "function": {"name": tc["name"], "arguments": json.dumps(tc["arguments"])}}
-                for tc in tool_calls
-            ] if tool_calls else None,
-        }
-    }
+    await _emit_delta("content", reply_text)
+    return _build_openai_result(reply_text, tool_calls)
 
 
 async def call_gemini(
@@ -576,18 +724,8 @@ async def call_gemini(
                         "arguments": dict(fc.args) if fc.args else {},
                     })
 
-    return {
-        "content": text,
-        "tool_calls": tool_calls,
-        "message": {
-            "role": "assistant",
-            "content": text,
-            "tool_calls": [
-                {"id": tc["id"], "type": "function", "function": {"name": tc["name"], "arguments": json.dumps(tc["arguments"])}}
-                for tc in tool_calls
-            ] if tool_calls else None,
-        }
-    }
+    await _emit_delta("content", text)
+    return _build_openai_result(text, tool_calls)
 
 
 async def call_zhipu(
@@ -606,34 +744,10 @@ async def call_zhipu(
         tool_choice="auto" if tools else None,
     )
 
-    choice = response.choices[0]
-    reply_text = choice.message.content or ""
-
-    tool_calls = []
-    if hasattr(choice.message, 'tool_calls') and choice.message.tool_calls:
-        for tc in choice.message.tool_calls:
-            fn = getattr(tc, "function", None)
-            name = getattr(fn, "name", None)
-            if not name:
-                continue
-            tool_calls.append({
-                "id": getattr(tc, "id", f"tool_{len(tool_calls)}"),
-                "name": name,
-                "arguments": _safe_json_loads(getattr(fn, "arguments", None), {}),
-            })
-
-    return {
-        "content": reply_text,
-        "tool_calls": tool_calls,
-        "message": {
-            "role": "assistant",
-            "content": reply_text,
-            "tool_calls": [
-                {"id": tc["id"], "type": "function", "function": {"name": tc["name"], "arguments": json.dumps(tc["arguments"])}}
-                for tc in tool_calls
-            ] if tool_calls else None,
-        }
-    }
+    result = _collect_openai_response(response)
+    await _emit_delta("reasoning", result.get("reasoning", ""))
+    await _emit_delta("content", result.get("content", ""))
+    return result
 
 
 async def call_nvidia(
@@ -673,7 +787,7 @@ async def call_nvidia(
         kwargs["tool_choice"] = "auto"
 
     try:
-        response = await client.chat.completions.create(**kwargs)
+        return await _openai_chat(client, kwargs)
     except Exception as exc:
         lowered = str(exc).lower()
         if "404" not in lowered and "not found" not in lowered:
@@ -693,38 +807,10 @@ async def call_nvidia(
             else:
                 retry_kwargs.pop("extra_body", None)
             try:
-                response = await client.chat.completions.create(**retry_kwargs)
-                model_id = fallback_model
-                break
+                return await _openai_chat(client, retry_kwargs)
             except Exception as retry_exc:
                 last_exc = retry_exc
-        else:
-            raise last_exc
-
-    choice = response.choices[0]
-    reply_text = choice.message.content or ""
-
-    tool_calls = []
-    if choice.message.tool_calls:
-        for tc in choice.message.tool_calls:
-            tool_calls.append({
-                "id": tc.id,
-                "name": tc.function.name,
-                "arguments": _safe_json_loads(tc.function.arguments, {}),
-            })
-
-    return {
-        "content": reply_text,
-        "tool_calls": tool_calls,
-        "message": {
-            "role": "assistant",
-            "content": reply_text,
-            "tool_calls": [
-                {"id": tc["id"], "type": "function", "function": {"name": tc["name"], "arguments": json.dumps(tc["arguments"])}}
-                for tc in tool_calls
-            ] if tool_calls else None,
-        }
-    }
+        raise last_exc
 
 
 async def call_cerebras(
@@ -742,31 +828,7 @@ async def call_cerebras(
         kwargs["tools"] = _tools_to_openai(tools)
         kwargs["tool_choice"] = "auto"
 
-    response = await client.chat.completions.create(**kwargs)
-    choice = response.choices[0]
-    reply_text = choice.message.content or ""
-
-    tool_calls = []
-    if choice.message.tool_calls:
-        for tc in choice.message.tool_calls:
-            tool_calls.append({
-                "id": tc.id,
-                "name": tc.function.name,
-                "arguments": _safe_json_loads(tc.function.arguments, {}),
-            })
-
-    return {
-        "content": reply_text,
-        "tool_calls": tool_calls,
-        "message": {
-            "role": "assistant",
-            "content": reply_text,
-            "tool_calls": [
-                {"id": tc["id"], "type": "function", "function": {"name": tc["name"], "arguments": json.dumps(tc["arguments"])}}
-                for tc in tool_calls
-            ] if tool_calls else None,
-        }
-    }
+    return await _openai_chat(client, kwargs)
 
 
 async def call_openrouter(
@@ -784,31 +846,32 @@ async def call_openrouter(
         kwargs["tools"] = _tools_to_openai(tools)
         kwargs["tool_choice"] = "auto"
 
-    response = await client.chat.completions.create(**kwargs)
-    choice = response.choices[0]
-    reply_text = choice.message.content or ""
+    return await _openai_chat(client, kwargs)
 
-    tool_calls = []
-    if choice.message.tool_calls:
-        for tc in choice.message.tool_calls:
-            tool_calls.append({
-                "id": tc.id,
-                "name": tc.function.name,
-                "arguments": _safe_json_loads(tc.function.arguments, {}),
-            })
 
-    return {
-        "content": reply_text,
-        "tool_calls": tool_calls,
-        "message": {
-            "role": "assistant",
-            "content": reply_text,
-            "tool_calls": [
-                {"id": tc["id"], "type": "function", "function": {"name": tc["name"], "arguments": json.dumps(tc["arguments"])}}
-                for tc in tool_calls
-            ] if tool_calls else None,
-        }
-    }
+def _env_float(name: str) -> float | None:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        logger.warning(f"{name}={raw!r} is not a number; ignoring")
+        return None
+
+
+def _env_int(name: str) -> int | None:
+    value = _env_float(name)
+    return int(value) if value is not None else None
+
+
+def ollama_options() -> dict[str, Any]:
+    """Ollama-specific generation options configured in Settings."""
+    options: dict[str, Any] = {}
+    num_ctx = _env_int("OLLAMA_NUM_CTX")
+    if num_ctx:
+        options["num_ctx"] = num_ctx
+    return options
 
 
 async def call_ollama(
@@ -822,35 +885,30 @@ async def call_ollama(
         "model": model_id,
         "messages": messages,
     }
+
+    temperature = _env_float("OLLAMA_TEMPERATURE")
+    if temperature is not None:
+        kwargs["temperature"] = temperature
+    max_tokens = _env_int("OLLAMA_MAX_TOKENS")
+    if max_tokens:
+        kwargs["max_tokens"] = max_tokens
+
+    # num_ctx / keep_alive are Ollama extensions, passed through extra_body.
+    extra_body: dict[str, Any] = {}
+    options = ollama_options()
+    if options:
+        extra_body["options"] = options
+    keep_alive = os.getenv("OLLAMA_KEEP_ALIVE", "").strip()
+    if keep_alive:
+        extra_body["keep_alive"] = keep_alive
+    if extra_body:
+        kwargs["extra_body"] = extra_body
+
     if tools:
         kwargs["tools"] = _tools_to_openai(tools)
         kwargs["tool_choice"] = "auto"
 
-    response = await client.chat.completions.create(**kwargs)
-    choice = response.choices[0]
-    reply_text = choice.message.content or ""
-
-    tool_calls = []
-    if choice.message.tool_calls:
-        for tc in choice.message.tool_calls:
-            tool_calls.append({
-                "id": tc.id,
-                "name": tc.function.name,
-                "arguments": _safe_json_loads(tc.function.arguments, {}),
-            })
-
-    return {
-        "content": reply_text,
-        "tool_calls": tool_calls,
-        "message": {
-            "role": "assistant",
-            "content": reply_text,
-            "tool_calls": [
-                {"id": tc["id"], "type": "function", "function": {"name": tc["name"], "arguments": json.dumps(tc["arguments"])}}
-                for tc in tool_calls
-            ] if tool_calls else None,
-        }
-    }
+    return await _openai_chat(client, kwargs)
 
 
 _CALLERS = {
@@ -957,7 +1015,15 @@ def _normalize_runtime_profile(
     }
 
 
-def _model_timeout_for_speed(speed_mode: str) -> int:
+def _model_timeout_for_speed(speed_mode: str, provider: str = "") -> int:
+    if provider == "ollama":
+        # Local models run on the user's own hardware and are far slower than
+        # hosted APIs, so they get their own (longer) budget.
+        raw = os.getenv("OLLAMA_TIMEOUT_S", "").strip()
+        try:
+            return max(30, min(int(raw), 3600)) if raw else 600
+        except ValueError:
+            return 600
     base = max(30, min(_MODEL_CALL_TIMEOUT_S, 600))
     if speed_mode == "quick":
         return max(30, min(base, 70))
@@ -971,7 +1037,13 @@ async def call_model(
     tools: list[dict] | None,
     speed_mode: str | None = None,
     reasoning_enabled: bool | None = None,
+    on_delta: Any = None,
 ) -> dict:
+    """Call a model, optionally streaming fragments to `on_delta`.
+
+    `on_delta` is an async callable `(kind, text)` where kind is one of
+    "content", "reasoning", "tool", or "tool_args".
+    """
     provider, model_id = resolve_model(model)
     caller = _CALLERS.get(provider)
     if not caller:
@@ -982,8 +1054,9 @@ async def call_model(
         return {"content": f"Model \"{model}\" requires provider \"{provider}\", but {env_key} is not set. Add your API key in Settings to use this model.", "tool_calls": [], "message": None}
 
     runtime_profile = _normalize_runtime_profile(speed_mode=speed_mode, reasoning_enabled=reasoning_enabled)
+    sink_token = _STREAM_SINK.set(on_delta)
     try:
-        timeout = _model_timeout_for_speed(runtime_profile["speed_mode"])
+        timeout = _model_timeout_for_speed(runtime_profile["speed_mode"], provider)
         return await asyncio.wait_for(caller(model_id, messages, tools, runtime_profile), timeout=timeout)
     except asyncio.TimeoutError:
         logger.error(
@@ -1005,6 +1078,8 @@ async def call_model(
                     "message": None,
                 }
         return {"content": f"Error communicating with {provider}: {e}", "tool_calls": [], "message": None}
+    finally:
+        _STREAM_SINK.reset(sink_token)
 
 
 async def call_model_simple(
@@ -1337,8 +1412,9 @@ def list_provider_models() -> list[str]:
 
     ollama_model = os.getenv("OLLAMA_MODEL", "").strip()
     if ollama_model:
-        if ollama_model not in models:
-            models.append(ollama_model)
+        tagged = ollama_model if ollama_model.startswith("ollama/") else "ollama/" + ollama_model
+        if tagged not in models:
+            models.append(tagged)
 
     return models if models else list(get_all_model_aliases().values())
 

@@ -150,6 +150,77 @@
   }
   .info-box a { color: #63b3ed; text-decoration: none; }
   .info-box a:hover { text-decoration: underline; }
+
+  /* --- Ollama setup --- */
+  .ol-server {
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.02);
+    border-radius: 10px;
+    padding: 0.8rem 1rem;
+    margin-bottom: 1rem;
+  }
+  .ol-server-head { display: flex; align-items: center; gap: 0.55rem; font-size: 0.85rem; color: #ddd; }
+  .ol-server-sub { font-size: 0.76rem; color: #7d8590; margin-top: 0.35rem; line-height: 1.5; }
+  .ol-dot { width: 8px; height: 8px; border-radius: 50%; background: #a0aec0; flex: 0 0 auto; }
+  .ol-dot.ok { background: #48bb78; box-shadow: 0 0 0 3px rgba(72,187,120,0.15); }
+  .ol-dot.bad { background: #f56565; box-shadow: 0 0 0 3px rgba(245,101,101,0.15); }
+  .ol-dot.busy { background: #63b3ed; animation: ol-pulse 1.2s ease-in-out infinite; }
+  @keyframes ol-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+  .ol-refresh {
+    margin-left: auto; background: none; border: 1px solid rgba(255,255,255,0.14);
+    color: #9aa4b2; font-size: 0.72rem; padding: 0.2rem 0.6rem; border-radius: 6px;
+    cursor: pointer; font-family: inherit;
+  }
+  .ol-refresh:hover { color: #e6e6e6; border-color: rgba(255,255,255,0.3); }
+
+  .ol-suggestions { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1rem; }
+  .ol-chip {
+    border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.03);
+    border-radius: 999px; padding: 0.3rem 0.7rem; font-size: 0.74rem; color: #b9c2cf;
+    cursor: pointer; font-family: inherit; transition: all 0.15s;
+  }
+  .ol-chip:hover { border-color: rgba(99,179,237,0.45); color: #fff; background: rgba(99,179,237,0.1); }
+  .ol-chip .ol-chip-meta { color: #6b7280; margin-left: 0.35rem; }
+  .ol-chip.installed { border-color: rgba(72,187,120,0.35); }
+
+  .ol-advanced { margin-bottom: 1rem; }
+  .ol-advanced summary {
+    cursor: pointer; font-size: 0.8rem; color: #9aa4b2; padding: 0.4rem 0;
+    list-style: none; user-select: none;
+  }
+  .ol-advanced summary::before { content: '\25B8'; display: inline-block; margin-right: 0.45rem; transition: transform 0.15s; }
+  .ol-advanced[open] summary::before { transform: rotate(90deg); }
+  .ol-advanced summary:hover { color: #cbd5e1; }
+  .ol-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 1rem; padding-top: 0.5rem; }
+
+  .ol-progress {
+    border: 1px solid rgba(99,179,237,0.2); background: rgba(99,179,237,0.05);
+    border-radius: 10px; padding: 0.9rem 1rem; margin-bottom: 1rem;
+  }
+  .ol-progress-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 0.82rem; color: #dbe3ec; }
+  .ol-progress-pct { font-variant-numeric: tabular-nums; }
+  .ol-bar { height: 7px; border-radius: 4px; background: rgba(255,255,255,0.08); overflow: hidden; margin: 0.55rem 0 0.4rem; }
+  .ol-bar-fill {
+    height: 100%; width: 0%; border-radius: 4px;
+    background: linear-gradient(90deg, #4299e1, #63b3ed);
+    transition: width 0.25s ease;
+  }
+  .ol-bar-fill.indeterminate {
+    width: 35%; background: linear-gradient(90deg, rgba(99,179,237,0.15), #63b3ed, rgba(99,179,237,0.15));
+    animation: ol-slide 1.1s linear infinite;
+  }
+  @keyframes ol-slide { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
+  .ol-bar-fill.ok { background: linear-gradient(90deg, #38a169, #48bb78); }
+  .ol-bar-fill.err { background: linear-gradient(90deg, #c53030, #f56565); }
+  .ol-progress-sub { font-size: 0.74rem; color: #8b949e; font-variant-numeric: tabular-nums; }
+  .ol-log {
+    margin-top: 0.6rem; max-height: 120px; overflow-y: auto;
+    font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.7rem;
+    color: #7d8590; line-height: 1.7;
+  }
+  .ol-log div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  @media (max-width: 640px) { .ol-grid { grid-template-columns: 1fr; } }
+
   .provider-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -271,19 +342,76 @@
 
     <div id="ollama-setup-area" style="display:none;">
       <div class="info-box" style="margin-bottom:1rem;">
-        Ollama runs AI models locally on your machine. No API key needed.
-        <ol>
-          <li>Install Ollama from <a href="https://ollama.com" target="_blank">ollama.com</a></li>
-          <li>Make sure Ollama is running</li>
-          <li>Type a model name below (e.g. <code>llama3</code>, <code>mistral</code>, <code>deepseek-r1</code>)</li>
-        </ol>
-        Browse all models at <a href="https://ollama.com/library" target="_blank">ollama.com/library</a>
+        Ollama runs AI models locally on your machine. No API key needed, and nothing leaves your computer.
+        Install it from <a href="https://ollama.com" target="_blank">ollama.com</a> and make sure it is running,
+        then pick a model below. Browse the full catalog at
+        <a href="https://ollama.com/library" target="_blank">ollama.com/library</a>.
       </div>
+
+      <div class="ol-server" id="ollama-server-box">
+        <div class="ol-server-head">
+          <span class="ol-dot" id="ollama-dot"></span>
+          <span id="ollama-server-text">Checking for Ollama...</span>
+          <button type="button" class="ol-refresh" onclick="refreshOllamaStatus()">Recheck</button>
+        </div>
+        <div class="ol-server-sub" id="ollama-server-sub"></div>
+      </div>
+
       <div class="field">
-        <label>Ollama Model Name</label>
-        <input type="text" id="ollama-model-name" placeholder="llama3" autocomplete="off">
-        <div class="hint">The model will be downloaded automatically if not already present.</div>
+        <label>Ollama Model</label>
+        <input type="text" id="ollama-model-name" placeholder="llama3.1:8b" autocomplete="off" list="ollama-model-list" oninput="onOllamaModelInput()">
+        <datalist id="ollama-model-list"></datalist>
+        <div class="hint" id="ollama-model-hint">Already-downloaded models appear as suggestions. Anything else is downloaded for you.</div>
       </div>
+
+      <div id="ollama-suggestions" class="ol-suggestions"></div>
+
+      <details class="ol-advanced">
+        <summary>Advanced settings</summary>
+        <div class="ol-grid">
+          <div class="field">
+            <label>Server URL</label>
+            <input type="text" id="ollama-base-url" placeholder="http://localhost:11434/v1" autocomplete="off">
+            <div class="hint">Change only if Ollama runs on another host or port.</div>
+          </div>
+          <div class="field">
+            <label>Context window (tokens)</label>
+            <input type="text" id="ollama-num-ctx" placeholder="Model default" autocomplete="off">
+            <div class="hint">Higher uses more RAM. Leave blank for the model's own default.</div>
+          </div>
+          <div class="field">
+            <label>Temperature</label>
+            <input type="text" id="ollama-temperature" placeholder="Model default (0 - 2)" autocomplete="off">
+            <div class="hint">Lower is more literal and consistent. 0.2 - 0.4 suits tool use.</div>
+          </div>
+          <div class="field">
+            <label>Keep model loaded</label>
+            <input type="text" id="ollama-keep-alive" placeholder="5m" autocomplete="off">
+            <div class="hint">How long to keep the model in memory between messages, e.g. 5m or 1h.</div>
+          </div>
+          <div class="field">
+            <label>Max response tokens</label>
+            <input type="text" id="ollama-max-tokens" placeholder="Model default" autocomplete="off">
+            <div class="hint">Caps the length of a single reply.</div>
+          </div>
+          <div class="field">
+            <label>Request timeout (seconds)</label>
+            <input type="text" id="ollama-timeout" placeholder="600" autocomplete="off">
+            <div class="hint">Local models are slower than cloud APIs. Raise this on modest hardware.</div>
+          </div>
+        </div>
+      </details>
+
+      <div id="ollama-progress" class="ol-progress" style="display:none;">
+        <div class="ol-progress-head">
+          <span id="ollama-progress-stage">Preparing...</span>
+          <span id="ollama-progress-pct">0%</span>
+        </div>
+        <div class="ol-bar"><div class="ol-bar-fill" id="ollama-bar-fill"></div></div>
+        <div class="ol-progress-sub" id="ollama-progress-sub"></div>
+        <div class="ol-log" id="ollama-log"></div>
+      </div>
+
       <div id="ollama-pull-status" style="display:none; margin-bottom:0.5rem;"></div>
     </div>
 
@@ -541,6 +669,312 @@ function initProviderGrid() {
 var _fetchTimer = null;
 var _visionFetchTimer = null;
 
+/* --- Ollama setup: live server status, model picker, streaming pull progress --- */
+var _ollamaStatus = null;
+var _ollamaPulling = false;
+
+function _ol(id) { return document.getElementById(id); }
+
+function _olEscape(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+function _olSetDot(state) {
+  var dot = _ol('ollama-dot');
+  if (dot) dot.className = 'ol-dot' + (state ? ' ' + state : '');
+}
+
+async function refreshOllamaStatus() {
+  var text = _ol('ollama-server-text');
+  var sub = _ol('ollama-server-sub');
+  if (!text) return null;
+
+  _olSetDot('busy');
+  text.textContent = 'Checking for Ollama...';
+  if (sub) sub.textContent = '';
+
+  var baseInput = _ol('ollama-base-url');
+  var qs = baseInput && baseInput.value.trim() ? '?base_url=' + encodeURIComponent(baseInput.value.trim()) : '';
+
+  try {
+    var res = await fetch('/api/ollama/status' + qs);
+    var data = await res.json();
+    _ollamaStatus = data;
+
+    if (data.reachable) {
+      _olSetDot('ok');
+      text.textContent = 'Ollama is running' + (data.version ? ' (v' + data.version + ')' : '');
+      var bits = [];
+      bits.push(data.models.length
+        ? data.models.length + ' model' + (data.models.length === 1 ? '' : 's') + ' downloaded'
+        : 'No models downloaded yet — pick one below and it will be fetched for you');
+      if (data.running && data.running.length) {
+        bits.push('Loaded in memory: ' + data.running.map(function(m) { return m.name; }).join(', '));
+      }
+      bits.push(data.base_url);
+      if (sub) sub.textContent = bits.join(' · ');
+    } else {
+      _olSetDot('bad');
+      text.textContent = data.cli_installed ? 'Ollama is installed but not responding' : 'Ollama not found';
+      if (sub) sub.textContent = data.error || 'Start Ollama and click Recheck.';
+    }
+
+    _olApplyConfig(data.config || {});
+    _olRenderModelOptions(data);
+    return data;
+  } catch (e) {
+    _olSetDot('bad');
+    text.textContent = 'Could not check Ollama';
+    if (sub) sub.textContent = 'The dashboard could not reach its own API. Try reloading the page.';
+    return null;
+  }
+}
+
+function _olApplyConfig(config) {
+  // Only fill fields the user has not typed into, so a recheck never clobbers edits.
+  var map = {
+    'ollama-base-url': 'OLLAMA_BASE_URL',
+    'ollama-num-ctx': 'OLLAMA_NUM_CTX',
+    'ollama-temperature': 'OLLAMA_TEMPERATURE',
+    'ollama-max-tokens': 'OLLAMA_MAX_TOKENS',
+    'ollama-keep-alive': 'OLLAMA_KEEP_ALIVE',
+    'ollama-timeout': 'OLLAMA_TIMEOUT_S'
+  };
+  Object.keys(map).forEach(function(id) {
+    var el = _ol(id);
+    if (el && !el.value && config[map[id]]) el.value = config[map[id]];
+  });
+  var nameEl = _ol('ollama-model-name');
+  if (nameEl && !nameEl.value && config.OLLAMA_MODEL) nameEl.value = config.OLLAMA_MODEL;
+}
+
+function _olRenderModelOptions(data) {
+  var list = _ol('ollama-model-list');
+  if (list) {
+    list.innerHTML = (data.models || []).map(function(m) {
+      return '<option value="' + _olEscape(m.name) + '">' +
+        _olEscape([m.parameter_size, m.quantization, m.size].filter(Boolean).join(' · ')) + '</option>';
+    }).join('');
+  }
+
+  var box = _ol('ollama-suggestions');
+  if (!box) return;
+
+  var installed = (data.models || []).slice(0, 8).map(function(m) {
+    return { name: m.name, meta: m.size || m.parameter_size || '', installed: true };
+  });
+  var suggested = (data.suggested || []).filter(function(sug) {
+    return !(data.models || []).some(function(m) { return m.name === sug.name; });
+  }).map(function(sug) {
+    return { name: sug.name, meta: sug.size, title: sug.note, installed: false };
+  });
+
+  var chips = installed.concat(suggested).slice(0, 12);
+  if (!chips.length) { box.innerHTML = ''; return; }
+
+  var label = installed.length ? 'Downloaded models and suggestions:' : 'Suggested models for a first run:';
+  box.innerHTML = '<div style="width:100%;font-size:0.74rem;color:#6b7280;margin-bottom:0.1rem;">' + label + '</div>' +
+    chips.map(function(c) {
+      return '<button type="button" class="ol-chip' + (c.installed ? ' installed' : '') + '"' +
+        (c.title ? ' title="' + _olEscape(c.title) + '"' : '') +
+        ' onclick="pickOllamaModel(\'' + _olEscape(c.name).replace(/'/g, "\\'") + '\')">' +
+        _olEscape(c.name) +
+        (c.meta ? '<span class="ol-chip-meta">' + _olEscape(c.meta) + '</span>' : '') +
+        '</button>';
+    }).join('');
+}
+
+function pickOllamaModel(name) {
+  var el = _ol('ollama-model-name');
+  if (!el) return;
+  el.value = name;
+  onOllamaModelInput();
+}
+
+function onOllamaModelInput() {
+  var hint = _ol('ollama-model-hint');
+  var el = _ol('ollama-model-name');
+  if (!hint || !el) return;
+  var name = el.value.trim();
+  if (!name) {
+    hint.textContent = "Already-downloaded models appear as suggestions. Anything else is downloaded for you.";
+    return;
+  }
+  var installed = _ollamaStatus && (_ollamaStatus.models || []).some(function(m) { return m.name === name; });
+  if (installed) {
+    hint.textContent = name + ' is already downloaded — setup will just verify and select it.';
+    return;
+  }
+  var suggestion = _ollamaStatus && (_ollamaStatus.suggested || []).filter(function(s) { return s.name === name; })[0];
+  hint.textContent = suggestion
+    ? suggestion.note + ' Download size about ' + suggestion.size + '.'
+    : name + ' will be downloaded from the Ollama library.';
+}
+
+function _olCollectSettings() {
+  var pick = function(id) { var el = _ol(id); return el ? el.value.trim() : ''; };
+  return {
+    base_url: pick('ollama-base-url'),
+    num_ctx: pick('ollama-num-ctx'),
+    temperature: pick('ollama-temperature'),
+    max_tokens: pick('ollama-max-tokens'),
+    keep_alive: pick('ollama-keep-alive'),
+    timeout_s: pick('ollama-timeout')
+  };
+}
+
+function _olLog(line) {
+  var log = _ol('ollama-log');
+  if (!log) return;
+  var row = document.createElement('div');
+  row.textContent = line;
+  log.appendChild(row);
+  while (log.childNodes.length > 60) log.removeChild(log.firstChild);
+  log.scrollTop = log.scrollHeight;
+}
+
+function _olProgress(opts) {
+  var box = _ol('ollama-progress');
+  if (!box) return;
+  box.style.display = 'block';
+
+  if (opts.stage !== undefined) _ol('ollama-progress-stage').textContent = opts.stage;
+  if (opts.sub !== undefined) _ol('ollama-progress-sub').textContent = opts.sub;
+
+  var fill = _ol('ollama-bar-fill');
+  var pctEl = _ol('ollama-progress-pct');
+  if (opts.indeterminate) {
+    fill.className = 'ol-bar-fill indeterminate';
+    pctEl.textContent = '';
+    return;
+  }
+  if (opts.percent !== undefined) {
+    fill.className = 'ol-bar-fill' + (opts.tone ? ' ' + opts.tone : '');
+    fill.style.width = Math.max(0, Math.min(100, opts.percent)) + '%';
+    pctEl.textContent = opts.percent.toFixed(0) + '%';
+  } else if (opts.tone) {
+    fill.className = 'ol-bar-fill ' + opts.tone;
+  }
+}
+
+/* Streams NDJSON pull progress from /api/ollama/setup.
+   Resolves { ok, error, model, main_model }. */
+async function runOllamaSetup(options) {
+  options = options || {};
+  var nameEl = _ol('ollama-model-name');
+  var modelName = nameEl ? nameEl.value.trim() : '';
+  if (!modelName) return { ok: false, error: 'Please choose or type an Ollama model name.' };
+  if (_ollamaPulling) return { ok: false, error: 'A model download is already running.' };
+
+  _ollamaPulling = true;
+  var log = _ol('ollama-log');
+  if (log) log.innerHTML = '';
+  _olSetDot('busy');
+  _olProgress({ stage: 'Contacting Ollama...', sub: '', indeterminate: true });
+
+  var payload = _olCollectSettings();
+  payload.model_name = modelName;
+  payload.set_as_main = options.setAsMain !== false;
+  payload.csrf_token = _csrfToken;
+
+  var finished = null;
+  var lastStatus = '';
+
+  try {
+    var res = await fetch('/api/ollama/setup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (!res.ok) {
+      var errBody = await res.json().catch(function() { return {}; });
+      throw new Error(errBody.error || ('Setup failed with status ' + res.status));
+    }
+
+    var reader = res.body.getReader();
+    var decoder = new TextDecoder();
+    var buffer = '';
+
+    while (true) {
+      var chunk = await reader.read();
+      if (chunk.done) break;
+      buffer += decoder.decode(chunk.value, { stream: true });
+
+      var lines = buffer.split('\n');
+      buffer = lines.pop();
+
+      for (var i = 0; i < lines.length; i++) {
+        var line = lines[i].trim();
+        if (!line) continue;
+        var evt;
+        try { evt = JSON.parse(line); } catch (e) { continue; }
+
+        if (evt.stage === 'start') {
+          _olProgress({ stage: evt.message, sub: '', indeterminate: true });
+          _olLog(evt.message);
+        } else if (evt.stage === 'progress') {
+          if (evt.status && evt.status !== lastStatus) {
+            lastStatus = evt.status;
+            _olLog(evt.status + (evt.digest ? '  ' + evt.digest : ''));
+          }
+          var sub = evt.total
+            ? evt.completed_label + ' of ' + evt.total_label
+            : 'Working...';
+          if (evt.total) {
+            _olProgress({ stage: evt.status || 'Downloading', percent: evt.percent, sub: sub });
+          } else {
+            _olProgress({ stage: evt.status || 'Working', sub: sub, indeterminate: true });
+          }
+        } else if (evt.stage === 'configuring') {
+          _olProgress({ stage: evt.message, percent: 100, sub: '' });
+          _olLog(evt.message);
+        } else if (evt.stage === 'error') {
+          _olLog('Error: ' + evt.error);
+        } else if (evt.stage === 'done') {
+          _olProgress({ stage: 'Download complete', percent: 100, sub: '' });
+        } else if (evt.stage === 'finished') {
+          finished = evt;
+        }
+      }
+    }
+  } catch (e) {
+    _ollamaPulling = false;
+    _olSetDot('bad');
+    _olProgress({ stage: 'Setup failed', tone: 'err', percent: 100, sub: String(e.message || e) });
+    return { ok: false, error: String(e.message || e) };
+  }
+
+  _ollamaPulling = false;
+
+  if (!finished) {
+    _olSetDot('bad');
+    _olProgress({ stage: 'Setup did not complete', tone: 'err', percent: 100, sub: 'The connection ended early. Please try again.' });
+    return { ok: false, error: 'Setup did not complete. Please try again.' };
+  }
+
+  if (!finished.ok) {
+    _olSetDot('bad');
+    _olProgress({ stage: 'Setup failed', tone: 'err', percent: 100, sub: finished.error || '' });
+    return { ok: false, error: finished.error || 'Could not set up the Ollama model.' };
+  }
+
+  _olSetDot('ok');
+  var info = finished.info || {};
+  var detail = [];
+  if (info.parameter_size) detail.push(info.parameter_size + ' parameters');
+  if (info.quantization) detail.push(info.quantization);
+  if (info.context_length) detail.push(info.context_length.toLocaleString() + ' token context');
+  _olProgress({ stage: finished.message, tone: 'ok', percent: 100, sub: detail.join(' · ') });
+  _olLog(finished.message);
+
+  refreshOllamaStatus();
+  return { ok: true, model: finished.model, main_model: finished.main_model, info: info };
+}
+
+
 function selectProvider(key) {
   selectedProvider = key;
   document.querySelectorAll('.provider-card').forEach(function(c) { c.classList.remove('selected'); });
@@ -555,6 +989,7 @@ function selectProvider(key) {
     var mainSel = document.getElementById('main-model');
     mainSel.innerHTML = '<option value="manual">Set via Ollama model name above</option>';
     rebuildVisionDropdown();
+    refreshOllamaStatus();
     return;
   }
 
@@ -772,29 +1207,9 @@ async function saveModel() {
   if (!selectedProvider) { err.textContent = 'Please choose a provider.'; return; }
 
   if (selectedProvider === 'ollama') {
-    var ollamaModel = (document.getElementById('ollama-model-name') || {}).value.trim();
-    if (!ollamaModel) { err.textContent = 'Please enter an Ollama model name.'; return; }
-
-    var statusEl = document.getElementById('ollama-pull-status');
-    statusEl.style.display = 'block';
-    statusEl.className = 'info-box';
-    statusEl.textContent = 'Setting up Ollama model: ' + ollamaModel + '...';
-
-    try {
-      var res = await _post('/api/ollama/setup', { model_name: ollamaModel });
-      var data = await res.json();
-      if (data.ok) {
-        statusEl.textContent = 'Ollama model ' + data.model + ' is ready!';
-        statusEl.style.borderColor = 'rgba(72,187,120,0.4)';
-        goStep(3);
-      } else {
-        statusEl.textContent = '';
-        err.textContent = data.error || 'Could not set up Ollama model.';
-      }
-    } catch (e) {
-      statusEl.textContent = '';
-      err.textContent = 'Connection problem. Please try again.';
-    }
+    var result = await runOllamaSetup();
+    if (result.ok) goStep(3);
+    else if (result.error) err.textContent = result.error;
     return;
   }
 
