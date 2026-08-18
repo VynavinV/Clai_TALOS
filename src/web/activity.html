@@ -268,13 +268,16 @@ function getEventIcon(type) {
 }
 
 /* Streamed deltas arrive as many small events. They are keyed by
-   agent + round + kind and concatenated into one growing transcript, so the
-   timeline shows a single block that fills in rather than a wall of fragments. */
+   run + agent + round + kind and concatenated into one growing transcript, so
+   the timeline shows a single block that fills in rather than a wall of
+   fragments. The run id is what separates one turn from the next: the
+   orchestrator reuses its agent id, so agent + round alone would append this
+   turn's output onto the previous turn's transcript. */
 const transcripts = new Map();
 
 function streamKey(evt) {
   const x = evt.extra || {};
-  return [evt.agent, x.round == null ? '?' : x.round, x.kind || 'content'].join('|');
+  return [x.run || '?', evt.agent, x.round == null ? '?' : x.round, x.kind || 'content'].join('|');
 }
 
 function ingestStream(evt) {

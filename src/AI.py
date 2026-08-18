@@ -7,6 +7,7 @@ import re
 import subprocess
 import time
 import unicodedata
+import uuid
 from datetime import datetime, timezone
 from typing import Callable, Awaitable
 from dotenv import load_dotenv
@@ -2605,8 +2606,15 @@ async def _run_agent(
     message_only_rounds = 0
     last_user_message = ""
 
+    # The orchestrator's agent id is the same string on every turn, so activity
+    # events need a per-turn id as well -- without it the dashboard merges this
+    # turn's streamed output into the previous turn's transcript (both are
+    # "orchestrator, round 1").
+    _run_id = uuid.uuid4().hex[:8]
+
     def _with_activity_meta(extra: dict | None = None) -> dict:
         payload = dict(extra or {})
+        payload.setdefault("run", _run_id)
         if _parent_agent_id:
             payload.setdefault("parent_agent", _parent_agent_id)
         return payload

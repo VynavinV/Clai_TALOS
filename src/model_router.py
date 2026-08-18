@@ -223,9 +223,10 @@ def reload_clients():
     _OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
     _OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
 
-    # Config just changed: the warm-up loop should re-check which local model
-    # to hold in memory instead of waiting out its cycle.
+    # Config just changed: re-resolve context windows and let the warm-up loop
+    # re-check which local model to hold in memory instead of waiting out its cycle.
     import ollama_setup
+    ollama_setup.forget_model_info()
     ollama_setup.request_warm_refresh()
 
 
@@ -895,10 +896,191 @@ def _env_int(name: str) -> int | None:
     return int(value) if value is not None else None
 
 
-def ollama_options() -> dict[str, Any]:
-    """Ollama-specific generation options configured in Settings."""
+# --- Ollama --------------------------------------------------------------
+#
+# Ollama exposes an OpenAI-compatible endpoint, but that endpoint silently drops
+# every Ollama-specific field: num_ctx, keep_alive and the rest never reach the
+# runner. Models therefore load in the default 4096-token window, and TALOS
+# spends roughly 9k tokens on its system prompt and tool schemas alone -- so the
+# conversation history is truncated away before the model ever reads it, and the
+# assistant answers every message as if it were the first. The native /api/chat
+# endpoint honours those fields, so that is what we talk to.
+
+
+async def ollama_options(model_id: str = "") -> dict[str, Any]:
+    """Ollama generation options: Settings, plus an auto-sized context window."""
     import ollama_setup
-    return ollama_setup.generation_options()
+    options = await ollama_setup.generation_options(model_id)
+    temperature = _env_float("OLLAMA_TEMPERATURE")
+    if temperature is not None:
+        options["temperature"] = temperature
+    max_tokens = _env_int("OLLAMA_MAX_TOKENS")
+    if max_tokens:
+        options["num_predict"] = max_tokens
+    return options
+
+
+def _ollama_content_and_images(content: Any) -> tuple[str, list[str]]:
+    """Flatten OpenAI-style content into native Ollama text + base64 images."""
+    if isinstance(content, str):
+        return content, []
+
+    texts: list[str] = []
+    images: list[str] = []
+    for part in content or []:
+        if not isinstance(part, dict):
+            continue
+        if part.get("type") == "text":
+            texts.append(str(part.get("text") or ""))
+        elif part.get("type") == "image_url":
+            url = str((part.get("image_url") or {}).get("url") or "")
+            if url.startswith("data:"):
+                images.append(url.split(",", 1)[-1])
+            elif url:
+                images.append(url)
+    return "\n".join(t for t in texts if t), images
+
+
+def _ollama_messages(messages: list[dict]) -> list[dict]:
+    """Convert the OpenAI-shaped conversation into native Ollama messages.
+
+    Extra keys have to be stripped: stored history carries `image_b64`, and
+    tool results carry `tool_call_id`, neither of which Ollama understands.
+    """
+    converted: list[dict] = []
+    names_by_id: dict[str, str] = {}
+
+    for msg in messages:
+        role = str(msg.get("role") or "user")
+        text, images = _ollama_content_and_images(msg.get("content"))
+        out: dict[str, Any] = {"role": role, "content": text}
+        if images:
+            out["images"] = images
+
+        if role == "assistant" and msg.get("tool_calls"):
+            calls = []
+            for tc in msg["tool_calls"] or []:
+                fn = (tc or {}).get("function") or {}
+                name = fn.get("name")
+                if not name:
+                    continue
+                args = fn.get("arguments")
+                if isinstance(args, str):
+                    args = _safe_json_loads(args, {})
+                calls.append({"function": {"name": name, "arguments": args or {}}})
+                if tc.get("id"):
+                    names_by_id[tc["id"]] = name
+            if calls:
+                out["tool_calls"] = calls
+
+        if role == "tool":
+            name = names_by_id.get(str(msg.get("tool_call_id") or ""))
+            if name:
+                out["tool_name"] = name
+
+        converted.append(out)
+    return converted
+
+
+def _ollama_tool_calls(message: dict, start: int = 0) -> list[dict]:
+    calls = []
+    for offset, tc in enumerate(message.get("tool_calls") or []):
+        fn = (tc or {}).get("function") or {}
+        name = fn.get("name")
+        if not name:
+            continue
+        args = fn.get("arguments")
+        if isinstance(args, str):
+            args = _safe_json_loads(args, {})
+        calls.append({
+            "id": tc.get("id") or f"call_{start + offset}",
+            "name": name,
+            "arguments": args if isinstance(args, dict) else {},
+        })
+    return calls
+
+
+async def _ollama_native_chat(root: str, payload: dict[str, Any]) -> dict:
+    """POST to Ollama's native /api/chat, streaming when a sink is listening."""
+    import httpx
+
+    url = f"{root}/api/chat"
+    # No read timeout: `call_model` already wraps the whole call in a deadline,
+    # and a local model can be quiet for a long time while it thinks.
+    timeout = httpx.Timeout(connect=10.0, read=None, write=60.0, pool=10.0)
+
+    if not payload.get("stream"):
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(url, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+        message = data.get("message") or {}
+        content = str(message.get("content") or "")
+        result = _build_openai_result(
+            content, _ollama_tool_calls(message), str(message.get("thinking") or "")
+        )
+        await _emit_delta("content", content)
+        return result
+
+    content_parts: list[str] = []
+    reasoning_parts: list[str] = []
+    tool_calls: list[dict] = []
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        async with client.stream("POST", url, json=payload) as resp:
+            if resp.status_code != 200:
+                body = (await resp.aread()).decode("utf-8", "replace")
+                raise RuntimeError(f"Ollama returned {resp.status_code}: {body[:400]}")
+
+            async for line in resp.aiter_lines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if event.get("error"):
+                    raise RuntimeError(str(event["error"]))
+
+                message = event.get("message") or {}
+                thinking = message.get("thinking")
+                if thinking:
+                    reasoning_parts.append(thinking)
+                    await _emit_delta("reasoning", thinking)
+                piece = message.get("content")
+                if piece:
+                    content_parts.append(piece)
+                    await _emit_delta("content", piece)
+
+                for call in _ollama_tool_calls(message, len(tool_calls)):
+                    tool_calls.append(call)
+                    await _emit_delta("tool", f"{call['name']}(")
+                    await _emit_delta("tool_args", json.dumps(call["arguments"]))
+
+                if event.get("done"):
+                    break
+
+    return _build_openai_result("".join(content_parts), tool_calls, "".join(reasoning_parts))
+
+
+async def _call_ollama_compat(model_id: str, messages: list[dict], tools: list[dict] | None) -> dict:
+    """Last-resort path for an endpoint that only speaks the OpenAI dialect.
+
+    Ollama's own options do not survive this route, so the model runs with
+    whatever context window it was loaded with.
+    """
+    kwargs: dict[str, Any] = {"model": model_id, "messages": messages}
+    temperature = _env_float("OLLAMA_TEMPERATURE")
+    if temperature is not None:
+        kwargs["temperature"] = temperature
+    max_tokens = _env_int("OLLAMA_MAX_TOKENS")
+    if max_tokens:
+        kwargs["max_tokens"] = max_tokens
+    if tools:
+        kwargs["tools"] = _tools_to_openai(tools)
+        kwargs["tool_choice"] = "auto"
+    return await _openai_chat(_get_ollama_client(), kwargs)
 
 
 async def call_ollama(
@@ -907,35 +1089,38 @@ async def call_ollama(
     tools: list[dict] | None,
     runtime_profile: dict[str, Any] | None = None,
 ) -> dict:
-    client = _get_ollama_client()
-    kwargs: dict[str, Any] = {
-        "model": model_id,
-        "messages": messages,
-    }
-
-    temperature = _env_float("OLLAMA_TEMPERATURE")
-    if temperature is not None:
-        kwargs["temperature"] = temperature
-    max_tokens = _env_int("OLLAMA_MAX_TOKENS")
-    if max_tokens:
-        kwargs["max_tokens"] = max_tokens
-
-    # num_ctx / keep_alive are Ollama extensions, passed through extra_body.
-    # keep_alive is always sent, but note that Ollama's OpenAI-compatible
-    # endpoint currently ignores it and falls back to its own 5-minute TTL --
-    # ollama_setup.keep_warm_loop is what actually keeps the model resident.
     import ollama_setup
-    extra_body: dict[str, Any] = {"keep_alive": ollama_setup.keep_alive_value()}
-    options = ollama_options()
+
+    root = ollama_setup.native_base_url(_OLLAMA_BASE_URL)
+    profile = runtime_profile or {}
+
+    payload: dict[str, Any] = {
+        "model": model_id,
+        "messages": _ollama_messages(messages),
+        "stream": _streaming_wanted(),
+        "keep_alive": ollama_setup.keep_alive_value(),
+    }
+    options = await ollama_options(model_id)
     if options:
-        extra_body["options"] = options
-    kwargs["extra_body"] = extra_body
-
+        payload["options"] = options
     if tools:
-        kwargs["tools"] = _tools_to_openai(tools)
-        kwargs["tool_choice"] = "auto"
+        payload["tools"] = _tools_to_openai(tools)
+    # Passing `think` to a model that has no thinking mode is an error, so only
+    # send it when the model advertises the capability.
+    if await ollama_setup.supports_thinking(model_id, root):
+        payload["think"] = bool(profile.get("reasoning_enabled", True))
 
-    return await _openai_chat(client, kwargs)
+    try:
+        return await _ollama_native_chat(root, payload)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        logger.warning(
+            "Ollama native /api/chat failed; falling back to the OpenAI-compatible "
+            "endpoint, where num_ctx and keep_alive are ignored",
+            exc_info=True,
+        )
+        return await _call_ollama_compat(model_id, messages, tools)
 
 
 _CALLERS = {

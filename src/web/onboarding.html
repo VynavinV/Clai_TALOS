@@ -376,8 +376,8 @@
           </div>
           <div class="field">
             <label>Context window (tokens)</label>
-            <input type="text" id="ollama-num-ctx" placeholder="Model default" autocomplete="off">
-            <div class="hint">Higher uses more RAM. Leave blank for the model's own default.</div>
+            <input type="text" id="ollama-num-ctx" placeholder="Auto (16384)" autocomplete="off">
+            <div class="hint">Blank auto-sizes to 16384, or the model's maximum if lower. TALOS needs ~9k tokens for its prompt and tools, so smaller windows drop conversation history. Higher uses more RAM.</div>
           </div>
           <div class="field">
             <label>Temperature</label>

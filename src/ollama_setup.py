@@ -29,6 +29,19 @@ DEFAULT_KEEP_ALIVE = "30m"
 # thrashes RAM on the kind of machine people run Ollama on.
 MAX_WARM_MODELS = 2
 
+# Ollama loads models with a 4096-token window unless it is told otherwise, and
+# TALOS spends roughly 9k of those on its system prompt and tool schemas alone.
+# At the default, conversation history is silently truncated away before the
+# model ever sees it -- the assistant reads as if it has amnesia. Size the window
+# ourselves instead, capped by what the model actually supports.
+DEFAULT_NUM_CTX = 16384
+
+# Below this the agent cannot fit its own scaffolding, let alone a conversation.
+MIN_USABLE_NUM_CTX = 12288
+
+_model_info_cache: dict[str, dict] = {}
+_ctx_logged: set[str] = set()
+
 # Upper bound on the re-arm cycle. It has to stay well under Ollama's own
 # 5-minute default TTL: the OpenAI-compatible /v1/chat/completions endpoint
 # silently ignores keep_alive, so every chat resets the model's timer to that
@@ -130,22 +143,85 @@ def warm_enabled() -> bool:
     return keep_alive_seconds() > 0
 
 
-def generation_options() -> dict[str, Any]:
-    """The Ollama `options` block configured in Settings.
+def configured_num_ctx() -> int | None:
+    """The context window set in Settings, if any."""
+    raw = os.getenv("OLLAMA_NUM_CTX", "").strip()
+    if not raw:
+        return None
+    try:
+        num_ctx = int(float(raw))
+    except ValueError:
+        logger.warning(f"OLLAMA_NUM_CTX={raw!r} is not a number; ignoring")
+        return None
+    return num_ctx if num_ctx > 0 else None
 
-    Every request has to send the same options: changing num_ctx between calls
-    makes Ollama drop the loaded model and load it again.
+
+async def model_info(model_name: str, base_url: str | None = None) -> dict:
+    """Cached /api/show metadata for a model. Failures are not cached."""
+    cached = _model_info_cache.get(model_name)
+    if cached is not None:
+        return cached
+    info = await show_model(model_name, base_url)
+    if info.get("error"):
+        return {}
+    _model_info_cache[model_name] = info
+    return info
+
+
+async def resolve_num_ctx(model_name: str, base_url: str | None = None) -> int | None:
+    """The context window to run `model_name` with.
+
+    Settings win. Otherwise ask the model how much context it supports and take
+    DEFAULT_NUM_CTX or that maximum, whichever is smaller -- anything less and
+    Ollama quietly truncates the conversation out of the prompt.
+    """
+    configured = configured_num_ctx()
+    if configured:
+        return configured
+
+    model_max = int((await model_info(model_name, base_url)).get("context_length") or 0)
+    if model_max <= 0:
+        return None
+
+    num_ctx = min(DEFAULT_NUM_CTX, model_max)
+    if model_name not in _ctx_logged:
+        _ctx_logged.add(model_name)
+        if num_ctx < MIN_USABLE_NUM_CTX:
+            logger.warning(
+                f"{model_name} supports only {model_max} tokens of context. TALOS needs "
+                f"around {MIN_USABLE_NUM_CTX} for its system prompt and tools, so earlier "
+                "messages will be dropped. Consider a model with a larger context."
+            )
+        else:
+            logger.info(f"Running {model_name} with a {num_ctx}-token context window")
+    return num_ctx
+
+
+async def supports_thinking(model_name: str, base_url: str | None = None) -> bool:
+    """Whether the model accepts Ollama's `think` flag."""
+    caps = (await model_info(model_name, base_url)).get("capabilities") or []
+    return any(str(c).lower() == "thinking" for c in caps)
+
+
+def forget_model_info() -> None:
+    """Drop cached model metadata, e.g. after Settings changed."""
+    _model_info_cache.clear()
+    _ctx_logged.clear()
+
+
+async def generation_options(model_name: str = "", base_url: str | None = None) -> dict[str, Any]:
+    """The Ollama `options` block to send with a request.
+
+    Every request for a model has to send the same options: changing num_ctx
+    between calls makes Ollama drop the loaded model and load it again.
     """
     options: dict[str, Any] = {}
-    raw = os.getenv("OLLAMA_NUM_CTX", "").strip()
-    if raw:
-        try:
-            num_ctx = int(float(raw))
-        except ValueError:
-            logger.warning(f"OLLAMA_NUM_CTX={raw!r} is not a number; ignoring")
-            num_ctx = 0
-        if num_ctx > 0:
-            options["num_ctx"] = num_ctx
+    if model_name:
+        num_ctx = await resolve_num_ctx(model_name, base_url)
+    else:
+        num_ctx = configured_num_ctx()
+    if num_ctx:
+        options["num_ctx"] = num_ctx
     return options
 
 
@@ -331,7 +407,7 @@ async def preload_model(model_name: str, base_url: str | None = None) -> bool:
         "stream": False,
         "keep_alive": keep_alive_value(),
     }
-    options = generation_options()
+    options = await generation_options(model_name, root)
     if options:
         payload["options"] = options
 
