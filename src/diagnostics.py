@@ -466,20 +466,9 @@ async def check_tailscale_https() -> CheckResult:
             hint="Run `tailscale up` and sign in, then re-run this check.",
         )
 
-    # The permission gate is checked before anything else, because every other
-    # HTTPS failure below is unfixable while it is closed.
-    allowed, perm_detail = await asyncio.to_thread(telegram_bot.check_tailscale_operator)
-    if not allowed:
-        user = os.getenv("USER") or "$USER"
-        return CheckResult(
-            "network.https", "HTTPS (Tailscale)", "network", FAIL,
-            f"{perm_detail} Tailscale will not let this account set up HTTPS, so the dashboard "
-            "stays on plain HTTP.",
-            fix="network.grant_operator",
-            hint=f"Runs `sudo tailscale set --operator={user}` once so TALOS can configure "
-                 "Tailscale without root from then on.",
-        )
-
+    # No permission pre-check here on purpose. Tailscale only refuses writes, so
+    # nothing readable reveals whether this account may configure it — the
+    # repair attempts the real operation and grants operator if it is denied.
     mode = telegram_bot.TAILSCALE_HTTPS_MODE
     if mode == "off":
         return CheckResult(

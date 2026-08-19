@@ -782,19 +782,20 @@ def _count_tailscale_daemons() -> int:
         return 1
     try:
         result = subprocess.run(
-            ["ps", "ax", "-o", "command"],
+            ["ps", "ax", "-o", "comm="],
             capture_output=True, text=True, timeout=8, stdin=subprocess.DEVNULL,
         )
     except Exception:
         return 1
-    seen = set()
+    count = 0
     for line in (result.stdout or "").splitlines():
-        lowered = line.lower()
-        if "tailscaled" in lowered or "ipnextension" in lowered:
-            # Collapse each installation to its binary path so threads of the
-            # same daemon are not counted twice.
-            seen.add(line.strip().split()[0] if line.strip() else line)
-    return max(1, len(seen))
+        # `-o comm=` yields the process name only. Matching full command lines
+        # counted worker threads and the probe itself, producing a false
+        # "duplicate daemon" verdict on ordinary single-daemon servers.
+        name = line.strip().rsplit("/", 1)[-1]
+        if name in ("tailscaled", "IPNExtension"):
+            count += 1
+    return max(1, count)
 
 
 def _is_permission_error(text: str) -> bool:
@@ -867,18 +868,6 @@ def grant_tailscale_operator() -> tuple[bool, str]:
     return True, f"Registered '{user}' as the Tailscale operator."
 
 
-def check_tailscale_operator() -> tuple[bool, str]:
-    """Can this account write Tailscale serve config without sudo?"""
-    if not _resolve_tailscale_bin():
-        return False, "Tailscale is not installed."
-    # `serve status` is read-only but goes through the same permission gate.
-    code, stdout, stderr = _run_tailscale(["serve", "status"], timeout=10)
-    combined = _tailscale_output(code, stdout, stderr)
-    if code != 0 and _is_permission_error(combined):
-        return False, "This account is not permitted to configure Tailscale serve."
-    return True, "This account can configure Tailscale."
-
-
 def enable_tailscale_https(mode: str = "") -> tuple[bool, str]:
     """Put Tailscale in front of the dashboard on HTTPS. Idempotent.
 
@@ -886,6 +875,11 @@ def enable_tailscale_https(mode: str = "") -> tuple[bool, str]:
     service account is not the Tailscale operator, so the first `serve` call is
     denied. Rather than failing with Tailscale's raw message, we register the
     operator once (the fix Tailscale itself recommends) and retry.
+
+    Note there is no permission pre-check anywhere in this flow. Tailscale
+    refuses *writes* only, so every read used as a probe succeeds and reports
+    that all is well — the denial is only discoverable by attempting the real
+    operation, which is what this function does.
     """
     requested = (str(mode or "").strip().lower() or TAILSCALE_HTTPS_MODE)
     if requested not in _VALID_HTTPS_MODES:

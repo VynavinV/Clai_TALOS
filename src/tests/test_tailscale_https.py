@@ -244,6 +244,80 @@ def test_denied_without_sudo_returns_the_exact_command_to_run():
         undo()
 
 
+def test_a_read_probe_must_not_be_used_to_decide_permission():
+    """The bug this guards against.
+
+    `tailscale serve status` is a read and always succeeds, so using it to ask
+    "may I configure Tailscale?" answered yes on a machine that then denied
+    every write. Setup concluded it had nothing to fix and never registered the
+    operator. Permission must be discovered by attempting the real write.
+    """
+    calls = []
+
+    def fake_run(args, timeout=20):
+        calls.append(list(args))
+        if args[:2] == ["serve", "status"]:
+            return (0, "{}", "")  # a read: permitted, tells us nothing
+        return (1, "", "sending serve config: Access denied: serve config denied")
+
+    granted = {"count": 0}
+
+    def fake_grant():
+        granted["count"] += 1
+        return False, "could not grant"
+
+    undo = _patched({
+        "_resolve_tailscale_bin": lambda: "/usr/bin/tailscale",
+        "_run_tailscale": fake_run,
+        "check_tailscale": lambda: (True, "connected"),
+        "grant_tailscale_operator": fake_grant,
+        "_sudo_available": lambda: False,
+    })
+    try:
+        ok, message = telegram_bot.enable_tailscale_https("serve")
+        assert ok is False
+        # The denial must have been acted on, not shrugged off after a read.
+        assert granted["count"] == 1, "operator grant was never attempted"
+        assert "operator" in message.lower()
+    finally:
+        undo()
+
+
+def test_daemon_count_ignores_worker_threads_and_arguments():
+    """`ps -o comm=` output only, so a normal single-daemon host counts as 1."""
+    undo = _patched({})
+    try:
+        import subprocess as sp
+        saved = sp.run
+
+        class FakeResult:
+            returncode = 0
+            stdout = "systemd\ntailscaled\nsshd\npython3\n"
+
+        sp.run = lambda *a, **k: FakeResult()
+        try:
+            assert telegram_bot._count_tailscale_daemons() == 1
+        finally:
+            sp.run = saved
+    finally:
+        undo()
+
+
+def test_daemon_count_detects_a_genuine_second_daemon():
+    import subprocess as sp
+    saved = sp.run
+
+    class FakeResult:
+        returncode = 0
+        stdout = "systemd\ntailscaled\nIPNExtension\nsshd\n"
+
+    sp.run = lambda *a, **k: FakeResult()
+    try:
+        assert telegram_bot._count_tailscale_daemons() == 2
+    finally:
+        sp.run = saved
+
+
 def test_https_mode_defaults_to_tailnet_only():
     """Funnel publishes to the whole internet; setup must not choose it silently."""
     assert telegram_bot.TAILSCALE_HTTPS_MODE in {"serve", "funnel", "off"}

@@ -178,11 +178,15 @@ ensure_tailscaled_running() {
 # serves nothing: two daemons, one holding the tailnet IP, the other holding
 # the serve config.
 warn_duplicate_tailscaled() {
+  # `-o comm=` prints the process name only. Matching against full command
+  # lines counted worker threads and the grep itself, which produced a false
+  # "duplicate daemon" warning on a perfectly normal single-daemon server.
   local count
-  count=$(ps ax -o command 2>/dev/null \
-          | grep -icE "tailscaled|IPNExtension" || true)
+  count=$(ps ax -o comm= 2>/dev/null \
+          | sed 's#.*/##' \
+          | grep -cxE "tailscaled|IPNExtension" || true)
   if [[ "${count:-0}" -gt 1 ]]; then
-    warn "More than one Tailscale daemon appears to be running."
+    warn "${count} Tailscale daemons are running."
     warn "Keep a single installation, or HTTPS may be configured on the wrong one."
   fi
 }
@@ -242,8 +246,19 @@ ensure_tailscale_up() {
 
 # One call that takes Tailscale from "maybe installed" to "HTTPS is serving the
 # dashboard", reporting precisely which step failed if any does.
+TAILSCALE_SETUP_DONE=false
+
 setup_tailscale_full() {
   local want_mode="${1:-funnel}"
+
+  # The headless wizard and the normal start path both call this; running the
+  # whole sequence twice printed every warning and every failure block twice.
+  if [[ "$TAILSCALE_SETUP_DONE" == true ]]; then
+    return "${TAILSCALE_SETUP_RESULT:-0}"
+  fi
+  TAILSCALE_SETUP_DONE=true
+
+  TAILSCALE_SETUP_RESULT=1
 
   install_tailscale
   command -v tailscale &>/dev/null || { warn "Tailscale unavailable; continuing on HTTP."; return 1; }
@@ -251,16 +266,21 @@ setup_tailscale_full() {
   ensure_tailscaled_running || { warn "tailscaled is not running; continuing on HTTP."; return 1; }
   ensure_tailscale_up || return 1
   warn_duplicate_tailscaled
-  ensure_tailscale_operator || true
+
+  # Do this up front rather than waiting to be denied: it is idempotent, and
+  # doing it here means the first `serve`/`funnel` call already has permission.
+  grant_tailscale_operator || true
 
   local err
   if [[ "$want_mode" == "funnel" ]]; then
-    err=$(tailscale_expose funnel) && { ok "HTTPS active — public (Funnel)"; return 0; }
+    err=$(tailscale_expose funnel) && {
+      ok "HTTPS active — public (Funnel)"; TAILSCALE_SETUP_RESULT=0; return 0; }
     warn "Funnel unavailable: ${err%%$'\n'*}"
     info "Falling back to tailnet-only HTTPS..."
   fi
 
-  err=$(tailscale_expose serve) && { ok "HTTPS active — tailnet only (Serve)"; return 0; }
+  err=$(tailscale_expose serve) && {
+    ok "HTTPS active — tailnet only (Serve)"; TAILSCALE_SETUP_RESULT=0; return 0; }
 
   fail "Could not expose port ${WEB_PORT} over HTTPS."
   echo ""
@@ -323,25 +343,38 @@ run_setup() {
 # `funnel`/`serve` call is denied — which used to surface as a generic
 # "could not expose port" because stderr was thrown away. Register the operator
 # once (what Tailscale itself recommends) and retry.
-ensure_tailscale_operator() {
-  local err
-  err=$(tailscale serve status 2>&1 >/dev/null) || true
-  if ! echo "$err" | grep -qiE "access denied|serve config denied|operator"; then
-    return 0
+# Register this account as the Tailscale operator.
+#
+# There is deliberately no "do we need this?" pre-check. Tailscale only refuses
+# *writes*, so any read used as a probe (`serve status`, `debug prefs`) succeeds
+# and reports everything is fine — which is exactly how the previous version
+# talked itself out of ever running. `tailscale set --operator` is idempotent,
+# so we simply do it.
+AUTO_APPROVE=true
+
+grant_tailscale_operator() {
+  command -v tailscale &>/dev/null || return 1
+  if [[ "${AUTO_APPROVE}" != true ]]; then
+    warn "Skipping Tailscale permission fix (not approved)."
+    warn "To fix it yourself:  sudo tailscale set --operator=${USER}"
+    return 1
   fi
 
-  info "Tailscale needs one-time permission for this account..."
   if sudo -n true 2>/dev/null; then
-    sudo -n tailscale set --operator="$USER" 2>/dev/null && {
+    if sudo -n tailscale set --operator="$USER" 2>/dev/null; then
       ok "Registered ${USER} as Tailscale operator"
       return 0
-    }
+    fi
   fi
+
+  info "Tailscale needs root once to allow this account to configure it."
   if sudo tailscale set --operator="$USER"; then
     ok "Registered ${USER} as Tailscale operator"
     return 0
   fi
-  warn "Could not register the Tailscale operator automatically."
+
+  warn "Could not register the Tailscale operator."
+  warn "Run this manually, then re-run setup:  sudo tailscale set --operator=${USER}"
   return 1
 }
 
@@ -353,9 +386,13 @@ tailscale_expose() {
   fi
   out=$(tailscale "$mode" --bg "$WEB_PORT" 2>&1) && return 0
 
+  # Denied because we are not root and not the operator: fix that, then retry.
   if echo "$out" | grep -qiE "access denied|serve config denied|operator"; then
-    ensure_tailscale_operator || { echo "$out"; return 1; }
-    out=$(tailscale "$mode" --bg "$WEB_PORT" 2>&1) && return 0
+    if grant_tailscale_operator; then
+      out=$(tailscale "$mode" --bg "$WEB_PORT" 2>&1) && return 0
+    fi
+    # Still denied — run the command itself under sudo as a last resort.
+    out=$(sudo tailscale "$mode" --bg "$WEB_PORT" 2>&1) && return 0
   fi
 
   echo "$out"
@@ -820,6 +857,25 @@ run_setup
 ok "Configuration checked"
 
 if [[ "$HEADLESS" == true ]]; then
+  # One consent covering every system change setup may need to make, so the
+  # rest of the run is uninterrupted instead of failing and handing back a list
+  # of commands to paste.
+  echo ""
+  echo -e "${BOLD}  Setup can configure this machine for you:${RESET}"
+  echo -e "${DIM}    - allow this account to configure Tailscale (sudo tailscale set --operator)${RESET}"
+  echo -e "${DIM}    - publish the dashboard over HTTPS (tailscale serve/funnel)${RESET}"
+  echo -e "${DIM}    - install a background service so it survives logout and reboot${RESET}"
+  echo -e "${DIM}    - install the 'clai' command${RESET}"
+  echo ""
+  prompt AUTO_FIX "Allow setup to make these changes? [Y/n]" "Y"
+  case "$AUTO_FIX" in
+    [Nn]*)
+      AUTO_APPROVE=false
+      warn "Automatic setup declined — problems will be reported, not fixed."
+      ;;
+    *) AUTO_APPROVE=true ;;
+  esac
+
   if needs_onboarding; then
     echo ""
     echo -e "${BOLD}  No configuration found. Choose a setup method:${RESET}"
@@ -847,7 +903,12 @@ if [[ "$HEADLESS" == true ]]; then
   echo -e "${DIM}       restarts if it crashes, and comes back after a reboot.${RESET}"
   echo -e "${DIM}  No:  runs here in this terminal and stops when you disconnect.${RESET}"
   echo ""
-  prompt RUN_BG "Run in background? [Y/n]" "Y"
+  if [[ "$AUTO_APPROVE" == true ]]; then
+    prompt RUN_BG "Run in background? [Y/n]" "Y"
+  else
+    RUN_BG="n"
+    warn "Skipping the background service (not approved)."
+  fi
 
   case "$RUN_BG" in
     [Yy]*)
