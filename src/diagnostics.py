@@ -466,6 +466,20 @@ async def check_tailscale_https() -> CheckResult:
             hint="Run `tailscale up` and sign in, then re-run this check.",
         )
 
+    # The permission gate is checked before anything else, because every other
+    # HTTPS failure below is unfixable while it is closed.
+    allowed, perm_detail = await asyncio.to_thread(telegram_bot.check_tailscale_operator)
+    if not allowed:
+        user = os.getenv("USER") or "$USER"
+        return CheckResult(
+            "network.https", "HTTPS (Tailscale)", "network", FAIL,
+            f"{perm_detail} Tailscale will not let this account set up HTTPS, so the dashboard "
+            "stays on plain HTTP.",
+            fix="network.grant_operator",
+            hint=f"Runs `sudo tailscale set --operator={user}` once so TALOS can configure "
+                 "Tailscale without root from then on.",
+        )
+
     mode = telegram_bot.TAILSCALE_HTTPS_MODE
     if mode == "off":
         return CheckResult(
@@ -511,6 +525,105 @@ async def check_tailscale_https() -> CheckResult:
         reset="network.reset_https",
         hint="Clears the Tailscale serve config and applies it again from scratch.",
         data={"mode": state["mode"], "url": state["url"]},
+    )
+
+
+_SERVICE_NAME = "clai-talos"
+
+
+def _clai_config() -> dict:
+    """Whatever start.sh recorded about the background install."""
+    path = os.path.join(os.path.expanduser("~"), ".config", "clai-talos", "env")
+    values: dict[str, str] = {}
+    if not os.path.isfile(path):
+        return values
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, val = line.partition("=")
+                values[key.strip()] = val.strip().strip('"')
+    except OSError:
+        pass
+    return values
+
+
+async def check_background_service() -> CheckResult:
+    """Is TALOS installed as a service that survives logout and reboot?"""
+    config = _clai_config()
+    manager = config.get("SERVICE_MANAGER", "")
+
+    if not config:
+        return CheckResult(
+            "service.background", "Background service", "service", WARN,
+            "TALOS is not installed as a background service, so it stops when this terminal or "
+            "SSH session closes.",
+            hint="Run ./start.sh --headless and answer yes to 'Run in background?'.",
+        )
+
+    if manager == "systemd":
+        try:
+            active = await asyncio.create_subprocess_exec(
+                "systemctl", "is-active", "--quiet", _SERVICE_NAME,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+            )
+            await asyncio.wait_for(active.wait(), timeout=15)
+            running = active.returncode == 0
+
+            enabled_proc = await asyncio.create_subprocess_exec(
+                "systemctl", "is-enabled", "--quiet", _SERVICE_NAME,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+            )
+            await asyncio.wait_for(enabled_proc.wait(), timeout=15)
+            at_boot = enabled_proc.returncode == 0
+        except Exception as exc:
+            return CheckResult(
+                "service.background", "Background service", "service", WARN,
+                f"Could not query systemd for {_SERVICE_NAME}: {exc}",
+            )
+
+        if running and at_boot:
+            return CheckResult(
+                "service.background", "Background service", "service", OK,
+                f"Running under systemd as {_SERVICE_NAME}, and enabled at boot.",
+            )
+        if running:
+            return CheckResult(
+                "service.background", "Background service", "service", WARN,
+                f"{_SERVICE_NAME} is running but not enabled at boot — it will not come back "
+                "after a restart.",
+                fix="service.enable_boot",
+                hint=f"Runs `systemctl enable {_SERVICE_NAME}`.",
+            )
+        # Not running, yet something is running this code — so this is almost
+        # certainly a foreground run alongside a stopped service.
+        return CheckResult(
+            "service.background", "Background service", "service", WARN,
+            f"The {_SERVICE_NAME} service is installed but not active. TALOS appears to be "
+            "running in the foreground instead.",
+            hint="Start the service with `clai start`, or keep running in the foreground.",
+        )
+
+    if manager == "launchd":
+        return CheckResult(
+            "service.background", "Background service", "service", OK,
+            f"Managed by launchd as {_SERVICE_NAME} (starts at login).",
+        )
+
+    if manager == "process":
+        return CheckResult(
+            "service.background", "Background service", "service", WARN,
+            "Running as a plain background process — it survives logout but not a reboot.",
+            hint="Install systemd (Linux) for restart-on-boot, then re-run ./start.sh --headless.",
+        )
+
+    return CheckResult(
+        "service.background", "Background service", "service", WARN,
+        f"Unrecognised service manager '{manager}' in the clai config.",
     )
 
 
@@ -702,6 +815,7 @@ CHECKS: list[Callable[[], Awaitable[CheckResult]]] = [
     check_himalaya_config,
     check_email_live,
     check_tailscale_https,
+    check_background_service,
     check_google,
     check_telegram,
     check_tool_coverage,
@@ -976,6 +1090,41 @@ async def _repair_install_browser_deps() -> dict:
     }
 
 
+async def _repair_enable_service_at_boot() -> dict:
+    proc = await asyncio.create_subprocess_exec(
+        "sudo", "-n", "systemctl", "enable", _SERVICE_NAME,
+        stdin=asyncio.subprocess.DEVNULL,
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+    )
+    try:
+        out_b, _ = await asyncio.wait_for(proc.communicate(), timeout=60)
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
+        return {"ok": False, "message": "Enabling the service timed out."}
+
+    if proc.returncode != 0:
+        detail = (out_b or b"").decode(errors="replace").strip()[:200]
+        return {
+            "ok": False,
+            "message": f"Could not enable the service automatically ({detail or 'permission denied'}). "
+                       f"Run: sudo systemctl enable {_SERVICE_NAME}",
+        }
+    return {"ok": True, "message": f"{_SERVICE_NAME} will now start automatically at boot."}
+
+
+async def _repair_grant_tailscale_operator() -> dict:
+    """Register this account as Tailscale operator, then set HTTPS up."""
+    import telegram_bot
+
+    granted, message = await asyncio.to_thread(telegram_bot.grant_tailscale_operator)
+    if not granted:
+        return {"ok": False, "message": message}
+
+    enabled, enable_msg = await asyncio.to_thread(telegram_bot.enable_tailscale_https)
+    return {"ok": enabled, "message": f"{message} {enable_msg}"}
+
+
 async def _repair_enable_tailscale_https() -> dict:
     import telegram_bot
 
@@ -1132,6 +1281,8 @@ REPAIRS: dict[str, tuple[Callable[[], Awaitable[dict]], bool, str]] = {
     "deps.install_tts": (_repair_install_tts_deps, False, "Install text-to-speech"),
     "deps.install_browser": (_repair_install_browser_deps, False, "Install browser automation"),
     "deps.install_docx": (_repair_install_docx_node, False, "Install Word document support"),
+    "service.enable_boot": (_repair_enable_service_at_boot, False, "Start automatically at boot"),
+    "network.grant_operator": (_repair_grant_tailscale_operator, False, "Allow TALOS to configure Tailscale"),
     "network.enable_https": (_repair_enable_tailscale_https, False, "Enable HTTPS via Tailscale"),
     "network.reset_https": (_repair_reset_tailscale_https, True, "Reset and re-enable Tailscale HTTPS"),
     "files.reset_scratch": (_repair_clear_scratch, False, "Clear diagnostics scratch files"),

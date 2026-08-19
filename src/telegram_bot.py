@@ -797,8 +797,96 @@ def _count_tailscale_daemons() -> int:
     return max(1, len(seen))
 
 
+def _is_permission_error(text: str) -> bool:
+    """Tailscale refusing to write serve config because we are not root/operator.
+
+    Looks like: `sending serve config: Access denied: serve config denied` with
+    a follow-up suggesting `sudo tailscale ...` or `tailscale set --operator`.
+    """
+    lowered = (text or "").lower()
+    return (
+        "access denied" in lowered
+        or "serve config denied" in lowered
+        or "operator" in lowered
+        or ("permission denied" in lowered and "tailscale" in lowered)
+    )
+
+
+def _sudo_available() -> bool:
+    """True when sudo runs without prompting for a password."""
+    if sys.platform == "win32" or not shutil.which("sudo"):
+        return False
+    try:
+        result = subprocess.run(
+            ["sudo", "-n", "true"],
+            capture_output=True, text=True, timeout=10, stdin=subprocess.DEVNULL,
+        )
+    except Exception:
+        return False
+    return result.returncode == 0
+
+
+def grant_tailscale_operator() -> tuple[bool, str]:
+    """Register the current user as Tailscale operator so serve needs no sudo.
+
+    This is the one-time fix Tailscale itself recommends. Doing it once means
+    every later `serve`/`funnel` call — at startup, from onboarding, from the
+    repair button — works as the service user with no password prompt.
+    """
+    tailscale_bin = _resolve_tailscale_bin()
+    if not tailscale_bin:
+        return False, "Tailscale is not installed."
+
+    user = os.getenv("USER") or os.getenv("LOGNAME") or ""
+    if not user:
+        try:
+            import getpass
+            user = getpass.getuser()
+        except Exception:
+            return False, "Could not determine the current username."
+
+    if not _sudo_available():
+        return False, (
+            f"Root access is required once to allow this account to configure Tailscale. Run:\n"
+            f"    sudo tailscale set --operator={user}\n"
+            "then run this repair again."
+        )
+
+    try:
+        result = subprocess.run(
+            ["sudo", "-n", tailscale_bin, "set", f"--operator={user}"],
+            capture_output=True, text=True, timeout=30, stdin=subprocess.DEVNULL,
+        )
+    except Exception as exc:
+        return False, f"Could not set the Tailscale operator: {exc}"
+
+    if result.returncode != 0:
+        detail = ((result.stderr or "") + (result.stdout or "")).strip()[:250]
+        return False, f"`sudo tailscale set --operator={user}` failed: {detail or 'no output'}"
+
+    return True, f"Registered '{user}' as the Tailscale operator."
+
+
+def check_tailscale_operator() -> tuple[bool, str]:
+    """Can this account write Tailscale serve config without sudo?"""
+    if not _resolve_tailscale_bin():
+        return False, "Tailscale is not installed."
+    # `serve status` is read-only but goes through the same permission gate.
+    code, stdout, stderr = _run_tailscale(["serve", "status"], timeout=10)
+    combined = _tailscale_output(code, stdout, stderr)
+    if code != 0 and _is_permission_error(combined):
+        return False, "This account is not permitted to configure Tailscale serve."
+    return True, "This account can configure Tailscale."
+
+
 def enable_tailscale_https(mode: str = "") -> tuple[bool, str]:
-    """Put Tailscale in front of the dashboard on HTTPS. Idempotent."""
+    """Put Tailscale in front of the dashboard on HTTPS. Idempotent.
+
+    Handles the permission gate automatically: on a fresh Linux install the
+    service account is not the Tailscale operator, so the first `serve` call is
+    denied. Rather than failing with Tailscale's raw message, we register the
+    operator once (the fix Tailscale itself recommends) and retry.
+    """
     requested = (str(mode or "").strip().lower() or TAILSCALE_HTTPS_MODE)
     if requested not in _VALID_HTTPS_MODES:
         return False, f"Unknown mode '{requested}'. Use serve, funnel or off."
@@ -812,27 +900,60 @@ def enable_tailscale_https(mode: str = "") -> tuple[bool, str]:
     if not connected:
         return False, f"Tailscale is not connected ({detail}). Run `tailscale up` and sign in first."
 
-    # `serve`/`funnel` with a bare port publishes HTTPS on 443 and proxies to it.
-    code, stdout, stderr = _run_tailscale([requested, "--bg", str(WEB_PORT)], timeout=45)
-    output = _tailscale_output(code, stdout, stderr)
+    notes: list[str] = []
+
+    def _attempt() -> tuple[int, str]:
+        # `serve`/`funnel` with a bare port publishes HTTPS on 443 and proxies to it.
+        code, stdout, stderr = _run_tailscale([requested, "--bg", str(WEB_PORT)], timeout=45)
+        return code, _tailscale_output(code, stdout, stderr)
+
+    code, output = _attempt()
+
+    if code != 0 and _is_permission_error(output):
+        granted, grant_msg = grant_tailscale_operator()
+        notes.append(grant_msg)
+        if granted:
+            code, output = _attempt()
+        else:
+            # Last resort: run the command itself under sudo, if that is free.
+            if _sudo_available():
+                tailscale_bin = _resolve_tailscale_bin()
+                try:
+                    result = subprocess.run(
+                        ["sudo", "-n", tailscale_bin, requested, "--bg", str(WEB_PORT)],
+                        capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL,
+                    )
+                    code = result.returncode
+                    output = ((result.stderr or "") + (result.stdout or "")).strip()
+                except Exception as exc:
+                    code, output = 1, str(exc)
+
     if code != 0:
         lowered = output.lower()
+        if _is_permission_error(output):
+            user = os.getenv("USER") or "$USER"
+            return False, (
+                "Tailscale refused the request because this account is not permitted to "
+                f"configure it. Run this once, then retry:\n    sudo tailscale set --operator={user}"
+            )
         if "https" in lowered and ("cert" in lowered or "disabled" in lowered or "enable" in lowered):
             return False, f"Tailscale rejected the request: {output.splitlines()[0][:200]}. {_CERT_HINT}"
-        if "funnel" in lowered and ("permission" in lowered or "not allowed" in lowered or "attribute" in lowered):
+        if "funnel" in lowered and ("not allowed" in lowered or "attribute" in lowered
+                                    or "not enabled" in lowered):
             return False, (
                 f"Funnel is not permitted for this tailnet: {output.splitlines()[0][:200]}. "
-                "Enable Funnel in the admin console, or use tailnet-only HTTPS instead."
+                "Enable Funnel at https://login.tailscale.com/admin/acls, or use tailnet-only "
+                "HTTPS by setting TAILSCALE_HTTPS_MODE=serve."
             )
         return False, f"`tailscale {requested}` failed: {output[:300] or 'no output'}"
 
-    ok, detail, active_mode = check_tailscale_https()
-    if not ok:
-        return False, f"Command succeeded but HTTPS is still not active: {detail}"
+    state = tailscale_https_state()
+    if not state["ok"]:
+        return False, f"Command succeeded but HTTPS is still not active: {state['detail']}"
 
-    hostname = get_tailscale_hostname() or ""
-    url = f"https://{hostname}" if hostname else "your tailnet HTTPS address"
-    return True, f"HTTPS enabled via Tailscale {active_mode}. Dashboard: {url}"
+    url = state["url"] or "your tailnet HTTPS address"
+    prefix = (" ".join(notes) + " ") if notes else ""
+    return True, f"{prefix}HTTPS enabled via Tailscale {state['mode']}. Dashboard: {url}"
 
 
 def disable_tailscale_https() -> tuple[bool, str]:

@@ -170,6 +170,80 @@ def test_a_proxy_to_a_different_port_does_not_count():
         undo()
 
 
+def test_permission_errors_are_recognised():
+    """The exact strings a fresh Linux install produces."""
+    assert telegram_bot._is_permission_error(
+        "sending serve config: Access denied: serve config denied")
+    assert telegram_bot._is_permission_error(
+        "To not require root, use 'sudo tailscale set --operator=$USER' once.")
+    # The full multi-line message tailscale actually prints.
+    assert telegram_bot._is_permission_error(
+        "sending serve config: Access denied: serve config denied\n"
+        "Use 'sudo tailscale funnel 8080'.\n"
+        "To not require root, use 'sudo tailscale set --operator=$USER' once."
+    )
+
+
+def test_unrelated_errors_are_not_treated_as_permission_problems():
+    assert not telegram_bot._is_permission_error("Error: invalid argument format")
+    assert not telegram_bot._is_permission_error("funnel is not enabled for your tailnet")
+
+
+def test_denied_serve_is_retried_after_granting_operator():
+    """Denied -> register operator -> retry -> success, with no user intervention."""
+    denied = "sending serve config: Access denied: serve config denied"
+    state = {"granted": False}
+
+    def fake_run(args, timeout=20):
+        if args[:2] == ["serve", "status"]:
+            return (0, "{}", "")
+        if args and args[0] in ("serve", "funnel") and "--bg" in args:
+            return (0, "ok", "") if state["granted"] else (1, "", denied)
+        return (0, "", "")
+
+    def fake_grant():
+        state["granted"] = True
+        return True, "Registered 'svc' as the Tailscale operator."
+
+    undo = _patched({
+        "_resolve_tailscale_bin": lambda: "/usr/bin/tailscale",
+        "_run_tailscale": fake_run,
+        "check_tailscale": lambda: (True, "connected"),
+        "grant_tailscale_operator": fake_grant,
+        "tailscale_https_state": lambda: {
+            "ok": True, "configured": True, "reachable": True, "mode": "serve",
+            "detail": "active", "daemons": 1, "url": "https://host.tail1234.ts.net",
+        },
+    })
+    try:
+        ok, message = telegram_bot.enable_tailscale_https("serve")
+        assert ok is True, message
+        assert state["granted"] is True
+        assert "operator" in message.lower()
+    finally:
+        undo()
+
+
+def test_denied_without_sudo_returns_the_exact_command_to_run():
+    denied = "sending serve config: Access denied: serve config denied"
+    undo = _patched({
+        "_resolve_tailscale_bin": lambda: "/usr/bin/tailscale",
+        "_run_tailscale": lambda args, timeout=20: (
+            (0, "{}", "") if args[:2] == ["serve", "status"] else (1, "", denied)
+        ),
+        "check_tailscale": lambda: (True, "connected"),
+        "_sudo_available": lambda: False,
+    })
+    try:
+        ok, message = telegram_bot.enable_tailscale_https("serve")
+        assert ok is False
+        assert "tailscale set --operator=" in message
+        # The instruction should appear once, not repeated from an inner note.
+        assert message.count("sudo tailscale set --operator=") == 1
+    finally:
+        undo()
+
+
 def test_https_mode_defaults_to_tailnet_only():
     """Funnel publishes to the whole internet; setup must not choose it silently."""
     assert telegram_bot.TAILSCALE_HTTPS_MODE in {"serve", "funnel", "off"}
