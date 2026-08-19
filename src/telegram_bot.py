@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import socket
 import hmac
 import secrets
 import logging
@@ -609,6 +610,237 @@ def check_funnel():
     if result2.returncode == 0 and str(WEB_PORT) in result2.stdout:
         return True, "serving locally"
     return False, "not configured"
+
+
+# ---------------------------------------------------------------------------
+# Tailscale HTTPS
+#
+# The dashboard itself only ever speaks plain HTTP on the loopback port. HTTPS
+# comes from Tailscale terminating TLS in front of it — `tailscale serve` for
+# tailnet-only access, `tailscale funnel` for the public internet. Nothing set
+# either of those up automatically before, so every install stayed on HTTP.
+# ---------------------------------------------------------------------------
+
+# Tailnet-only by default. Funnel publishes to the whole internet, which is not
+# something setup should ever switch on without being asked.
+TAILSCALE_HTTPS_MODE = str(os.getenv("TAILSCALE_HTTPS_MODE", "serve")).strip().lower()
+_VALID_HTTPS_MODES = {"serve", "funnel", "off"}
+
+_CERT_HINT = (
+    "Enable HTTPS certificates for your tailnet at "
+    "https://login.tailscale.com/admin/dns (DNS → HTTPS Certificates), then try again."
+)
+
+
+def _run_tailscale(args: list[str], timeout: int = 20) -> tuple[int, str, str]:
+    """Run a tailscale subcommand. Returns (returncode, stdout, stderr).
+
+    The streams stay separate because tailscale writes a client/server version
+    skew warning to stderr on every call, and mixing that into stdout corrupts
+    the JSON that `status --json` produces.
+    """
+    tailscale_bin = _resolve_tailscale_bin()
+    if not tailscale_bin:
+        return 127, "", "tailscale is not installed or not on PATH"
+    try:
+        result = subprocess.run(
+            [tailscale_bin] + args,
+            capture_output=True, text=True, timeout=timeout,
+            stdin=subprocess.DEVNULL,
+        )
+    except subprocess.TimeoutExpired:
+        return 124, "", f"`tailscale {' '.join(args)}` timed out after {timeout}s"
+    except Exception as exc:
+        return 1, "", f"could not run tailscale: {exc}"
+    return result.returncode, (result.stdout or "").strip(), (result.stderr or "").strip()
+
+
+def _tailscale_output(code: int, stdout: str, stderr: str) -> str:
+    """Human-facing text for an error, preferring whichever stream spoke."""
+    return (stderr or stdout or "").strip()
+
+
+def get_serve_config() -> dict:
+    """Parsed `tailscale serve status --json`, or {} when nothing is configured."""
+    code, stdout, _ = _run_tailscale(["serve", "status", "--json"], timeout=10)
+    if code != 0:
+        return {}
+    start = stdout.find("{")
+    if start < 0:
+        return {}
+    try:
+        # raw_decode stops at the end of the first complete JSON value, so any
+        # trailing chatter after the object is ignored rather than fatal.
+        parsed, _ = json.JSONDecoder().raw_decode(stdout[start:])
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def probe_https_port(timeout: float = 4.0) -> tuple[bool, str]:
+    """Can anything actually accept TLS on this node's tailnet address:443?
+
+    Config alone is not proof. If two tailscaled daemons are installed (a
+    packaged one plus a GUI app, which is common on macOS and easy to end up
+    with on Linux), the CLI writes the serve config to one daemon while the
+    other one holds the tailnet address — so `serve status` looks perfect and
+    nothing is listening.
+    """
+    ip = get_tailscale_ip()
+    if not ip:
+        return False, "no Tailscale IP assigned"
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(timeout)
+    try:
+        sock.connect((ip, 443))
+        return True, f"{ip}:443 accepting connections"
+    except Exception as exc:
+        return False, f"{ip}:443 unreachable ({exc})"
+    finally:
+        sock.close()
+
+
+def tailscale_https_state() -> dict:
+    """Full picture of whether HTTPS is fronting the dashboard.
+
+    Returns {ok, configured, reachable, mode, detail, daemons, url}. Callers
+    grade severity themselves: "no config at all" is a different problem from
+    "configured but nothing is listening", and only the first is fixed by
+    running `tailscale serve` again.
+    """
+    base = {
+        "ok": False, "configured": False, "reachable": False,
+        "mode": "none", "detail": "", "daemons": 1, "url": "",
+    }
+
+    if not _resolve_tailscale_bin():
+        return {**base, "detail": "Tailscale is not installed."}
+
+    config = get_serve_config()
+    if not config:
+        return {**base, "detail": "Tailscale is not serving anything — the dashboard is HTTP only."}
+
+    target = f"127.0.0.1:{WEB_PORT}"
+    serving_us = False
+    for _, handlers in (config.get("Web") or {}).items():
+        for _, handler in (handlers.get("Handlers") or {}).items():
+            proxy = str(handler.get("Proxy", ""))
+            if target in proxy or f"localhost:{WEB_PORT}" in proxy:
+                serving_us = True
+                break
+
+    if not serving_us:
+        return {**base, "detail": f"Tailscale is serving something, but not the dashboard on port {WEB_PORT}."}
+
+    https_on = any(cfg.get("HTTPS") is True or str(cfg.get("HTTPS", "")).lower() == "true"
+                   for cfg in (config.get("TCP") or {}).values())
+    if not https_on:
+        return {**base, "detail": "Tailscale is proxying the dashboard, but not over HTTPS."}
+
+    mode = "funnel" if any((config.get("AllowFunnel") or {}).values()) else "serve"
+    hostname = get_tailscale_hostname() or ""
+    reachable, probe_detail = probe_https_port()
+    daemons = _count_tailscale_daemons() if not reachable else 1
+
+    if not reachable:
+        if daemons > 1:
+            detail = (
+                f"HTTPS is configured but not reachable ({probe_detail}). More than one Tailscale "
+                "daemon is running, so the serve config and the tailnet address belong to different "
+                "daemons — keep a single Tailscale installation."
+            )
+        else:
+            detail = (
+                f"HTTPS is configured but the port did not accept a connection ({probe_detail}). "
+                "If other devices on your tailnet can reach it, this is only a local self-connect "
+                "quirk; otherwise restart Tailscale."
+            )
+        return {
+            "ok": False, "configured": True, "reachable": False, "mode": mode,
+            "detail": detail, "daemons": daemons,
+            "url": f"https://{hostname}" if hostname else "",
+        }
+
+    detail = ("HTTPS is active and published publicly via Funnel." if mode == "funnel"
+              else "HTTPS is active on your tailnet via Tailscale Serve.")
+    return {
+        "ok": True, "configured": True, "reachable": True, "mode": mode,
+        "detail": detail, "daemons": daemons,
+        "url": f"https://{hostname}" if hostname else "",
+    }
+
+
+def check_tailscale_https() -> tuple[bool, str, str]:
+    """Backwards-compatible tuple view of `tailscale_https_state`."""
+    state = tailscale_https_state()
+    return state["ok"], state["detail"], state["mode"]
+
+
+def _count_tailscale_daemons() -> int:
+    """Rough count of running tailscaled-like processes. Best effort only."""
+    if sys.platform == "win32":
+        return 1
+    try:
+        result = subprocess.run(
+            ["ps", "ax", "-o", "command"],
+            capture_output=True, text=True, timeout=8, stdin=subprocess.DEVNULL,
+        )
+    except Exception:
+        return 1
+    seen = set()
+    for line in (result.stdout or "").splitlines():
+        lowered = line.lower()
+        if "tailscaled" in lowered or "ipnextension" in lowered:
+            # Collapse each installation to its binary path so threads of the
+            # same daemon are not counted twice.
+            seen.add(line.strip().split()[0] if line.strip() else line)
+    return max(1, len(seen))
+
+
+def enable_tailscale_https(mode: str = "") -> tuple[bool, str]:
+    """Put Tailscale in front of the dashboard on HTTPS. Idempotent."""
+    requested = (str(mode or "").strip().lower() or TAILSCALE_HTTPS_MODE)
+    if requested not in _VALID_HTTPS_MODES:
+        return False, f"Unknown mode '{requested}'. Use serve, funnel or off."
+    if requested == "off":
+        return False, "Tailscale HTTPS is disabled (TAILSCALE_HTTPS_MODE=off)."
+
+    if not _resolve_tailscale_bin():
+        return False, "Tailscale is not installed. Install it from https://tailscale.com/download."
+
+    connected, detail = check_tailscale()
+    if not connected:
+        return False, f"Tailscale is not connected ({detail}). Run `tailscale up` and sign in first."
+
+    # `serve`/`funnel` with a bare port publishes HTTPS on 443 and proxies to it.
+    code, stdout, stderr = _run_tailscale([requested, "--bg", str(WEB_PORT)], timeout=45)
+    output = _tailscale_output(code, stdout, stderr)
+    if code != 0:
+        lowered = output.lower()
+        if "https" in lowered and ("cert" in lowered or "disabled" in lowered or "enable" in lowered):
+            return False, f"Tailscale rejected the request: {output.splitlines()[0][:200]}. {_CERT_HINT}"
+        if "funnel" in lowered and ("permission" in lowered or "not allowed" in lowered or "attribute" in lowered):
+            return False, (
+                f"Funnel is not permitted for this tailnet: {output.splitlines()[0][:200]}. "
+                "Enable Funnel in the admin console, or use tailnet-only HTTPS instead."
+            )
+        return False, f"`tailscale {requested}` failed: {output[:300] or 'no output'}"
+
+    ok, detail, active_mode = check_tailscale_https()
+    if not ok:
+        return False, f"Command succeeded but HTTPS is still not active: {detail}"
+
+    hostname = get_tailscale_hostname() or ""
+    url = f"https://{hostname}" if hostname else "your tailnet HTTPS address"
+    return True, f"HTTPS enabled via Tailscale {active_mode}. Dashboard: {url}"
+
+
+def disable_tailscale_https() -> tuple[bool, str]:
+    """Tear down the Tailscale serve/funnel config for this node."""
+    code, stdout, stderr = _run_tailscale(["serve", "reset"], timeout=30)
+    if code != 0:
+        return False, f"`tailscale serve reset` failed: {_tailscale_output(code, stdout, stderr)[:250]}"
+    return True, "Tailscale serve configuration cleared."
 
 
 def check_venv():
@@ -1540,10 +1772,17 @@ async def handle_api_onboarding_telegram(request):
 
 @require_auth
 async def handle_api_onboarding_tailscale(request):
-    """Check Tailscale status for onboarding."""
+    """Check Tailscale status and, once connected, turn HTTPS on automatically.
+
+    This step used to only report status, which is why every install stayed on
+    plain HTTP: nothing ever ran `tailscale serve`.
+    """
     installed = bool(_resolve_tailscale_bin())
     connected = False
     hostname = ""
+    https_ok = False
+    https_detail = ""
+    https_mode = "none"
 
     if installed:
         ts_ok, _ = check_tailscale()
@@ -1551,10 +1790,23 @@ async def handle_api_onboarding_tailscale(request):
         if connected:
             hostname = get_tailscale_hostname() or ""
 
+            state = await asyncio.to_thread(tailscale_https_state)
+            https_ok, https_detail, https_mode = state["ok"], state["detail"], state["mode"]
+
+            if not state["ok"] and not state["configured"] and TAILSCALE_HTTPS_MODE != "off":
+                enabled, message = await asyncio.to_thread(enable_tailscale_https)
+                state = await asyncio.to_thread(tailscale_https_state)
+                https_ok, https_mode = state["ok"], state["mode"]
+                https_detail = state["detail"] if state["ok"] else message
+
     return web.json_response({
         "installed": installed,
         "connected": connected,
         "hostname": hostname,
+        "https": https_ok,
+        "https_mode": https_mode,
+        "https_detail": https_detail,
+        "url": f"https://{hostname}" if (https_ok and hostname) else "",
     })
 
 
@@ -3354,9 +3606,31 @@ async def main():
 
     ts_ip = get_tailscale_ip()
     ts_hostname = get_tailscale_hostname()
+
+    # Re-assert HTTPS on every start. Tailscale's serve config is per-node state
+    # that a reinstall, a `serve reset`, or a fresh machine will not have, and
+    # silently falling back to plain HTTP is exactly the failure we are fixing.
+    https_ok, https_mode = False, "off"
+    if TAILSCALE_HTTPS_MODE != "off":
+        state = tailscale_https_state()
+        https_ok, https_mode = state["ok"], state["mode"]
+        if state["ok"]:
+            print(f"[ok] Tailscale HTTPS: {state['detail']}")
+        elif not state["configured"] and check_tailscale()[0]:
+            enabled, message = enable_tailscale_https()
+            print(f"[{'ok' if enabled else 'warn'}] Tailscale HTTPS: {message}")
+            state = tailscale_https_state()
+            https_ok, https_mode = state["ok"], state["mode"]
+        elif state["detail"]:
+            # Configured but broken: say so rather than silently serving HTTP.
+            print(f"[warn] Tailscale HTTPS: {state['detail']}")
+
     fn_ok, _ = check_funnel()
     print(f"Web dashboard: http://localhost:{WEB_PORT}")
-    if ts_hostname and fn_ok:
+    if ts_hostname and https_ok:
+        scope = "Public URL" if https_mode == "funnel" else "Tailnet URL"
+        print(f"{scope}:    https://{ts_hostname}")
+    elif ts_hostname and fn_ok:
         print(f"Public URL:    https://{ts_hostname}")
     elif ts_hostname:
         print(f"Tailscale:     http://{ts_hostname}:{WEB_PORT}")

@@ -1174,6 +1174,12 @@ async function saveTelegram() {
   } catch (e) { err.textContent = 'Connection problem. Please try again.'; }
 }
 
+function escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 async function checkTailscale() {
   var err = document.getElementById('err-tailscale');
   var ok = document.getElementById('ok-tailscale');
@@ -1185,9 +1191,19 @@ async function checkTailscale() {
     var statusEl = document.getElementById('ts-status');
 
     if (data.installed && data.connected) {
-      ok.textContent = 'Tailscale is connected. Great! (' + (data.hostname || 'online') + ')';
-      statusEl.innerHTML = '';
-      setTimeout(function() { goStep(2); }, 1000);
+      if (data.https) {
+        // HTTPS is set up automatically once Tailscale is connected — the
+        // dashboard itself only ever speaks HTTP on the loopback port.
+        ok.textContent = 'Tailscale connected and HTTPS is on'
+          + (data.url ? ' — reach your assistant at ' + data.url : '') + '.';
+        statusEl.innerHTML = '';
+      } else {
+        ok.textContent = 'Tailscale is connected (' + (data.hostname || 'online') + ').';
+        statusEl.innerHTML = '<div class="info-box"><strong>HTTPS could not be enabled automatically.</strong><br>'
+          + (data.https_detail ? escapeHtml(data.https_detail) : 'Unknown reason.')
+          + '<br>You can continue now and fix this later from Dashboard &rarr; Self-Repair &amp; Test.</div>';
+      }
+      setTimeout(function() { goStep(2); }, data.https ? 1200 : 4000);
     } else if (data.installed && !data.connected) {
       statusEl.innerHTML = '<div class="info-box">Tailscale is installed but not signed in yet. Run <strong>tailscale up</strong> in your terminal, or open the Tailscale app and sign in.</div>';
       if (data.login_url) {

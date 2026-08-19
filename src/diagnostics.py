@@ -447,6 +447,73 @@ async def check_ollama() -> CheckResult:
     )
 
 
+async def check_tailscale_https() -> CheckResult:
+    """The dashboard serves plain HTTP; Tailscale is what puts HTTPS in front."""
+    import telegram_bot
+
+    if not telegram_bot._resolve_tailscale_bin():
+        return CheckResult(
+            "network.https", "HTTPS (Tailscale)", "network", WARN,
+            "Tailscale is not installed, so the dashboard is reachable over plain HTTP only.",
+            hint="Install Tailscale from https://tailscale.com/download, sign in, then re-run this check.",
+        )
+
+    connected, detail = await asyncio.to_thread(telegram_bot.check_tailscale)
+    if not connected:
+        return CheckResult(
+            "network.https", "HTTPS (Tailscale)", "network", WARN,
+            f"Tailscale is installed but not connected ({detail}), so HTTPS cannot be set up.",
+            hint="Run `tailscale up` and sign in, then re-run this check.",
+        )
+
+    mode = telegram_bot.TAILSCALE_HTTPS_MODE
+    if mode == "off":
+        return CheckResult(
+            "network.https", "HTTPS (Tailscale)", "network", SKIP,
+            "Disabled by configuration (TAILSCALE_HTTPS_MODE=off).",
+        )
+
+    state = await asyncio.to_thread(telegram_bot.tailscale_https_state)
+
+    if state["ok"]:
+        return CheckResult(
+            "network.https", "HTTPS (Tailscale)", "network", OK,
+            state["detail"] + (f" Reachable at {state['url']}." if state["url"] else ""),
+            data={"mode": state["mode"], "url": state["url"]},
+        )
+
+    if not state["configured"]:
+        # Nothing is set up. This is the case one click actually fixes.
+        return CheckResult(
+            "network.https", "HTTPS (Tailscale)", "network", FAIL,
+            f"The dashboard is served over plain HTTP. {state['detail']}",
+            fix="network.enable_https",
+            hint=f"Runs `tailscale {mode}` so Tailscale terminates HTTPS in front of port "
+                 f"{telegram_bot.WEB_PORT}.",
+            data={"mode": mode},
+        )
+
+    # Configured but not answering. Re-running `serve` will not help; the useful
+    # repair is to wipe the config and lay it down again, and if two daemons are
+    # running that is a machine problem no repair here can fix.
+    if state["daemons"] > 1:
+        return CheckResult(
+            "network.https", "HTTPS (Tailscale)", "network", FAIL,
+            state["detail"],
+            reset="network.reset_https",
+            hint="Remove the duplicate Tailscale installation, then reset and re-enable HTTPS.",
+            data={"daemons": state["daemons"], "mode": state["mode"]},
+        )
+
+    return CheckResult(
+        "network.https", "HTTPS (Tailscale)", "network", WARN,
+        state["detail"],
+        reset="network.reset_https",
+        hint="Clears the Tailscale serve config and applies it again from scratch.",
+        data={"mode": state["mode"], "url": state["url"]},
+    )
+
+
 async def check_google() -> CheckResult:
     creds = app_paths.oauth_tokens_path()
     has_key = bool(os.getenv("GOOGLE_API_KEY", "").strip())
@@ -634,6 +701,7 @@ CHECKS: list[Callable[[], Awaitable[CheckResult]]] = [
     check_himalaya_binary,
     check_himalaya_config,
     check_email_live,
+    check_tailscale_https,
     check_google,
     check_telegram,
     check_tool_coverage,
@@ -908,6 +976,30 @@ async def _repair_install_browser_deps() -> dict:
     }
 
 
+async def _repair_enable_tailscale_https() -> dict:
+    import telegram_bot
+
+    ok, message = await asyncio.to_thread(telegram_bot.enable_tailscale_https)
+    return {"ok": ok, "message": message}
+
+
+async def _repair_reset_tailscale_https() -> dict:
+    """Destructive: clears the node's serve config, then sets HTTPS up fresh.
+
+    Worth having separately because a half-written serve config (wrong port
+    after a WEB_PORT change, a stale funnel entry) cannot be fixed by running
+    `tailscale serve` again — it merges rather than replaces.
+    """
+    import telegram_bot
+
+    cleared, clear_msg = await asyncio.to_thread(telegram_bot.disable_tailscale_https)
+    if not cleared:
+        return {"ok": False, "message": clear_msg}
+
+    ok, message = await asyncio.to_thread(telegram_bot.enable_tailscale_https)
+    return {"ok": ok, "message": f"{clear_msg} {message}"}
+
+
 async def _repair_install_docx_node() -> dict:
     """Word document creation shells out to the `docx` Node package."""
     npm = shutil.which("npm")
@@ -1003,6 +1095,7 @@ async def _repair_full_reset() -> dict:
         "email.reconfigure",
         "tools.reset_dynamic_registry",
         "projects.reset_registry",
+        "network.reset_https",
     ):
         handler, _, label = REPAIRS[repair_id]
         try:
@@ -1039,6 +1132,8 @@ REPAIRS: dict[str, tuple[Callable[[], Awaitable[dict]], bool, str]] = {
     "deps.install_tts": (_repair_install_tts_deps, False, "Install text-to-speech"),
     "deps.install_browser": (_repair_install_browser_deps, False, "Install browser automation"),
     "deps.install_docx": (_repair_install_docx_node, False, "Install Word document support"),
+    "network.enable_https": (_repair_enable_tailscale_https, False, "Enable HTTPS via Tailscale"),
+    "network.reset_https": (_repair_reset_tailscale_https, True, "Reset and re-enable Tailscale HTTPS"),
     "files.reset_scratch": (_repair_clear_scratch, False, "Clear diagnostics scratch files"),
     "tools.reset_dynamic_registry": (_repair_reset_dynamic_registry, True, "Reset custom tool registry"),
     "projects.reset_registry": (_repair_reset_projects_registry, True, "Reset project registry"),
