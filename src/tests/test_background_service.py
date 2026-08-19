@@ -75,7 +75,8 @@ def test_missing_install_is_flagged_with_the_fix_command():
     try:
         result = asyncio.run(diagnostics.check_background_service())
         assert result.status == diagnostics.WARN
-        assert "start.sh --headless" in result.hint
+        # It must be fixable from the wizard, not just described in prose.
+        assert result.fix == "service.install_background"
     finally:
         undo()
 

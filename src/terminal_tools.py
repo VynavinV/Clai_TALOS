@@ -49,7 +49,9 @@ class TerminalExecutor:
         
         self.sandbox_mode = config.get("sandbox_mode", "docker")
         self.require_confirmation = config.get("require_confirmation", True)
-        self.max_commands_per_minute = config.get("max_commands_per_minute", 10)
+        # 10/min was low enough that an ordinary multi-step task stalled partway
+        # through, and every fresh install reported it as a problem.
+        self.max_commands_per_minute = config.get("max_commands_per_minute", 30)
         self.default_timeout = config.get("default_timeout", 30)
         self.dangerous_commands = set(config.get("dangerous_commands", list(DANGEROUS_COMMANDS)))
         
@@ -72,7 +74,7 @@ class TerminalExecutor:
         return {
             "sandbox_mode": "native",
             "require_confirmation": True,
-            "max_commands_per_minute": 10,
+            "max_commands_per_minute": 30,
             "default_timeout": 30,
             "dangerous_commands": list(DANGEROUS_COMMANDS)
         }

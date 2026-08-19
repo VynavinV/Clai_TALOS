@@ -5,9 +5,13 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR/src"
 
 HEADLESS=false
+INSTALL_SERVICE_ONLY=false
 for arg in "$@"; do
   case "$arg" in
     --headless) HEADLESS=true ;;
+    # Used by the dashboard's "install background service" repair, so the unit
+    # file has exactly one definition instead of a second copy in Python.
+    --install-service) INSTALL_SERVICE_ONLY=true ;;
   esac
 done
 
@@ -855,6 +859,16 @@ ok "Virtual environment ready"
 
 run_setup
 ok "Configuration checked"
+
+if [[ "$INSTALL_SERVICE_ONLY" == true ]]; then
+  # Service install only — no onboarding, no Tailscale, no prompts.
+  if setup_background_service; then
+    ok "Background service installed."
+    exit 0
+  fi
+  fail "Background service installation failed."
+  exit 1
+fi
 
 if [[ "$HEADLESS" == true ]]; then
   # One consent covering every system change setup may need to make, so the

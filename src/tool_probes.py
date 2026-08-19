@@ -321,9 +321,16 @@ async def probe_docx() -> ProbeOutcome:
         })
         if not isinstance(parsed, dict) or parsed.get("error"):
             detail = _err(parsed, raw)
-            if "docx" in detail.lower() and ("missing" in detail.lower() or "npm" in detail.lower()):
+            lowered = detail.lower()
+            if "node" in lowered and ("not available" in lowered or "not found" in lowered):
                 return fail(
-                    f"Word document creation needs the `docx` Node module, which is not installed: {detail}",
+                    "Word documents need Node.js, which is not installed on this machine.",
+                    fix="deps.install_docx",
+                    hint="Installs Node.js and the `docx` module.",
+                )
+            if "docx" in lowered and ("missing" in lowered or "npm" in lowered):
+                return fail(
+                    f"Word document creation needs the `docx` Node module: {detail}",
                     fix="deps.install_docx",
                     hint="Runs `npm install docx` in the project root.",
                 )
@@ -497,23 +504,48 @@ async def probe_pa_system() -> ProbeOutcome:
 # ---------------------------------------------------------------------------
 
 async def probe_web_search() -> ProbeOutcome:
+    """Validates the credential, deliberately without running a search.
+
+    Calling `web_search` would be a live LLM inference: the module picks its
+    search model by calling `generate_content` against each candidate until one
+    answers. This whole suite promises not to invoke the model, so the probe
+    checks that the key authenticates against the model-list endpoint instead —
+    real verification, no generation, no token spend.
+    """
     if not os.getenv("GEMINI_API_KEY", "").strip():
         return skip("Skipped — web search needs GEMINI_API_KEY, which is not set.")
 
     try:
-        parsed, raw = await asyncio.wait_for(
-            call_tool("web_search", {"query": "what is the capital of France"}), timeout=60
+        import websearch
+        client = await asyncio.to_thread(websearch._get_client)
+        models = await asyncio.wait_for(
+            asyncio.to_thread(lambda: [m.name for m in client.models.list()]), timeout=30
         )
     except asyncio.TimeoutError:
-        return fail("web_search timed out after 60s.")
+        return fail("Timed out reaching the Gemini API after 30s.")
+    except Exception as exc:
+        detail = str(exc)
+        lowered = detail.lower()
+        if "api key" in lowered or "unauthenticated" in lowered or "permission" in lowered:
+            return fail(
+                f"GEMINI_API_KEY was rejected: {detail[:180]}",
+                reset="web.clear_gemini_key",
+                hint="An invalid key cannot be repaired automatically. Clearing it stops web "
+                     "search from erroring; get a new one at https://aistudio.google.com/app/apikey.",
+            )
+        return fail(f"Could not reach the Gemini API: {detail[:200]}")
 
-    if not isinstance(parsed, dict):
-        return fail(f"web_search returned unparseable output: {raw[:200]}")
-    if parsed.get("error"):
-        return fail(f"web_search failed: {parsed['error']}")
-    if len(raw.strip()) < 40:
-        return fail(f"web_search returned an empty-looking result: {raw[:200]}")
-    return ok("Web search returns results.")
+    searchable = [m for m in models if any(c in m for c in websearch._CANDIDATE_MODELS)]
+    if not searchable:
+        return warn(
+            "The API key works, but none of the models web search knows how to use are available "
+            f"to it ({', '.join(websearch._CANDIDATE_MODELS[:3])}...). Search will fail.",
+            reset="web.clear_gemini_key",
+            hint="Usually a key from a project without Gemini API access enabled. Enable it, or "
+                 "clear the key to disable web search cleanly.",
+        )
+
+    return ok(f"Gemini credentials valid, {len(searchable)} search-capable model(s) available.")
 
 
 async def probe_scrape() -> ProbeOutcome:

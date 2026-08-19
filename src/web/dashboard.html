@@ -578,6 +578,26 @@
 
   .diag-btn-danger { color: var(--danger); border-color: rgba(255, 111, 139, 0.4); }
 
+  .diag-btn-fixall {
+    color: var(--bg-0);
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    border-color: transparent;
+    font-weight: 600;
+  }
+  .diag-btn-fixall:hover { filter: brightness(1.08); }
+  .diag-btn-fixall[disabled] { background: var(--surface-2); color: var(--text-2); }
+
+  .diag-plan {
+    margin: 0.7rem 0 0;
+    padding-left: 1.1rem;
+    font-size: 0.78rem;
+    color: var(--text-1);
+    line-height: 1.65;
+  }
+  .diag-plan li { margin-bottom: 0.2rem; }
+  .diag-plan .destructive { color: var(--danger); }
+  .diag-plan .safe { color: var(--accent); }
+
   .quick-btn[disabled] { opacity: 0.45; cursor: not-allowed; }
 
   .diag-summary {
@@ -1181,7 +1201,10 @@
             &#9654; Run All Tests
           </button>
           <button class="quick-btn" id="diag-autofix" onclick="autoRepair(false)" disabled>
-            &#128736; Auto-Repair Safe Issues
+            &#128736; Repair Safe Issues
+          </button>
+          <button class="quick-btn diag-btn-fixall" id="diag-fixall" onclick="fixAll()" disabled>
+            &#10024; Fix All
           </button>
           <button class="quick-btn diag-btn-danger" id="diag-deepreset" onclick="deepReset()">
             &#9888; Deep Reset
@@ -1407,6 +1430,7 @@ var DIAG_ICONS = { ok: '&#10003;', warn: '&#9888;', fail: '&#10005;', skip: '&#8
 var DIAG_LABELS = { ok: 'Healthy', warn: 'Needs attention', fail: 'Broken' };
 var _diagLastReport = null;
 var _diagPendingConfirm = null;
+var _diagRepairs = {};   // repair id -> { label, destructive }
 
 function csrfToken() {
   var el = document.querySelector('meta[name="csrf-token"]');
@@ -1429,12 +1453,14 @@ function diagLog(line) {
 
 function setDiagBusy(busy) {
   document.getElementById('diag-run').disabled = busy;
+  document.getElementById('diag-deepreset').disabled = busy;
+
   var auto = document.getElementById('diag-autofix');
-  if (busy) {
-    auto.disabled = true;
-  } else {
-    auto.disabled = !hasRepairableIssue();
-  }
+  var fixall = document.getElementById('diag-fixall');
+  auto.disabled = busy || !hasRepairableIssue();
+  // Fix All stays available before the first run — it tests first, then fixes.
+  fixall.disabled = busy || (_diagLastReport !== null && repairPlan().length === 0);
+
   document.getElementById('diag-run').innerHTML = busy
     ? '&#8987; Testing...' : '&#9654; Run All Tests';
 }
@@ -1444,6 +1470,128 @@ function hasRepairableIssue() {
   return _diagLastReport.checks.some(function (c) {
     return (c.status === 'fail' || c.status === 'warn') && c.fix;
   });
+}
+
+/* Every repair the current report would apply, in the order Fix All runs them.
+   Built from the report itself so the confirmation lists exactly what happens —
+   no separate code path that could describe one thing and do another. */
+function repairPlan() {
+  var plan = [];
+  var seen = {};
+  if (!_diagLastReport) return plan;
+
+  _diagLastReport.checks.forEach(function (c) {
+    if (c.status !== 'fail' && c.status !== 'warn') return;
+    // Mirror run_auto_repair exactly: the safe fix wins when a check offers
+    // both, and the destructive reset is only used when there is no safe fix.
+    // Listing both here would promise actions the server will not take.
+    var id = c.fix || c.reset;
+    if (!id || seen[id]) return;
+    seen[id] = true;
+    var meta = _diagRepairs[id] || {};
+    plan.push({
+      id: id,
+      check: c.name,
+      label: meta.label || id,
+      destructive: !!meta.destructive
+    });
+  });
+  return plan;
+}
+
+async function loadRepairMeta() {
+  try {
+    var res = await fetch('/api/diagnostics/repairs');
+    var data = await res.json();
+    (data.repairs || []).forEach(function (r) { _diagRepairs[r.id] = r; });
+  } catch (e) { /* labels degrade to raw ids; not worth blocking on */ }
+}
+
+async function fixAll() {
+  if (!_diagLastReport) {
+    diagLog('Running tests first...');
+    await runDiagnostics();
+    if (!_diagLastReport) return;
+  }
+
+  var plan = repairPlan();
+  if (!plan.length) {
+    window.alert('Nothing to fix — no failing check has a repair available.');
+    return;
+  }
+
+  var destructive = plan.filter(function (p) { return p.destructive; });
+  var safe = plan.filter(function (p) { return !p.destructive; });
+
+  var html = '<p>This will apply <strong>' + plan.length + '</strong> repair'
+    + (plan.length === 1 ? '' : 's') + ':</p><ul class="diag-plan">';
+  safe.forEach(function (p) {
+    html += '<li><span class="safe">&#128736;</span> ' + diagEscape(p.label)
+      + ' <span style="opacity:.6">(' + diagEscape(p.check) + ')</span></li>';
+  });
+  destructive.forEach(function (p) {
+    html += '<li><span class="destructive">&#9888;</span> <strong>' + diagEscape(p.label)
+      + '</strong> <span style="opacity:.6">(' + diagEscape(p.check) + ')</span></li>';
+  });
+  html += '</ul>';
+  if (destructive.length) {
+    html += '<p style="margin-top:.7rem;color:var(--danger);font-size:.78rem;">'
+      + destructive.length + ' of these delete existing configuration and may require you to '
+      + 're-enter credentials. Backups are kept where possible.</p>';
+  }
+
+  showPlanModal('Fix all ' + plan.length + ' issue' + (plan.length === 1 ? '' : 's') + '?',
+                html, destructive.length > 0, async function () {
+    setDiagBusy(true);
+    diagLog('Fix All: applying ' + plan.length + ' repair(s)...');
+    try {
+      var res = await fetch('/api/diagnostics/autorepair', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm_destructive: true, csrf_token: csrfToken() })
+      });
+      var data = await res.json();
+      if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+
+      var needsSetup = [];
+      (data.applied || []).forEach(function (a) {
+        diagLog((a.ok ? 'OK  ' : 'FAIL') + ' ' + a.repair + ': ' + (a.message || ''));
+        if (a.needs_setup) needsSetup.push(a.needs_setup);
+      });
+
+      _diagLastReport = data.after;
+      renderDiagnostics(data.after);
+
+      var c = data.after.counts;
+      diagLog('Fix All complete: ' + c.ok + ' passed, ' + c.warn + ' warnings, ' + c.fail + ' failed.');
+
+      if (needsSetup.indexOf('email') >= 0
+          && window.confirm('Email configuration was cleared and needs setting up again.\n\nOpen email setup now?')) {
+        window.location.href = '/onboarding#email';
+        return;
+      }
+      if (c.fail === 0 && c.warn === 0) {
+        window.alert('All issues resolved.');
+      } else if (c.fail > 0) {
+        window.alert(c.fail + ' issue(s) could not be fixed automatically. See the list and the log for details.');
+      }
+    } catch (e) {
+      diagLog('Fix All failed: ' + e.message);
+      window.alert('Fix All failed: ' + e.message);
+    } finally {
+      setDiagBusy(false);
+    }
+  });
+}
+
+function showPlanModal(title, bodyHtml, danger, onConfirm) {
+  document.getElementById('diag-modal-title').textContent = title;
+  document.getElementById('diag-modal-body').innerHTML = bodyHtml;
+  var go = document.getElementById('diag-modal-go');
+  go.textContent = danger ? 'Fix All (including resets)' : 'Fix All';
+  go.className = danger ? 'quick-btn diag-btn-danger' : 'quick-btn diag-btn-fixall';
+  go.onclick = function () { closeConfirm(); onConfirm(); };
+  document.getElementById('diag-modal').hidden = false;
 }
 
 async function runDiagnostics() {
@@ -1599,17 +1747,21 @@ async function applyRepair(repairId, destructive, btn) {
 
 function askConfirm(repairId, btn) {
   _diagPendingConfirm = { repair: repairId, btn: btn };
+  var meta = _diagRepairs[repairId] || {};
   document.getElementById('diag-modal-title').textContent = 'Delete and reconfigure?';
   document.getElementById('diag-modal-body').textContent =
-    'This deletes the existing configuration for "' + repairId + '" and rebuilds it to the current '
-    + 'specification. A timestamped backup is kept where possible, but you may need to re-enter '
-    + 'credentials afterwards. This cannot be undone from here.';
-  document.getElementById('diag-modal').hidden = false;
-  document.getElementById('diag-modal-go').onclick = function () {
+    'This runs "' + (meta.label || repairId) + '", which deletes the existing configuration and '
+    + 'rebuilds it to the current specification. A timestamped backup is kept where possible, but '
+    + 'you may need to re-enter credentials afterwards. This cannot be undone from here.';
+  var go = document.getElementById('diag-modal-go');
+  go.textContent = 'Delete & Reconfigure';
+  go.className = 'quick-btn diag-btn-danger';
+  go.onclick = function () {
     var pending = _diagPendingConfirm;
     closeConfirm();
     if (pending) doRepair(pending.repair, true, pending.btn);
   };
+  document.getElementById('diag-modal').hidden = false;
 }
 
 function closeConfirm() {
@@ -1699,6 +1851,10 @@ function toggleSidebar() {
 
 poll();
 setInterval(poll, 5000);
+
+// Repair labels, so the Fix All confirmation can name each action rather than
+// showing raw repair ids.
+loadRepairMeta();
 
 (function() {
   var events = [];

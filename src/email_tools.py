@@ -607,13 +607,27 @@ def _build_raw_message(
     return msg.as_string()
 
 
+def _str_opt(kwargs: dict, key: str, default: str = "") -> str:
+    """Text value for `key`, treating a missing key and an explicit None alike.
+
+    The tool dispatcher forwards every optional argument, so anything the model
+    omitted arrives as an explicit None. `str(kwargs.get(key, ""))` then yields
+    the four-character string "None", which is truthy — that is how a missing
+    account became `--account None` and broke every email call the agent made.
+    """
+    value = kwargs.get(key, default)
+    if value is None:
+        return default
+    return str(value)
+
+
 async def execute(action: str, **kwargs) -> dict:
     action_name = str(action or "").strip().lower()
     if not action_name:
         return {"ok": False, "error": "action is required"}
 
-    account = str(kwargs.get("account", "")).strip() or None
-    folder = str(kwargs.get("folder", "")).strip() or None
+    account = _str_opt(kwargs, "account").strip() or None
+    folder = _str_opt(kwargs, "folder").strip() or None
 
     if action_name == "list_accounts":
         res = await _run_himalaya(["account", "list"], output_format="json")
@@ -653,7 +667,7 @@ async def execute(action: str, **kwargs) -> dict:
         if not ids:
             return {"ok": False, "error": "message_id is required"}
 
-        output_path = str(kwargs.get("output_path", "")).strip()
+        output_path = _str_opt(kwargs, "output_path").strip()
 
         args = ["message", "read"]
         if folder:
@@ -687,7 +701,7 @@ async def execute(action: str, **kwargs) -> dict:
         if not ids:
             return {"ok": False, "error": "message_id is required"}
 
-        output_path = str(kwargs.get("output_path", "")).strip()
+        output_path = _str_opt(kwargs, "output_path").strip()
 
         args = ["message", "thread"]
         if folder:
@@ -719,8 +733,8 @@ async def execute(action: str, **kwargs) -> dict:
         to_values = _normalize_recipients(kwargs.get("to"))
         cc_values = _normalize_recipients(kwargs.get("cc"))
         bcc_values = _normalize_recipients(kwargs.get("bcc"))
-        subject = str(kwargs.get("subject", ""))
-        body = str(kwargs.get("body", ""))
+        subject = _str_opt(kwargs, "subject")
+        body = _str_opt(kwargs, "body")
         headers = _coerce_headers(kwargs.get("headers"))
         attachments, attachment_errors = _normalize_attachment_paths(kwargs.get("attachments"))
 
@@ -755,7 +769,7 @@ async def execute(action: str, **kwargs) -> dict:
         if not ids:
             return {"ok": False, "error": "message_id or message_ids is required"}
 
-        downloads_dir = _resolve_output_dir(str(kwargs.get("download_dir", "")), "attachments")
+        downloads_dir = _resolve_output_dir(_str_opt(kwargs, "download_dir"), "attachments")
 
         args = ["attachment", "download"]
         if folder:
@@ -815,7 +829,7 @@ async def execute(action: str, **kwargs) -> dict:
         if not ids:
             return {"ok": False, "error": "message_id is required"}
 
-        body = str(kwargs.get("body", "")).strip()
+        body = _str_opt(kwargs, "body").strip()
         reply_all = bool(kwargs.get("reply_all", False))
 
         tpl_args = ["template", "reply"]
@@ -853,7 +867,7 @@ async def execute(action: str, **kwargs) -> dict:
         if not ids:
             return {"ok": False, "error": "message_id is required"}
 
-        body = str(kwargs.get("body", "")).strip()
+        body = _str_opt(kwargs, "body").strip()
 
         tpl_args = ["template", "forward"]
         if folder:
@@ -887,7 +901,7 @@ async def execute(action: str, **kwargs) -> dict:
         if not ids:
             return {"ok": False, "error": "message_ids is required"}
 
-        target_folder = str(kwargs.get("target_folder", "")).strip()
+        target_folder = _str_opt(kwargs, "target_folder").strip()
         if not target_folder:
             return {"ok": False, "error": "target_folder is required"}
 
@@ -904,7 +918,7 @@ async def execute(action: str, **kwargs) -> dict:
         if not ids:
             return {"ok": False, "error": "message_ids is required"}
 
-        target_folder = str(kwargs.get("target_folder", "")).strip()
+        target_folder = _str_opt(kwargs, "target_folder").strip()
         if not target_folder:
             return {"ok": False, "error": "target_folder is required"}
 

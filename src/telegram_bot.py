@@ -314,6 +314,22 @@ def needs_onboarding() -> bool:
     return not env.get("TELEGRAM_BOT_TOKEN", "").strip()
 
 
+def _write_env_file(env_vars: dict[str, str]) -> None:
+    """Write .env and lock it down.
+
+    This file holds API keys and the email app password. Written under a normal
+    umask it lands as 0664 — group- and world-readable — which is how a fresh
+    install ended up flagging its own permissions on first run.
+    """
+    with open(ENV_FILE, "w") as f:
+        for k, v in env_vars.items():
+            f.write(f"{k}={v}\n")
+    try:
+        os.chmod(ENV_FILE, 0o600)
+    except OSError:
+        pass
+
+
 def _read_env_file() -> dict[str, str]:
     env_vars = {}
     if os.path.isfile(ENV_FILE):
@@ -1865,9 +1881,7 @@ async def handle_api_onboarding_telegram(request):
     env_vars["TELEGRAM_BOT_TOKEN"] = token
     env_vars["BOT_NAME"] = bot_name
 
-    with open(ENV_FILE, "w") as f:
-        for k, v in env_vars.items():
-            f.write(f"{k}={v}\n")
+    _write_env_file(env_vars)
 
     load_dotenv(dotenv_path=ENV_FILE, override=True)
     BOT_NAME = bot_name
@@ -1995,9 +2009,7 @@ async def handle_api_onboarding_gemini(request):
     env_vars = _read_env_file()
     env_vars["GEMINI_API_KEY"] = api_key
 
-    with open(ENV_FILE, "w") as f:
-        for k, v in env_vars.items():
-            f.write(f"{k}={v}\n")
+    _write_env_file(env_vars)
 
     load_dotenv(dotenv_path=ENV_FILE, override=True)
     return web.json_response({"ok": True})
@@ -2226,9 +2238,7 @@ auth.raw = "{safe_password}"
     env_vars["HIMALAYA_CONFIG"] = config_cli_path
     env_vars["HIMALAYA_DEFAULT_ACCOUNT"] = account_alias
 
-    with open(ENV_FILE, "w") as f:
-        for k, v in env_vars.items():
-            f.write(f"{k}={v}\n")
+    _write_env_file(env_vars)
 
     load_dotenv(dotenv_path=ENV_FILE, override=True)
 
@@ -2353,9 +2363,7 @@ async def handle_api_onboarding_google(request):
     if apps_script_url:
         env_vars["GOOGLE_APPS_SCRIPT_URL"] = apps_script_url
 
-    with open(ENV_FILE, "w") as f:
-        for k, v in env_vars.items():
-            f.write(f"{k}={v}\n")
+    _write_env_file(env_vars)
 
     load_dotenv(dotenv_path=ENV_FILE, override=True)
     return web.json_response({"ok": True})
@@ -2482,9 +2490,7 @@ async def handle_api_keys_post(request):
                 continue
             env_vars[ek] = val
 
-    with open(ENV_FILE, "w") as f:
-        for k, v in env_vars.items():
-            f.write(f"{k}={v}\n")
+    _write_env_file(env_vars)
 
     load_dotenv(dotenv_path=ENV_FILE, override=True)
     AI.reload_clients()
@@ -2897,9 +2903,7 @@ async def handle_api_models_fetch(request):
 
 
 def _write_env_vars(env_vars: dict) -> None:
-    with open(ENV_FILE, "w") as f:
-        for k, v in env_vars.items():
-            f.write(f"{k}={v}\n")
+    _write_env_file(env_vars)
     load_dotenv(dotenv_path=ENV_FILE, override=True)
 
 

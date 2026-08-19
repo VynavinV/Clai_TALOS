@@ -549,7 +549,9 @@ async def check_background_service() -> CheckResult:
             "service.background", "Background service", "service", WARN,
             "TALOS is not installed as a background service, so it stops when this terminal or "
             "SSH session closes.",
-            hint="Run ./start.sh --headless and answer yes to 'Run in background?'.",
+            fix="service.install_background",
+            hint="Installs a service so it survives logout and restarts at boot, and adds the "
+                 "'clai' command.",
         )
 
     if manager == "systemd":
@@ -607,7 +609,9 @@ async def check_background_service() -> CheckResult:
         return CheckResult(
             "service.background", "Background service", "service", WARN,
             "Running as a plain background process — it survives logout but not a reboot.",
-            hint="Install systemd (Linux) for restart-on-boot, then re-run ./start.sh --headless.",
+            fix="service.install_background",
+            hint="Re-runs the service installer, which will use systemd or launchd if either is "
+                 "available on this machine.",
         )
 
     return CheckResult(
@@ -1079,6 +1083,59 @@ async def _repair_install_browser_deps() -> dict:
     }
 
 
+async def _repair_install_background_service() -> dict:
+    """Install the service by delegating to start.sh --install-service.
+
+    The unit file lives in start.sh and nowhere else; duplicating it here would
+    guarantee the two drift apart.
+    """
+    script = os.path.join(os.path.dirname(app_paths.source_root()), "start.sh")
+    if not os.path.isfile(script):
+        return {"ok": False, "message": f"start.sh not found at {script}."}
+
+    code, out = await _run_logged(["bash", script, "--install-service"], timeout=300)
+    if code != 0:
+        tail = "\n".join(out.splitlines()[-6:]) if out else "no output"
+        return {
+            "ok": False,
+            "message": f"Service installation failed:\n{tail}\n"
+                       "If it needs a password, run it from a terminal: ./start.sh --install-service",
+        }
+    return {
+        "ok": True,
+        "message": "Background service installed. TALOS now survives logout and restarts at boot. "
+                   "Use `clai status` from a terminal.",
+    }
+
+
+async def _repair_clear_gemini_key() -> dict:
+    """Destructive: remove a Gemini key the API rejected.
+
+    There is no way to repair an invalid credential automatically. Clearing it
+    at least returns web search to a clean "not configured" state instead of
+    failing on every call, and makes it obvious a new key is needed.
+    """
+    env = _read_env()
+    if not env.get("GEMINI_API_KEY", "").strip():
+        return {"ok": True, "message": "No Gemini API key was set."}
+
+    env["GEMINI_API_KEY"] = ""
+    _write_env(env)
+    os.environ["GEMINI_API_KEY"] = ""
+    try:
+        import websearch
+        websearch.reload_client()
+    except Exception:
+        pass
+
+    return {
+        "ok": True,
+        "needs_setup": "gemini",
+        "message": "Cleared the rejected Gemini API key. Add a working one in Settings to "
+                   "re-enable web search (https://aistudio.google.com/app/apikey).",
+    }
+
+
 async def _repair_enable_service_at_boot() -> dict:
     proc = await asyncio.create_subprocess_exec(
         "sudo", "-n", "systemctl", "enable", _SERVICE_NAME,
@@ -1102,19 +1159,10 @@ async def _repair_enable_service_at_boot() -> dict:
     return {"ok": True, "message": f"{_SERVICE_NAME} will now start automatically at boot."}
 
 
-async def _repair_grant_tailscale_operator() -> dict:
-    """Register this account as Tailscale operator, then set HTTPS up."""
-    import telegram_bot
-
-    granted, message = await asyncio.to_thread(telegram_bot.grant_tailscale_operator)
-    if not granted:
-        return {"ok": False, "message": message}
-
-    enabled, enable_msg = await asyncio.to_thread(telegram_bot.enable_tailscale_https)
-    return {"ok": enabled, "message": f"{message} {enable_msg}"}
-
-
 async def _repair_enable_tailscale_https() -> dict:
+    """Set up HTTPS. Registers this account as Tailscale operator if needed —
+    `enable_tailscale_https` handles the permission denial internally, so there
+    is no separate "grant operator" repair to get out of step with it."""
     import telegram_bot
 
     ok, message = await asyncio.to_thread(telegram_bot.enable_tailscale_https)
@@ -1138,14 +1186,67 @@ async def _repair_reset_tailscale_https() -> dict:
     return {"ok": ok, "message": f"{clear_msg} {message}"}
 
 
+async def _run_logged(cmd: list[str], timeout: int, cwd: str | None = None) -> tuple[int, str]:
+    proc = await asyncio.create_subprocess_exec(
+        *cmd, cwd=cwd,
+        stdin=asyncio.subprocess.DEVNULL,
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+    )
+    try:
+        out_b, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
+        return 124, f"`{' '.join(cmd[:3])}` timed out after {timeout}s"
+    return proc.returncode, (out_b or b"").decode(errors="replace").strip()
+
+
+async def _install_nodejs() -> tuple[bool, str]:
+    """Install Node.js with whatever package manager this machine has."""
+    if shutil.which("node") and shutil.which("npm"):
+        return True, "Node.js already present."
+
+    if shutil.which("apt-get"):
+        code, out = await _run_logged(
+            ["sudo", "-n", "apt-get", "install", "-y", "nodejs", "npm"], timeout=600
+        )
+        if code == 0:
+            return True, "Installed Node.js via apt."
+        # A stale package index is the usual reason a fresh server fails here.
+        await _run_logged(["sudo", "-n", "apt-get", "update"], timeout=300)
+        code, out = await _run_logged(
+            ["sudo", "-n", "apt-get", "install", "-y", "nodejs", "npm"], timeout=600
+        )
+        if code == 0:
+            return True, "Installed Node.js via apt."
+        return False, f"apt could not install Node.js: {out.splitlines()[-1][:180] if out else 'no output'}"
+
+    if shutil.which("dnf"):
+        code, out = await _run_logged(["sudo", "-n", "dnf", "install", "-y", "nodejs"], timeout=600)
+        return (code == 0), ("Installed Node.js via dnf." if code == 0 else f"dnf failed: {out[-180:]}")
+
+    if shutil.which("brew"):
+        code, out = await _run_logged(["brew", "install", "node"], timeout=900)
+        return (code == 0), ("Installed Node.js via Homebrew." if code == 0 else f"brew failed: {out[-180:]}")
+
+    return False, "No supported package manager found. Install Node.js from https://nodejs.org."
+
+
 async def _repair_install_docx_node() -> dict:
     """Word document creation shells out to the `docx` Node package."""
+    notes: list[str] = []
+
+    if not shutil.which("node") or not shutil.which("npm"):
+        installed, message = await _install_nodejs()
+        notes.append(message)
+        if not installed:
+            return {"ok": False, "message": message}
+
     npm = shutil.which("npm")
     if not npm:
         return {
             "ok": False,
-            "message": "npm is not installed, so the `docx` Node module cannot be installed. "
-                       "Install Node.js, then run this repair again.",
+            "message": " ".join(notes) + " npm is still not on PATH — a restart may be needed.",
         }
 
     root = app_paths.source_root()
@@ -1167,7 +1268,8 @@ async def _repair_install_docx_node() -> dict:
         tail = "\n".join((out_b or b"").decode(errors="replace").strip().splitlines()[-6:])
         return {"ok": False, "message": f"`npm install docx` failed:\n{tail}"}
 
-    return {"ok": True, "message": f"Installed the `docx` Node module in {root}."}
+    notes.append(f"Installed the `docx` Node module in {root}.")
+    return {"ok": True, "message": " ".join(notes)}
 
 
 async def _repair_clear_scratch() -> dict:
@@ -1270,8 +1372,9 @@ REPAIRS: dict[str, tuple[Callable[[], Awaitable[dict]], bool, str]] = {
     "deps.install_tts": (_repair_install_tts_deps, False, "Install text-to-speech"),
     "deps.install_browser": (_repair_install_browser_deps, False, "Install browser automation"),
     "deps.install_docx": (_repair_install_docx_node, False, "Install Word document support"),
+    "service.install_background": (_repair_install_background_service, False, "Install background service"),
     "service.enable_boot": (_repair_enable_service_at_boot, False, "Start automatically at boot"),
-    "network.grant_operator": (_repair_grant_tailscale_operator, False, "Allow TALOS to configure Tailscale"),
+    "web.clear_gemini_key": (_repair_clear_gemini_key, True, "Clear rejected Gemini API key"),
     "network.enable_https": (_repair_enable_tailscale_https, False, "Enable HTTPS via Tailscale"),
     "network.reset_https": (_repair_reset_tailscale_https, True, "Reset and re-enable Tailscale HTTPS"),
     "files.reset_scratch": (_repair_clear_scratch, False, "Clear diagnostics scratch files"),

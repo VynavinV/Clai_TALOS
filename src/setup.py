@@ -82,6 +82,13 @@ def write_env(env):
     with open(ENV_FILE, "w") as f:
         for key, val in env.items():
             f.write(f"{key}={val}\n")
+    # This file holds API keys and the email app password, so it must never be
+    # world- or group-readable. Writing it under a default umask left it 664 on
+    # a fresh install, which the system check then flagged on first run.
+    try:
+        os.chmod(ENV_FILE, 0o600)
+    except OSError:
+        pass
 
 
 def _default_chrome_user_data_dir() -> str:
