@@ -22,6 +22,11 @@ UNICODE_BULLETS = ["\u2022", "\u25e6", "\u25aa", "\u25cf", "\u25a0", "\u2023"]
 TEXT_NODE_RE = re.compile(r"(<w:t[^>]*>)(.*?)(</w:t>)", flags=re.DOTALL)
 
 
+def _project_root() -> str:
+    """Directory whose node_modules the Node helpers should resolve against."""
+    return os.path.dirname(os.path.abspath(__file__))
+
+
 def _error(message: str, hint: str = "") -> dict:
     payload = {"ok": False, "error": message}
     if hint:
@@ -253,15 +258,32 @@ main().catch((err) => {
         with open(cfg_path, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=True)
 
+        # The script lives in a temp directory, so Node's normal upward search
+        # for node_modules starts outside the project and never finds `docx` no
+        # matter where it was installed. NODE_PATH is what makes the project's
+        # own install resolvable from there.
+        node_env = os.environ.copy()
+        search_roots = [
+            os.path.join(_project_root(), "node_modules"),
+            os.path.join(os.path.dirname(_project_root()), "node_modules"),
+        ]
+        existing = node_env.get("NODE_PATH", "")
+        if existing:
+            search_roots.append(existing)
+        node_env["NODE_PATH"] = os.pathsep.join(search_roots)
+
         cmd = ["node", js_path, cfg_path, resolved]
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=120,
+            cwd=_project_root(), env=node_env,
+        )
 
         if proc.returncode != 0:
             stderr = (proc.stderr or "").strip()
             if "Cannot find module 'docx'" in stderr:
                 return _error(
                     "Node module 'docx' is missing",
-                    "Install it in the project root: npm install docx",
+                    f"Install it in the project root: cd {_project_root()} && npm install docx",
                 )
             return _error("Failed to create DOCX via JavaScript", hint=stderr or (proc.stdout or "").strip())
 
@@ -607,57 +629,69 @@ def normalize_text(
         shutil.rmtree(extracted_dir, ignore_errors=True)
 
 
+def _opt(kwargs: dict, key: str, default):
+    """Value for `key`, falling back to `default` when it is missing OR None.
+
+    The tool dispatcher forwards every optional argument explicitly, so an
+    argument the model omitted arrives as an explicit None. A plain
+    `kwargs.get(key, default)` therefore never returns the default, and the None
+    reaches code that expects a number.
+    """
+    value = kwargs.get(key, default)
+    return default if value is None else value
+
+
 def execute(action: str, **kwargs) -> dict:
     normalized = str(action or "").strip().lower()
 
     if normalized in {"create_with_docx_js", "create", "create_js"}:
         return create_with_docx_js(
-            path=str(kwargs.get("path", "")).strip(),
-            title=str(kwargs.get("title", "")).strip(),
+            path=str(_opt(kwargs, "path", "")).strip(),
+            title=str(_opt(kwargs, "title", "")).strip(),
             paragraphs=kwargs.get("paragraphs") if isinstance(kwargs.get("paragraphs"), list) else [],
-            page_width_dxa=kwargs.get("page_width_dxa", 12240),
-            page_height_dxa=kwargs.get("page_height_dxa", 15840),
+            page_width_dxa=_opt(kwargs, "page_width_dxa", 12240),
+            page_height_dxa=_opt(kwargs, "page_height_dxa", 15840),
             table_rows=kwargs.get("table_rows") if isinstance(kwargs.get("table_rows"), list) else [],
         )
 
     if normalized in {"edit_xml", "edit"}:
         return edit_xml(
-            path=str(kwargs.get("path", "")).strip(),
-            edits=kwargs.get("edits", []),
-            validate_after=bool(kwargs.get("validate_after", True)),
+            path=str(_opt(kwargs, "path", "")).strip(),
+            edits=_opt(kwargs, "edits", []),
+            validate_after=bool(_opt(kwargs, "validate_after", True)),
         )
 
     if normalized in {"track_replace", "tracked_replace", "track_changes"}:
         return track_replace(
-            path=str(kwargs.get("path", "")).strip(),
-            old_text=str(kwargs.get("old_text", "")),
-            new_text=str(kwargs.get("new_text", "")),
-            author=str(kwargs.get("author", "TALOS")).strip() or "TALOS",
+            path=str(_opt(kwargs, "path", "")).strip(),
+            old_text=str(_opt(kwargs, "old_text", "")),
+            new_text=str(_opt(kwargs, "new_text", "")),
+            author=str(_opt(kwargs, "author", "TALOS")).strip() or "TALOS",
         )
 
     if normalized in {"set_page_size_dxa", "page_size"}:
         return set_page_size_dxa(
-            path=str(kwargs.get("path", "")).strip(),
-            width_dxa=kwargs.get("width_dxa", 12240),
-            height_dxa=kwargs.get("height_dxa", 15840),
+            path=str(_opt(kwargs, "path", "")).strip(),
+            width_dxa=_opt(kwargs, "width_dxa", 12240),
+            height_dxa=_opt(kwargs, "height_dxa", 15840),
         )
 
     if normalized in {"set_table_widths_dxa", "table_widths"}:
         return set_table_widths_dxa(
-            path=str(kwargs.get("path", "")).strip(),
-            width_dxa=kwargs.get("width_dxa", 9600),
+            path=str(_opt(kwargs, "path", "")).strip(),
+            width_dxa=_opt(kwargs, "width_dxa", 9600),
         )
 
     if normalized in {"normalize_text", "normalize"}:
         return normalize_text(
-            path=str(kwargs.get("path", "")).strip(),
-            no_unicode_bullets=bool(kwargs.get("no_unicode_bullets", True)),
-            smart_quotes_entities=bool(kwargs.get("smart_quotes_entities", True)),
+            path=str(_opt(kwargs, "path", "")).strip(),
+            no_unicode_bullets=bool(_opt(kwargs, "no_unicode_bullets", True)),
+            smart_quotes_entities=bool(_opt(kwargs, "smart_quotes_entities", True)),
             xml_paths=kwargs.get("xml_paths") if isinstance(kwargs.get("xml_paths"), list) else None,
         )
 
     if normalized in {"validate_xml", "validate"}:
-        return validate_xml(path=str(kwargs.get("path", "")).strip())
+        return validate_xml(path=str(_opt(kwargs, "path", "")).strip())
 
     return _error(
         f"Unsupported DOCX action: {action}",

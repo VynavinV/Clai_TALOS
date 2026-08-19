@@ -78,12 +78,21 @@ class TerminalExecutor:
         }
     
     def _is_rate_limited(self) -> bool:
+        return self._rate_limit_wait_s() > 0
+
+    def _rate_limit_wait_s(self) -> int:
+        """Seconds until a slot frees up, or 0 if a command may run now.
+
+        Consumes a slot when it returns 0, so this is not a pure predicate —
+        call it once per attempted command.
+        """
         now = time.time()
         self.command_timestamps = [t for t in self.command_timestamps if now - t < 60]
         if len(self.command_timestamps) >= self.max_commands_per_minute:
-            return True
+            oldest = min(self.command_timestamps)
+            return max(1, int(60 - (now - oldest)) + 1)
         self.command_timestamps.append(now)
-        return False
+        return 0
     
     def _is_dangerous(self, command: str) -> bool:
         cmd_lower = command.lower().strip()
@@ -125,10 +134,22 @@ class TerminalExecutor:
         if require_confirmation is None:
             require_confirmation = self.require_confirmation
         
-        if self._is_rate_limited():
-            error_msg = "Rate limit exceeded. Too many commands."
+        wait_s = self._rate_limit_wait_s()
+        if wait_s > 0:
+            # Say how long, and say it is not the command's fault — otherwise the
+            # model reads a bare failure as "wrong command" and keeps rewriting it.
+            error_msg = (
+                f"Rate limit exceeded: at most {self.max_commands_per_minute} commands per minute. "
+                f"Retry in ~{wait_s}s. The command itself was not run and may be fine — "
+                "do not rewrite it, and do not retry immediately."
+            )
             self._log_audit(command, "rate_limited", {"error": error_msg})
-            return {"error": error_msg, "exit_code": -1}
+            return {
+                "error": error_msg,
+                "exit_code": -1,
+                "rate_limited": True,
+                "retry_after_s": wait_s,
+            }
         
         if require_confirmation and self._is_dangerous(command):
             self._log_audit(command, "confirmation_required")

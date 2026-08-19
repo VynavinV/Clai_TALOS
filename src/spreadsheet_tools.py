@@ -499,45 +499,57 @@ def recalculate_with_libreoffice(
         return _error(str(e))
 
 
+def _opt(kwargs: dict, key: str, default: Any) -> Any:
+    """Value for `key`, falling back to `default` when it is missing OR None.
+
+    The tool dispatcher forwards every optional argument explicitly, so an
+    argument the model omitted arrives as an explicit None. A plain
+    `kwargs.get(key, default)` therefore never returns the default, and the None
+    reaches code that expects a number.
+    """
+    value = kwargs.get(key, default)
+    return default if value is None else value
+
+
 def execute(action: str, **kwargs) -> dict:
     normalized = str(action or "").strip().lower()
 
     if normalized in {"read_with_pandas", "read", "preview"}:
         return read_with_pandas(
-            path=str(kwargs.get("path", "")).strip(),
-            sheet_name=(str(kwargs.get("sheet_name", "")).strip() or None),
-            max_rows=kwargs.get("max_rows", 200),
-            max_cols=kwargs.get("max_cols", 40),
+            path=str(_opt(kwargs, "path", "")).strip(),
+            sheet_name=(str(_opt(kwargs, "sheet_name", "")).strip() or None),
+            max_rows=_opt(kwargs, "max_rows", 200),
+            max_cols=_opt(kwargs, "max_cols", 40),
         )
 
     if normalized in {"edit_with_openpyxl", "edit", "update"}:
         return edit_with_openpyxl(
-            path=str(kwargs.get("path", "")).strip(),
-            operations=kwargs.get("operations", []),
-            create_if_missing=bool(kwargs.get("create_if_missing", False)),
+            path=str(_opt(kwargs, "path", "")).strip(),
+            operations=_opt(kwargs, "operations", []),
+            create_if_missing=bool(_opt(kwargs, "create_if_missing", False)),
         )
 
     if normalized in {"recalculate_with_libreoffice", "recalc", "recalculate"}:
         return recalculate_with_libreoffice(
-            path=str(kwargs.get("path", "")).strip(),
-            output_path=(str(kwargs.get("output_path", "")).strip() or None),
-            timeout_s=kwargs.get("timeout_s", 180),
-            script_path=(str(kwargs.get("script_path", "")).strip() or None),
+            path=str(_opt(kwargs, "path", "")).strip(),
+            output_path=(str(_opt(kwargs, "output_path", "")).strip() or None),
+            timeout_s=_opt(kwargs, "timeout_s", 180),
+            script_path=(str(_opt(kwargs, "script_path", "")).strip() or None),
         )
 
     if normalized in {"verify_formula_errors", "verify_errors", "validate"}:
         return verify_formula_errors(
-            path=str(kwargs.get("path", "")).strip(),
-            sheet_name=(str(kwargs.get("sheet_name", "")).strip() or None),
-            max_errors=kwargs.get("max_errors", 500),
+            path=str(_opt(kwargs, "path", "")).strip(),
+            sheet_name=(str(_opt(kwargs, "sheet_name", "")).strip() or None),
+            max_errors=_opt(kwargs, "max_errors", 500),
         )
 
     if normalized in {"apply_financial_color_coding", "apply_colors", "financial_colors"}:
         return apply_financial_color_coding(
-            path=str(kwargs.get("path", "")).strip(),
-            sheet_name=(str(kwargs.get("sheet_name", "")).strip() or None),
+            path=str(_opt(kwargs, "path", "")).strip(),
+            sheet_name=(str(_opt(kwargs, "sheet_name", "")).strip() or None),
             input_ranges=kwargs.get("input_ranges"),
-            header_rows=kwargs.get("header_rows", 1),
+            header_rows=_opt(kwargs, "header_rows", 1),
         )
 
     return _error(

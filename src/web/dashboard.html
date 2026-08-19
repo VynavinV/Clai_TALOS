@@ -550,6 +550,215 @@
     gap: 0.72rem;
   }
 
+  /* ---- Self-repair & test wizard ---- */
+  .diag-panel { margin-top: 1rem; }
+
+  .diag-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.9rem;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 0.9rem;
+  }
+
+  .diag-sub {
+    font-size: 0.78rem;
+    color: var(--text-2);
+    max-width: 46ch;
+    line-height: 1.45;
+  }
+
+  .diag-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+  .diag-btn-primary {
+    border-color: var(--stroke-strong);
+    color: var(--accent);
+  }
+
+  .diag-btn-danger { color: var(--danger); border-color: rgba(255, 111, 139, 0.4); }
+
+  .quick-btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+
+  .diag-summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.9rem;
+    font-size: 0.76rem;
+  }
+
+  .diag-chip {
+    padding: 0.24rem 0.62rem;
+    border-radius: 999px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    font-size: 0.68rem;
+    border: 1px solid var(--stroke-soft);
+  }
+  .diag-chip.ok   { color: var(--ok);     border-color: rgba(66, 223, 173, 0.45); background: rgba(66, 223, 173, 0.1); }
+  .diag-chip.warn { color: var(--warn);   border-color: rgba(255, 185, 105, 0.45); background: rgba(255, 185, 105, 0.1); }
+  .diag-chip.fail { color: var(--danger); border-color: rgba(255, 111, 139, 0.45); background: rgba(255, 111, 139, 0.1); }
+
+  .diag-count { color: var(--text-2); }
+  .diag-count.ok.active   { color: var(--ok); }
+  .diag-count.warn.active { color: var(--warn); }
+  .diag-count.fail.active { color: var(--danger); }
+  .diag-time { color: var(--text-2); margin-left: auto; }
+
+  .diag-empty {
+    font-size: 0.8rem;
+    color: var(--text-2);
+    padding: 1.1rem;
+    text-align: center;
+    border: 1px dashed var(--stroke-soft);
+    border-radius: var(--radius-md);
+    line-height: 1.5;
+  }
+
+  .diag-list { display: flex; flex-direction: column; gap: 0.5rem; }
+
+  .diag-group-title {
+    font-size: 0.66rem;
+    text-transform: uppercase;
+    letter-spacing: 0.11em;
+    color: var(--text-2);
+    margin-top: 0.6rem;
+    padding-bottom: 0.1rem;
+    border-bottom: 1px solid var(--stroke-soft);
+  }
+  .diag-group-title:first-child { margin-top: 0; }
+
+  .diag-item {
+    display: flex;
+    gap: 0.72rem;
+    padding: 0.8rem 0.9rem;
+    background: var(--surface-2);
+    border: 1px solid rgba(143, 217, 255, 0.13);
+    border-left-width: 3px;
+    border-radius: var(--radius-md);
+    align-items: flex-start;
+  }
+  .diag-item.ok   { border-left-color: var(--ok); }
+  .diag-item.warn { border-left-color: var(--warn); }
+  .diag-item.fail { border-left-color: var(--danger); }
+  .diag-item.skip { border-left-color: var(--text-2); opacity: 0.72; }
+  .diag-item.running { border-left-color: var(--accent); }
+
+  .diag-icon { font-size: 0.95rem; line-height: 1.4; flex-shrink: 0; width: 1.1rem; text-align: center; }
+  .diag-item.ok   .diag-icon { color: var(--ok); }
+  .diag-item.warn .diag-icon { color: var(--warn); }
+  .diag-item.fail .diag-icon { color: var(--danger); }
+  .diag-item.skip .diag-icon { color: var(--text-2); }
+
+  .diag-body { flex: 1; min-width: 0; }
+
+  .diag-name {
+    font-size: 0.86rem;
+    font-weight: 600;
+    color: var(--text-0);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  .diag-cat {
+    font-size: 0.62rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-2);
+    border: 1px solid var(--stroke-soft);
+    border-radius: 999px;
+    padding: 0.08rem 0.44rem;
+  }
+
+  .diag-detail {
+    font-size: 0.78rem;
+    color: var(--text-1);
+    margin-top: 0.28rem;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+
+  .diag-hint {
+    font-size: 0.73rem;
+    color: var(--text-2);
+    margin-top: 0.28rem;
+    line-height: 1.45;
+  }
+
+  .diag-fixrow { display: flex; flex-wrap: wrap; gap: 0.42rem; margin-top: 0.55rem; }
+
+  .diag-fix {
+    font-family: inherit;
+    font-size: 0.72rem;
+    padding: 0.34rem 0.7rem;
+    border-radius: 999px;
+    cursor: pointer;
+    background: rgba(86, 206, 255, 0.1);
+    border: 1px solid rgba(86, 206, 255, 0.35);
+    color: var(--accent);
+    transition: background 0.18s ease;
+  }
+  .diag-fix:hover { background: rgba(86, 206, 255, 0.2); }
+  .diag-fix.danger {
+    background: rgba(255, 111, 139, 0.09);
+    border-color: rgba(255, 111, 139, 0.36);
+    color: var(--danger);
+  }
+  .diag-fix.danger:hover { background: rgba(255, 111, 139, 0.19); }
+  .diag-fix[disabled] { opacity: 0.5; cursor: progress; }
+
+  .diag-log {
+    margin-top: 0.9rem;
+    padding: 0.7rem 0.85rem;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--stroke-soft);
+    background: rgba(0, 0, 0, 0.28);
+    font-family: 'SFMono-Regular', Consolas, monospace;
+    font-size: 0.72rem;
+    color: var(--text-1);
+    line-height: 1.6;
+    max-height: 220px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .diag-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(3, 8, 16, 0.72);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 999;
+    padding: 1rem;
+  }
+  .diag-modal[hidden] { display: none; }
+
+  .diag-modal-box {
+    background: linear-gradient(165deg, var(--surface-1), var(--surface-0));
+    border: 1px solid var(--stroke-strong);
+    border-radius: var(--radius-lg);
+    padding: 1.3rem;
+    max-width: 460px;
+    width: 100%;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  }
+  .diag-modal-box h3 { font-size: 0.98rem; margin-bottom: 0.6rem; color: var(--text-0); }
+  .diag-modal-box p { font-size: 0.8rem; color: var(--text-1); line-height: 1.55; }
+  .diag-modal-actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
+    margin-top: 1.1rem;
+  }
+
   .status-card {
     padding: 0.92rem 0.92rem 0.98rem;
     background: linear-gradient(145deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.02));
@@ -959,8 +1168,58 @@
       <h2 class="panel-title">System Check</h2>
       <div class="status-grid" id="status-grid"></div>
     </section>
+
+    <section class="panel diag-panel">
+      <div class="diag-head">
+        <div>
+          <h2 class="panel-title" style="margin-bottom:0.3rem;">Self-Repair &amp; Test</h2>
+          <p class="diag-sub">Tests every tool directly. Does not use the AI model, so it still works
+            when the assistant itself is failing.</p>
+        </div>
+        <div class="diag-actions">
+          <button class="quick-btn diag-btn-primary" id="diag-run" onclick="runDiagnostics()">
+            &#9654; Run All Tests
+          </button>
+          <button class="quick-btn" id="diag-autofix" onclick="autoRepair(false)" disabled>
+            &#128736; Auto-Repair Safe Issues
+          </button>
+          <button class="quick-btn diag-btn-danger" id="diag-deepreset" onclick="deepReset()">
+            &#9888; Deep Reset
+          </button>
+        </div>
+      </div>
+
+      <div class="diag-summary" id="diag-summary" hidden>
+        <span class="diag-chip" id="diag-chip-overall">--</span>
+        <span class="diag-count ok"   id="diag-count-ok">0 passed</span>
+        <span class="diag-count warn" id="diag-count-warn">0 warnings</span>
+        <span class="diag-count fail" id="diag-count-fail">0 failed</span>
+        <span class="diag-count skip" id="diag-count-skip">0 skipped</span>
+        <span class="diag-time" id="diag-time"></span>
+      </div>
+
+      <div class="diag-empty" id="diag-empty">
+        Nothing has been tested yet. Run the tests to check the CLI tools, model providers,
+        email, database and integrations.
+      </div>
+
+      <div class="diag-list" id="diag-list"></div>
+
+      <div class="diag-log" id="diag-log" hidden></div>
+    </section>
   </div>
 </main>
+
+<div class="diag-modal" id="diag-modal" hidden>
+  <div class="diag-modal-box">
+    <h3 id="diag-modal-title">Confirm</h3>
+    <p id="diag-modal-body"></p>
+    <div class="diag-modal-actions">
+      <button class="quick-btn" onclick="closeConfirm()">Cancel</button>
+      <button class="quick-btn diag-btn-danger" id="diag-modal-go">Delete &amp; Reconfigure</button>
+    </div>
+  </div>
+</div>
 
 <script>
 var SERVICES = [
@@ -1135,6 +1394,297 @@ async function hotReload() {
     var _csrfToken = document.querySelector('meta[name="csrf-token"]') ? document.querySelector('meta[name="csrf-token"]').getAttribute('content') : '';
     await fetch('/api/reload', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ csrf_token: _csrfToken }) });
   } catch (e) {}
+}
+
+/* ---------------------------------------------------------------------------
+   Self-Repair & Test wizard.
+   Talks only to /api/diagnostics/*, which runs deterministic probes. No model
+   is involved anywhere in this flow — that is the point: it has to work when
+   the assistant is the broken thing.
+   --------------------------------------------------------------------------- */
+
+var DIAG_ICONS = { ok: '&#10003;', warn: '&#9888;', fail: '&#10005;', skip: '&#8722;' };
+var DIAG_LABELS = { ok: 'Healthy', warn: 'Needs attention', fail: 'Broken' };
+var _diagLastReport = null;
+var _diagPendingConfirm = null;
+
+function csrfToken() {
+  var el = document.querySelector('meta[name="csrf-token"]');
+  return el ? el.getAttribute('content') : '';
+}
+
+function diagEscape(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function diagLog(line) {
+  var box = document.getElementById('diag-log');
+  box.hidden = false;
+  var stamp = new Date().toLocaleTimeString();
+  box.textContent += '[' + stamp + '] ' + line + '\n';
+  box.scrollTop = box.scrollHeight;
+}
+
+function setDiagBusy(busy) {
+  document.getElementById('diag-run').disabled = busy;
+  var auto = document.getElementById('diag-autofix');
+  if (busy) {
+    auto.disabled = true;
+  } else {
+    auto.disabled = !hasRepairableIssue();
+  }
+  document.getElementById('diag-run').innerHTML = busy
+    ? '&#8987; Testing...' : '&#9654; Run All Tests';
+}
+
+function hasRepairableIssue() {
+  if (!_diagLastReport) return false;
+  return _diagLastReport.checks.some(function (c) {
+    return (c.status === 'fail' || c.status === 'warn') && c.fix;
+  });
+}
+
+async function runDiagnostics() {
+  setDiagBusy(true);
+  document.getElementById('diag-empty').hidden = true;
+  document.getElementById('diag-list').innerHTML =
+    '<div class="diag-item running"><span class="diag-icon">&#8987;</span>'
+    + '<div class="diag-body"><div class="diag-name">Running tests</div>'
+    + '<div class="diag-detail">Probing tools, providers and integrations directly. '
+    + 'Live connection tests can take up to a minute.</div></div></div>';
+
+  try {
+    var res = await fetch('/api/diagnostics/run');
+    var data = await res.json();
+    if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+    _diagLastReport = data;
+    renderDiagnostics(data);
+    diagLog('Tests complete: ' + data.counts.ok + ' passed, ' + data.counts.warn
+      + ' warnings, ' + data.counts.fail + ' failed (' + data.duration_s + 's).');
+  } catch (e) {
+    document.getElementById('diag-list').innerHTML =
+      '<div class="diag-item fail"><span class="diag-icon">&#10005;</span>'
+      + '<div class="diag-body"><div class="diag-name">Could not run tests</div>'
+      + '<div class="diag-detail">' + diagEscape(e.message) + '</div></div></div>';
+    diagLog('Test run failed: ' + e.message);
+  } finally {
+    setDiagBusy(false);
+  }
+}
+
+function renderDiagnostics(report) {
+  var summary = document.getElementById('diag-summary');
+  summary.hidden = false;
+
+  var chip = document.getElementById('diag-chip-overall');
+  chip.className = 'diag-chip ' + report.overall;
+  chip.textContent = DIAG_LABELS[report.overall] || report.overall;
+
+  function setCount(id, n, word) {
+    var el = document.getElementById(id);
+    el.textContent = n + ' ' + word;
+    el.classList.toggle('active', n > 0);
+  }
+  setCount('diag-count-ok', report.counts.ok, 'passed');
+  setCount('diag-count-warn', report.counts.warn, 'warnings');
+  setCount('diag-count-fail', report.counts.fail, 'failed');
+  setCount('diag-count-skip', report.counts.skip, 'skipped');
+  document.getElementById('diag-time').textContent = report.duration_s + 's';
+
+  // Anything broken floats to its own group at the top — that is what the user
+  // came here for. Everything else stays grouped by subsystem so the list reads
+  // as a map of the system rather than a flat wall.
+  var CATEGORY_LABELS = {
+    core: 'Core', tools: 'Tools', data: 'Memory & Scheduling',
+    documents: 'Documents', projects: 'Projects', messaging: 'Messaging & Voice',
+    web: 'Web & Browser', email: 'Email', model: 'Model', integrations: 'Integrations'
+  };
+  var statusOrder = { fail: 0, warn: 1, ok: 2, skip: 3 };
+
+  function itemHtml(c) {
+    var buttons = '';
+    if (c.fix) {
+      buttons += '<button class="diag-fix" onclick="applyRepair(\'' + diagEscape(c.fix)
+        + '\', false, this)">&#128736; Repair automatically</button>';
+    }
+    if (c.reset) {
+      buttons += '<button class="diag-fix danger" onclick="applyRepair(\'' + diagEscape(c.reset)
+        + '\', true, this)">&#9888; Delete &amp; reconfigure</button>';
+    }
+    return '<div class="diag-item ' + c.status + '">'
+      + '<span class="diag-icon">' + (DIAG_ICONS[c.status] || '') + '</span>'
+      + '<div class="diag-body">'
+      + '<div class="diag-name">' + diagEscape(c.name)
+      + '<span class="diag-cat">' + diagEscape(CATEGORY_LABELS[c.category] || c.category) + '</span></div>'
+      + '<div class="diag-detail">' + diagEscape(c.detail) + '</div>'
+      + (c.hint ? '<div class="diag-hint">' + diagEscape(c.hint) + '</div>' : '')
+      + (buttons ? '<div class="diag-fixrow">' + buttons + '</div>' : '')
+      + '</div></div>';
+  }
+
+  var broken = report.checks.filter(function (c) { return c.status === 'fail' || c.status === 'warn'; });
+  var healthy = report.checks.filter(function (c) { return c.status === 'ok' || c.status === 'skip'; });
+  var html = '';
+
+  if (broken.length) {
+    broken.sort(function (a, b) { return statusOrder[a.status] - statusOrder[b.status]; });
+    html += '<div class="diag-group-title">Needs attention</div>'
+      + broken.map(itemHtml).join('');
+  }
+
+  var groups = {};
+  healthy.forEach(function (c) { (groups[c.category] = groups[c.category] || []).push(c); });
+  Object.keys(groups).sort().forEach(function (cat) {
+    html += '<div class="diag-group-title">' + diagEscape(CATEGORY_LABELS[cat] || cat) + '</div>'
+      + groups[cat].sort(function (a, b) {
+          return (statusOrder[a.status] - statusOrder[b.status]) || a.name.localeCompare(b.name);
+        }).map(itemHtml).join('');
+  });
+
+  document.getElementById('diag-list').innerHTML = html;
+}
+
+async function deepReset() {
+  var typed = window.prompt(
+    'DEEP RESET\n\n'
+    + 'This returns every repairable subsystem to a clean state:\n'
+    + '  - reinstalls the pinned email CLI\n'
+    + '  - deletes the email account config (you must re-enter your app password)\n'
+    + '  - resets the terminal, custom-tool and project registries\n'
+    + '  - clears diagnostics scratch files\n\n'
+    + 'Your database, chat history and API keys are NOT touched.\n'
+    + 'Backups are kept where possible.\n\n'
+    + 'Type RESET to confirm:'
+  );
+  if (typed !== 'RESET') {
+    diagLog('Deep reset cancelled.');
+    return;
+  }
+
+  setDiagBusy(true);
+  diagLog('Running deep reset...');
+  try {
+    var res = await fetch('/api/diagnostics/repair', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repair: 'system.full_reset', confirm: true, csrf_token: csrfToken() })
+    });
+    var data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.message || data.error || ('HTTP ' + res.status));
+    diagLog('Deep reset: ' + data.message);
+    if (data.needs_setup === 'email'
+        && window.confirm(data.message + '\n\nOpen email setup now?')) {
+      window.location.href = '/onboarding#email';
+      return;
+    }
+    await runDiagnostics();
+  } catch (e) {
+    diagLog('Deep reset failed: ' + e.message);
+    window.alert('Deep reset failed: ' + e.message);
+  } finally {
+    setDiagBusy(false);
+  }
+}
+
+async function applyRepair(repairId, destructive, btn) {
+  if (destructive) {
+    askConfirm(repairId, btn);
+    return;
+  }
+  await doRepair(repairId, false, btn);
+}
+
+function askConfirm(repairId, btn) {
+  _diagPendingConfirm = { repair: repairId, btn: btn };
+  document.getElementById('diag-modal-title').textContent = 'Delete and reconfigure?';
+  document.getElementById('diag-modal-body').textContent =
+    'This deletes the existing configuration for "' + repairId + '" and rebuilds it to the current '
+    + 'specification. A timestamped backup is kept where possible, but you may need to re-enter '
+    + 'credentials afterwards. This cannot be undone from here.';
+  document.getElementById('diag-modal').hidden = false;
+  document.getElementById('diag-modal-go').onclick = function () {
+    var pending = _diagPendingConfirm;
+    closeConfirm();
+    if (pending) doRepair(pending.repair, true, pending.btn);
+  };
+}
+
+function closeConfirm() {
+  document.getElementById('diag-modal').hidden = true;
+  _diagPendingConfirm = null;
+}
+
+async function doRepair(repairId, confirm, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Repairing...'; }
+  diagLog('Applying repair: ' + repairId);
+  try {
+    var res = await fetch('/api/diagnostics/repair', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repair: repairId, confirm: confirm, csrf_token: csrfToken() })
+    });
+    var data = await res.json();
+
+    if (res.status === 409 && data.needs_confirmation) {
+      diagLog('Repair needs confirmation.');
+      askConfirm(repairId, btn);
+      return;
+    }
+    if (!res.ok || !data.ok) throw new Error(data.message || data.error || ('HTTP ' + res.status));
+
+    diagLog('OK: ' + (data.message || 'done'));
+    if (data.needs_setup === 'email') {
+      diagLog('Next step: open Onboarding to re-enter your email credentials.');
+      if (window.confirm(data.message + '\n\nOpen email setup now?')) {
+        window.location.href = '/onboarding#email';
+        return;
+      }
+    } else if (data.needs_setup === 'google') {
+      diagLog('Next step: reconnect Google from Settings.');
+    }
+    await runDiagnostics();
+  } catch (e) {
+    diagLog('Repair failed: ' + e.message);
+    window.alert('Repair failed: ' + e.message);
+  } finally {
+    if (btn) { btn.disabled = false; }
+  }
+}
+
+async function autoRepair(includeDestructive) {
+  setDiagBusy(true);
+  diagLog('Auto-repairing all safe issues...');
+  try {
+    var res = await fetch('/api/diagnostics/autorepair', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirm_destructive: !!includeDestructive, csrf_token: csrfToken() })
+    });
+    var data = await res.json();
+    if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+
+    (data.applied || []).forEach(function (a) {
+      diagLog((a.ok ? 'OK  ' : 'FAIL') + ' ' + a.repair + ': ' + (a.message || ''));
+    });
+    (data.skipped || []).forEach(function (s) {
+      diagLog('SKIP ' + s.repair + ' (' + s.reason + ')');
+    });
+    if (!(data.applied || []).length && !(data.skipped || []).length) {
+      diagLog('Nothing to repair automatically.');
+    }
+
+    _diagLastReport = data.after;
+    renderDiagnostics(data.after);
+    diagLog('Now: ' + data.after.counts.ok + ' passed, ' + data.after.counts.warn
+      + ' warnings, ' + data.after.counts.fail + ' failed.');
+  } catch (e) {
+    diagLog('Auto-repair failed: ' + e.message);
+    window.alert('Auto-repair failed: ' + e.message);
+  } finally {
+    setDiagBusy(false);
+  }
 }
 
 function logout() {

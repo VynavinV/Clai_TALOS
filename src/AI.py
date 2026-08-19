@@ -390,6 +390,31 @@ def _tool_call_signature(tool_name: str, tool_args: dict) -> str:
     return f"{tool_name}:{args_repr}"
 
 
+def _tool_result_is_failure(result_text: str) -> bool:
+    """True when a tool result carries no new information for the model.
+
+    A round in which every call came back like this is a round that made no
+    progress, even though each call "ran". Rate limiting is the case that
+    mattered in practice: the executor refuses, the model reads the refusal as a
+    bad command, rewrites it slightly, and burns every remaining round without
+    the repeat-guard ever matching.
+    """
+    text = str(result_text or "").strip()
+    if not text:
+        return True
+    try:
+        parsed = json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return False
+    if not isinstance(parsed, dict):
+        return False
+    if parsed.get("rate_limited") or parsed.get("blocked") or parsed.get("error"):
+        return True
+    if parsed.get("ok") is False:
+        return True
+    return False
+
+
 class _LoopGuard:
     """Stops a model from burning its rounds repeating itself.
 
@@ -3031,8 +3056,11 @@ async def _run_agent(
                 else:
                     results[item[0]] = item[1]
         
+        round_had_useful_result = False
         for tc in tool_calls:
             result_text = results.get(tc["id"], json.dumps({"error": "execution failed"}))
+            if not _tool_result_is_failure(result_text):
+                round_had_useful_result = True
             messages.append({
                 "role": "tool",
                 "tool_call_id": tc["id"],
@@ -3091,18 +3119,26 @@ async def _run_agent(
         else:
             message_only_rounds = 0
 
-        if guard.note_round(bool(tool_calls) and not allowed_calls):
+        # A round counts as stalled when the guard blocked everything OR when
+        # every call that did run came back an error. The second half is what
+        # catches a jammed backend (rate limiter, broken CLI, dead credential):
+        # previously those rounds read as progress and reset the counter, so the
+        # loop ran to its round cap retrying a call that could not succeed.
+        made_no_progress = bool(tool_calls) and (not allowed_calls or not round_had_useful_result)
+        if guard.note_round(made_no_progress):
             logger.warning(f"{_agent_id} made no progress for {guard.stalled_rounds} rounds; ending tool loop")
             await _t.emit(
                 "blocked", _agent_id, "Loop stopped",
-                "Every tool call was a repeat — stopping and summarizing instead.",
+                "No tool call produced a usable result — stopping and summarizing instead.",
                 _with_activity_meta(),
             )
             messages.append({
                 "role": "user",
                 "content": (
-                    "[SYSTEM] You repeated the same tool calls without making progress, so tool use is "
-                    "now disabled for this turn. Write your final answer to the user as plain text now."
+                    "[SYSTEM] Your tool calls stopped producing usable results — they were either exact "
+                    "repeats or every one returned an error. Tool use is now disabled for this turn. "
+                    "Do not retry. Write your final answer as plain text, and if something is broken, "
+                    "tell the user plainly what failed and quote the error you received."
                 ),
             })
             break

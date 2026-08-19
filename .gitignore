@@ -39,3 +39,9 @@ src/dist/
 
 # misc
 todo.txt
+
+# Node dependency for Word document generation (declared in src/package.json)
+node_modules/
+
+# Scratch space used by the system-check tool probes
+diagnostics_scratch/

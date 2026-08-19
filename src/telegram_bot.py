@@ -34,6 +34,8 @@ import activity_tracker
 import ollama_setup
 import app_paths
 import ota_update
+import email_tools
+import diagnostics
 from auth_policy import MIN_DASHBOARD_PASSWORD_LENGTH, validate_dashboard_password
 
 SCRIPT_DIR = app_paths.resource_root()
@@ -1634,7 +1636,32 @@ async def handle_api_onboarding_gemini(request):
     return web.json_response({"ok": True})
 
 
-async def _download_himalaya() -> str | None:
+async def _himalaya_binary_is_usable(bin_path: str) -> bool:
+    """True only if this binary reports a version email_tools can actually drive.
+
+    A binary that merely runs is not good enough: the 1.3+ CLI rework renamed
+    the flags and subcommands email_tools builds, so an unpinned `latest`
+    install runs fine and fails on every real command.
+    """
+    if not os.path.isfile(bin_path):
+        return False
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            bin_path, "--version",
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout_b, stderr_b = await asyncio.wait_for(proc.communicate(), timeout=10)
+    except Exception:
+        return False
+    if proc.returncode != 0:
+        return False
+    text = (stdout_b or b"").decode(errors="replace") + (stderr_b or b"").decode(errors="replace")
+    return email_tools._version_supported(email_tools._parse_version(text))
+
+
+async def _download_himalaya(force: bool = False) -> str | None:
     import platform as _platform
     import tarfile
     import urllib.request
@@ -1661,24 +1688,25 @@ async def _download_himalaya() -> str | None:
         return None
 
     asset_name = f"himalaya.{arch}-{os_name}.tgz"
-    download_url = f"https://github.com/pimalaya/himalaya/releases/latest/download/{asset_name}"
+    # PINNED. This used to be `releases/latest`, which installed whichever CLI
+    # generation upstream had published that day — email_tools targets 1.2.x and
+    # broke silently the moment 1.3 shipped.
+    version_tag = f"v{email_tools.HIMALAYA_TARGET_VERSION}"
+    download_url = f"https://github.com/pimalaya/himalaya/releases/download/{version_tag}/{asset_name}"
 
     bin_dir = app_paths.bin_dir()
     os.makedirs(bin_dir, exist_ok=True)
     bin_path = os.path.join(bin_dir, "himalaya" if os_name != "windows" else "himalaya.exe")
     tgz_path = bin_path + ".tgz"
 
-    if os.path.isfile(bin_path):
+    if os.path.isfile(bin_path) and not force:
+        if await _himalaya_binary_is_usable(bin_path):
+            return bin_path
+        # Present but the wrong generation — drop it so the pinned build installs
+        # over the top rather than being skipped by the "already there" check.
         try:
-            proc = await asyncio.create_subprocess_exec(
-                bin_path, "--version",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await asyncio.wait_for(proc.communicate(), timeout=10)
-            if proc.returncode == 0:
-                return bin_path
-        except Exception:
+            os.remove(bin_path)
+        except OSError:
             pass
 
     downloaded = False
@@ -1739,7 +1767,11 @@ async def _download_himalaya() -> str | None:
             os.remove(tgz_path)
 
     if os.path.isfile(bin_path):
-        return bin_path
+        # Never hand back a binary of the wrong generation — callers treat a
+        # non-None return as "email can work now".
+        if await _himalaya_binary_is_usable(bin_path):
+            return bin_path
+        return None
 
     return None
 
@@ -1761,13 +1793,21 @@ async def handle_api_onboarding_email(request):
     if not email_addr.endswith("@gmail.com"):
         return web.json_response({"error": "Only Gmail accounts are supported for automatic setup."}, status=400)
 
+    # A himalaya already on PATH is only acceptable if it is the generation
+    # email_tools drives; otherwise fall through to the pinned download.
     himalaya_bin = shutil.which("himalaya")
+    if himalaya_bin and not await _himalaya_binary_is_usable(himalaya_bin):
+        himalaya_bin = None
 
     if not himalaya_bin:
         himalaya_bin = await _download_himalaya()
         if not himalaya_bin:
             return web.json_response({
-                "error": "Failed to download Himalaya. Install manually from github.com/pimalaya/himalaya and set HIMALAYA_BIN in Settings."
+                "error": (
+                    f"Failed to install Himalaya {email_tools.HIMALAYA_TARGET_VERSION}. Install it manually "
+                    f"from github.com/pimalaya/himalaya/releases/tag/v{email_tools.HIMALAYA_TARGET_VERSION} "
+                    "and set HIMALAYA_BIN in Settings."
+                )
             }, status=500)
 
     config_dir = app_paths.himalaya_dir()
@@ -1825,22 +1865,99 @@ auth.raw = "{safe_password}"
 
     load_dotenv(dotenv_path=ENV_FILE, override=True)
 
+    # Verify through email_tools itself, not a hand-rolled subprocess. The old
+    # check ran a bare `account list` with no `--output` flag — the one Himalaya
+    # invocation in the codebase that does not exercise the arguments every real
+    # call builds, so it passed happily while all email was broken.
     try:
-        proc = await asyncio.create_subprocess_exec(
-            himalaya_bin, "--config", config_cli_path, "account", "list",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=app_paths.data_root(),
-        )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
-        if proc.returncode != 0:
+        email_tools.reset_version_cache()
+        verify = await email_tools.execute("list_folders")
+        if not verify.get("ok"):
             return web.json_response({
-                "error": f"Himalaya config verification failed: {(stderr or stdout or b'').decode(errors='replace')[:300]}"
+                "error": f"Email verification failed: {str(verify.get('error') or 'unknown error')[:300]}"
             }, status=500)
     except Exception as e:
-        return web.json_response({"error": f"Himalaya verification error: {e}"}, status=500)
+        return web.json_response({"error": f"Email verification error: {e}"}, status=500)
 
     return web.json_response({"ok": True, "email": email_addr, "config": config_path})
+
+
+# ---------------------------------------------------------------------------
+# System Check — deterministic diagnostics and repair. No model involved.
+# ---------------------------------------------------------------------------
+
+@require_auth
+async def handle_api_diagnostics_run(request):
+    """Run every check. Read-only: changes nothing."""
+    try:
+        report = await asyncio.wait_for(diagnostics.run_all(), timeout=180)
+    except asyncio.TimeoutError:
+        return web.json_response({"error": "Diagnostics timed out after 180s."}, status=504)
+    except Exception as e:
+        logger.exception("Diagnostics run failed")
+        return web.json_response({"error": f"Diagnostics failed: {e}"}, status=500)
+    return web.json_response(report)
+
+
+@require_auth
+async def handle_api_diagnostics_repairs(request):
+    return web.json_response({"ok": True, "repairs": diagnostics.list_repairs()})
+
+
+@require_auth_csrf
+async def handle_api_diagnostics_repair(request):
+    """Apply one repair by id. Destructive repairs require confirm=true."""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid request."}, status=400)
+
+    repair_id = str(body.get("repair", "")).strip()
+    confirm = bool(body.get("confirm", False))
+    if not repair_id:
+        return web.json_response({"error": "repair id is required"}, status=400)
+
+    try:
+        result = await asyncio.wait_for(
+            diagnostics.run_repair(repair_id, confirm_destructive=confirm), timeout=300
+        )
+    except asyncio.TimeoutError:
+        return web.json_response({"error": f"Repair '{repair_id}' timed out."}, status=504)
+    except Exception as e:
+        logger.exception("Repair failed")
+        return web.json_response({"error": f"Repair failed: {e}"}, status=500)
+
+    if result.get("needs_confirmation"):
+        return web.json_response(result, status=409)
+    if not result.get("ok"):
+        return web.json_response(result, status=400)
+
+    load_dotenv(dotenv_path=ENV_FILE, override=True)
+    return web.json_response(result)
+
+
+@require_auth_csrf
+async def handle_api_diagnostics_autorepair(request):
+    """Apply every safe repair for a failing check, then re-run the checks."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    confirm = bool(body.get("confirm_destructive", False))
+
+    try:
+        result = await asyncio.wait_for(
+            diagnostics.run_auto_repair(confirm_destructive=confirm), timeout=600
+        )
+    except asyncio.TimeoutError:
+        return web.json_response({"error": "Auto-repair timed out."}, status=504)
+    except Exception as e:
+        logger.exception("Auto-repair failed")
+        return web.json_response({"error": f"Auto-repair failed: {e}"}, status=500)
+
+    load_dotenv(dotenv_path=ENV_FILE, override=True)
+    return web.json_response(result)
 
 
 @require_auth
@@ -3210,6 +3327,10 @@ async def main():
     web_app.router.add_post("/api/chat", handle_api_chat)
     web_app.router.add_get("/api/activity/history", handle_api_activity_history)
     web_app.router.add_get("/api/activity/stream", handle_api_activity_stream)
+    web_app.router.add_get("/api/diagnostics/run", handle_api_diagnostics_run)
+    web_app.router.add_get("/api/diagnostics/repairs", handle_api_diagnostics_repairs)
+    web_app.router.add_post("/api/diagnostics/repair", handle_api_diagnostics_repair)
+    web_app.router.add_post("/api/diagnostics/autorepair", handle_api_diagnostics_autorepair)
     web_app.router.add_post("/api/reload", handle_api_reload)
     web_app.router.add_post("/api/restart", handle_api_restart)
     web_app.router.add_static("/static", STATIC_DIR)

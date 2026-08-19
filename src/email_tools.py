@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import mimetypes
+import re
 import shutil
 from datetime import datetime, timezone
 from email.message import EmailMessage
@@ -173,9 +174,131 @@ def _extract_downloaded_paths(output_text: str) -> list[str]:
     return out
 
 
+# The Himalaya CLI is not stable across releases. Every argument this module
+# builds below — the `--output` global, `message thread`, `message export`, the
+# whole `template` command tree — targets the 1.2.x generation. The 1.3+ rework
+# renamed or removed all of them (`--output` became `--json`, `write` became
+# `compose`, composition moved out to `mml`), so pointing this at a newer binary
+# fails on every call. The installer pins the version; this is the runtime check
+# that catches a binary swapped out from under us.
+HIMALAYA_TARGET_VERSION = "1.2.0"
+_SUPPORTED_VERSION_RANGE = ((1, 2), (1, 3))  # [min, exclusive max) on (major, minor)
+
+_VERSION_RE = re.compile(r"himalaya\s+v?(\d+)\.(\d+)\.(\d+)", re.IGNORECASE)
+
+# (binary path, mtime) -> probe result, so a swapped binary re-probes.
+_version_cache: dict[tuple[str, float], dict] = {}
+
+
 def _himalaya_bin() -> str:
     configured = os.getenv("HIMALAYA_BIN", "").strip()
     return configured or "himalaya"
+
+
+def _resolve_bin_path(binary: str) -> str:
+    if os.path.isabs(binary):
+        return binary
+    return shutil.which(binary) or binary
+
+
+def _parse_version(text: str) -> tuple[int, int, int] | None:
+    match = _VERSION_RE.search(text or "")
+    if not match:
+        return None
+    return (int(match.group(1)), int(match.group(2)), int(match.group(3)))
+
+
+def _version_supported(version: tuple[int, int, int] | None) -> bool:
+    if version is None:
+        return False
+    low, high = _SUPPORTED_VERSION_RANGE
+    return low <= (version[0], version[1]) < high
+
+
+async def probe_himalaya_version(force: bool = False) -> dict:
+    """Run `himalaya --version` and say whether this module can drive it.
+
+    Returns {ok, version, version_str, supported, error}. Cached per
+    (path, mtime) so a reinstall is picked up without a restart.
+    """
+    binary = _himalaya_bin()
+    resolved = _resolve_bin_path(binary)
+
+    if not os.path.isfile(resolved):
+        return {
+            "ok": False,
+            "version": None,
+            "version_str": "",
+            "supported": False,
+            "error": f"Himalaya CLI not found at '{binary}'. Install it or set HIMALAYA_BIN in Settings.",
+        }
+
+    try:
+        cache_key = (resolved, os.path.getmtime(resolved))
+    except OSError:
+        cache_key = (resolved, 0.0)
+
+    if not force and cache_key in _version_cache:
+        return _version_cache[cache_key]
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            resolved, "--version",
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout_b, stderr_b = await asyncio.wait_for(proc.communicate(), timeout=15)
+    except Exception as exc:
+        return {
+            "ok": False,
+            "version": None,
+            "version_str": "",
+            "supported": False,
+            "error": f"Could not run '{binary} --version': {exc}",
+        }
+
+    text = (stdout_b or b"").decode("utf-8", errors="replace") + (stderr_b or b"").decode("utf-8", errors="replace")
+    version = _parse_version(text)
+    version_str = ".".join(str(p) for p in version) if version else text.strip().splitlines()[0] if text.strip() else ""
+    supported = _version_supported(version)
+
+    result = {
+        "ok": True,
+        "version": list(version) if version else None,
+        "version_str": version_str,
+        "supported": supported,
+        "error": "" if supported else (
+            f"Himalaya {version_str or 'of an unrecognised version'} is installed, but TALOS drives the "
+            f"{HIMALAYA_TARGET_VERSION} command set. Reinstall the pinned version from Dashboard → "
+            f"System Check to restore email."
+        ),
+    }
+    _version_cache[cache_key] = result
+    return result
+
+
+def reset_version_cache() -> None:
+    """Forget probed versions — call after installing or swapping the binary."""
+    _version_cache.clear()
+
+
+def resolve_config_path() -> str:
+    """Absolute path to the Himalaya config TALOS will use, or "" if none."""
+    raw = os.getenv("HIMALAYA_CONFIG", "").strip().strip('"')
+    if not raw:
+        return ""
+
+    expanded = os.path.expanduser(raw)
+    if os.path.isabs(expanded):
+        return expanded if os.path.isfile(expanded) else ""
+
+    # Stored relative to the data root by the onboarding wizard.
+    for base in (_himalaya_run_root(), os.getcwd(), app_paths.source_root()):
+        candidate = os.path.realpath(os.path.join(base, expanded))
+        if os.path.isfile(candidate):
+            return candidate
+    return ""
 
 
 def _himalaya_run_root() -> str:
@@ -275,6 +398,21 @@ def _friendly_error(stderr: str, stdout: str) -> str:
         return "Himalaya CLI is not installed or not on PATH. Install it or set HIMALAYA_BIN in settings."
     if "no such file" in lowered and "config" in lowered:
         return "Himalaya config file was not found. Set HIMALAYA_CONFIG or create a default Himalaya config."
+    # Himalaya fell into its interactive setup wizard, which means it did not
+    # find a usable config. The TTY complaint is the symptom, not the cause.
+    if "cannot prompt" in lowered or "not a tty" in lowered:
+        return (
+            "Himalaya could not find a usable config and tried to open its setup wizard. "
+            "Re-run the email setup in Dashboard → System Check."
+        )
+    # A flag or subcommand this build does not know: almost always a version skew
+    # between the installed CLI and the command set TALOS builds.
+    if "unexpected argument" in lowered or "unrecognized subcommand" in lowered:
+        return (
+            f"The installed Himalaya CLI rejected an argument TALOS sent ({detail.splitlines()[0][:120]}). "
+            f"This means the installed version is not the {HIMALAYA_TARGET_VERSION} command set TALOS targets. "
+            "Reinstall the pinned version from Dashboard → System Check."
+        )
     if "account" in lowered and ("not found" in lowered or "unknown" in lowered):
         return "Himalaya account is not configured. Set HIMALAYA_DEFAULT_ACCOUNT or pass account explicitly."
     if "authentication" in lowered or "auth" in lowered:
@@ -301,6 +439,44 @@ async def _run_himalaya(
             "command": [binary] + list(args),
         }
 
+    # Preflight. Without these two checks a missing config drops Himalaya into
+    # its interactive setup wizard, which then dies on "cannot prompt boolean /
+    # the input device is not a TTY" — an error that says nothing about the
+    # actual problem and sends the agent hunting through the filesystem.
+    if not os.getenv("HIMALAYA_CONFIG", "").strip():
+        return {
+            "ok": False,
+            "error": (
+                "Email is not configured: HIMALAYA_CONFIG is not set. Run the email setup in "
+                "Dashboard → System Check (or Onboarding) before using email."
+            ),
+            "command": [binary] + list(args),
+            "needs_setup": True,
+        }
+
+    if not resolve_config_path():
+        return {
+            "ok": False,
+            "error": (
+                f"Email is not configured: HIMALAYA_CONFIG points to "
+                f"'{os.getenv('HIMALAYA_CONFIG', '').strip()}', which does not exist. "
+                "Re-run the email setup in Dashboard → System Check."
+            ),
+            "command": [binary] + list(args),
+            "needs_setup": True,
+        }
+
+    version_info = await probe_himalaya_version()
+    if not version_info.get("supported"):
+        return {
+            "ok": False,
+            "error": version_info.get("error") or "Unsupported Himalaya CLI version.",
+            "command": [binary] + list(args),
+            "version_mismatch": True,
+            "installed_version": version_info.get("version_str", ""),
+            "expected_version": HIMALAYA_TARGET_VERSION,
+        }
+
     cmd = [binary]
     config_path = os.getenv("HIMALAYA_CONFIG", "").strip()
     if config_path:
@@ -312,7 +488,9 @@ async def _run_himalaya(
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
-            stdin=asyncio.subprocess.PIPE if stdin_text is not None else None,
+            # DEVNULL, never inherited: if Himalaya decides to prompt, it must
+            # fail immediately instead of blocking on a stdin nobody will feed.
+            stdin=asyncio.subprocess.PIPE if stdin_text is not None else asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=_himalaya_env(run_root),
