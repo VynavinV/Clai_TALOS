@@ -39,6 +39,7 @@ import app_paths
 import ota_update
 import email_tools
 import diagnostics
+import claistore
 from auth_policy import MIN_DASHBOARD_PASSWORD_LENGTH, validate_dashboard_password
 
 SCRIPT_DIR = app_paths.resource_root()
@@ -108,12 +109,7 @@ COMMUNITY_HUB_ALLOWED_EXTENSIONS = frozenset({
     ".zip", ".json", ".md", ".txt", ".yaml", ".yml", ".toml", ".py",
 })
 
-# Claistore - GitHub-backed skill marketplace
-CLAISTORE_GITHUB_REPO = os.getenv("CLAISTORE_GITHUB_REPO", "").strip()  # e.g. "owner/repo"
-CLAISTORE_GITHUB_TOKEN = os.getenv("CLAISTORE_GITHUB_TOKEN", "").strip()
-CLAISTORE_GITHUB_BRANCH = os.getenv("CLAISTORE_GITHUB_BRANCH", "main").strip()
-CLAISTORE_SKILLS_DIR = "skills"  # folder in repo where skills are stored
-CLAISTORE_INDEX_FILE = "index.json"  # index file in skills folder
+# Claistore config is now in claistore.py module
 
 COMMUNITY_BUILTIN_GUI_SKILL_ID = "builtin_gui_desktop_operator_skill"
 COMMUNITY_BUILTIN_GUI_SKILL_REL_PATH = os.path.join("community", "universal_gui_desktop_operator_skill.md")
@@ -1648,104 +1644,14 @@ def _write_community_index(items: list[dict]) -> None:
         json.dump(items, f, indent=2)
 
 
-# ===== Claistore GitHub API Functions =====
-
-async def _claistore_github_request(method: str, path: str, data: dict | None = None) -> dict:
-    """Make a request to the GitHub API for Claistore operations."""
-    if not CLAISTORE_GITHUB_REPO or not CLAISTORE_GITHUB_TOKEN:
-        raise RuntimeError("Claistore not configured: set CLAISTORE_GITHUB_REPO and CLAISTORE_GITHUB_TOKEN")
-
-    url = f"https://api.github.com/repos/{CLAISTORE_GITHUB_REPO}/contents/{CLAISTORE_SKILLS_DIR}/{path}"
-    headers = {
-        "Authorization": f"Bearer {CLAISTORE_GITHUB_TOKEN}",
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }
-
-    async with aiohttp.ClientSession() as session:
-        async with session.request(method, url, headers=headers, json=data) as resp:
-            if resp.status >= 400:
-                text = await resp.text()
-                raise RuntimeError(f"GitHub API error {resp.status}: {text}")
-            return await resp.json()
-
-
-async def _claistore_get_file_sha(path: str) -> str | None:
-    """Get the SHA of an existing file, or None if it doesn't exist."""
-    try:
-        result = await _claistore_github_request("GET", path)
-        return result.get("sha")
-    except RuntimeError as e:
-        if "404" in str(e):
-            return None
-        raise
-
-
-async def _claistore_write_file(path: str, content: str, message: str) -> dict:
-    """Create or update a file in the Claistore GitHub repo."""
-    sha = await _claistore_get_file_sha(path)
-    data = {
-        "message": message,
-        "content": base64.b64encode(content.encode("utf-8")).decode("ascii"),
-        "branch": CLAISTORE_GITHUB_BRANCH,
-    }
-    if sha:
-        data["sha"] = sha
-    return await _claistore_github_request("PUT", path, data)
-
-
-async def _claistore_read_file(path: str) -> str | None:
-    """Read a file from the Claistore GitHub repo."""
-    try:
-        result = await _claistore_github_request("GET", path)
-        content_b64 = result.get("content", "")
-        return base64.b64decode(content_b64).decode("utf-8")
-    except RuntimeError as e:
-        if "404" in str(e):
-            return None
-        raise
-
-
-async def _claistore_fetch_index() -> list[dict]:
-    """Fetch the skill index from GitHub."""
-    content = await _claistore_read_file(CLAISTORE_INDEX_FILE)
-    if content is None:
-        return []
-    try:
-        return json.loads(content)
-    except json.JSONDecodeError:
-        logger.exception("Failed to parse Claistore index from GitHub")
-        return []
-
-
-async def _claistore_write_index(items: list[dict]) -> None:
-    """Write the skill index to GitHub."""
-    await _claistore_write_file(
-        CLAISTORE_INDEX_FILE,
-        json.dumps(items, indent=2),
-        "Update Claistore index"
-    )
-
-
-async def _claistore_publish_skill(skill_id: str, skill_data: dict, content: str) -> dict:
-    """Publish a new skill to Claistore (GitHub)."""
-    # Sanitize skill_id for use as filename
-    safe_id = re.sub(r'[^a-zA-Z0-9_-]', '_', skill_id)
-    skill_file = f"{safe_id}.md"
-    meta_file = f"{safe_id}.json"
-
-    # Write skill content file
-    await _claistore_write_file(skill_file, content, f"Add skill: {skill_data.get('name', skill_id)}")
-
-    # Write skill metadata file
-    await _claistore_write_file(meta_file, json.dumps(skill_data, indent=2), f"Add skill metadata: {skill_data.get('name', skill_id)}")
-
-    # Update index
-    index = await _claistore_fetch_index()
-    index.append(skill_data)
-    await _claistore_write_index(index)
-
-    return {"ok": True, "skill_id": skill_id}
+# Claistore functions are now in claistore.py module
+from claistore import (
+    is_configured as claistore_is_configured,
+    fetch_index as claistore_fetch_index,
+    publish_skill as claistore_publish_skill,
+    read_skill_file as claistore_read_skill_file,
+    test_connection as claistore_test_connection,
+)
 
 
 def _community_file_path(stored_name: str) -> str:
@@ -3485,9 +3391,9 @@ async def handle_api_tools_post(request):
 @require_auth
 async def handle_api_community_get(request):
     # Fetch from Claistore (GitHub) if configured, otherwise fall back to local
-    if CLAISTORE_GITHUB_REPO and CLAISTORE_GITHUB_TOKEN:
+    if claistore_is_configured():
         try:
-            claistore_items = await _claistore_fetch_index()
+            claistore_items = await claistore_fetch_index()
             builtin_entries = _community_builtin_public_entries()
             return web.json_response({
                 "ok": True,
@@ -3567,12 +3473,12 @@ async def handle_api_community_upload(request):
     }
 
     # If Claistore is configured, publish to GitHub
-    if CLAISTORE_GITHUB_REPO and CLAISTORE_GITHUB_TOKEN:
+    if claistore_is_configured():
         try:
             # For skills, use the content as markdown/skill file
             # For other types, we'll still store locally but also publish metadata
             skill_content = content.decode("utf-8", errors="ignore") if isinstance(content, bytes) else str(content)
-            await _claistore_publish_skill(item_id, item, skill_content)
+            await claistore_publish_skill(item_id, item, skill_content)
             return web.json_response({
                 "ok": True,
                 "item": _community_public_entry(item),
@@ -3638,24 +3544,9 @@ async def handle_api_claistore_test(request):
         if not repo or not token:
             return web.json_response({"ok": False, "error": "Repository and token are required"}, status=400)
 
-        # Test by fetching the index (or trying to read it)
-        url = f"https://api.github.com/repos/{repo}/contents/{CLAISTORE_SKILLS_DIR}/{CLAISTORE_INDEX_FILE}"
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-        }
-
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers) as resp:
-                if resp.status == 404:
-                    # Index doesn't exist yet - that's OK, we can create it
-                    return web.json_response({"ok": True})
-                if resp.status >= 400:
-                    text = await resp.text()
-                    return web.json_response({"ok": False, "error": f"GitHub API error {resp.status}: {text}"}, status=400)
-
-        return web.json_response({"ok": True})
+        # Test using the claistore module
+        result = await claistore_test_connection()
+        return web.json_response(result)
     except Exception as e:
         logger.exception("Claistore test failed")
         return web.json_response({"ok": False, "error": str(e)}, status=500)
@@ -3680,6 +3571,7 @@ async def handle_api_community_download(request):
             response.headers["Content-Type"] = mime
         return response
 
+    # Try local community index first
     items = _read_community_index()
     found_idx = None
     found_item = None
@@ -3689,30 +3581,47 @@ async def handle_api_community_download(request):
             found_item = item
             break
 
-    if found_item is None or found_idx is None:
-        return web.json_response({"error": "Not found."}, status=404)
+    if found_item is not None and found_idx is not None:
+        try:
+            file_path = _community_file_path(found_item.get("stored_name", ""))
+        except ValueError:
+            return web.json_response({"error": "Not found."}, status=404)
 
-    try:
-        file_path = _community_file_path(found_item.get("stored_name", ""))
-    except ValueError:
-        return web.json_response({"error": "Not found."}, status=404)
+        if not os.path.isfile(file_path):
+            return web.json_response({"error": "File not found."}, status=404)
 
-    if not os.path.isfile(file_path):
-        return web.json_response({"error": "File not found."}, status=404)
+        items[found_idx]["downloads"] = max(0, int(items[found_idx].get("downloads", 0) or 0)) + 1
+        try:
+            _write_community_index(items)
+        except Exception:
+            pass
 
-    items[found_idx]["downloads"] = max(0, int(items[found_idx].get("downloads", 0) or 0)) + 1
-    try:
-        _write_community_index(items)
-    except Exception:
-        pass
+        response = web.FileResponse(file_path)
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Content-Disposition"] = f'attachment; filename="{_sanitize_upload_filename(found_item.get("file_name", "download.bin"))}"'
+        mime = _sanitize_text_field(found_item.get("mime", ""), max_len=120)
+        if mime:
+            response.content_type = mime
+        return response
 
-    response = web.FileResponse(file_path)
-    response.headers["Cache-Control"] = "no-store"
-    response.headers["Content-Disposition"] = f'attachment; filename="{_sanitize_upload_filename(found_item.get("file_name", "download.bin"))}"'
-    mime = _sanitize_text_field(found_item.get("mime", ""), max_len=120)
-    if mime:
-        response.content_type = mime
-    return response
+    # Try Claistore (GitHub) if configured
+    if claistore_is_configured():
+        try:
+            content, metadata = await claistore_read_skill_file(item_id)
+            if content is not None:
+                # Serve the skill content from GitHub
+                response = web.Response(body=content.encode("utf-8"))
+                response.headers["Cache-Control"] = "no-store"
+                file_name = metadata.get("file_name", f"{item_id}.md") if metadata else f"{item_id}.md"
+                response.headers["Content-Disposition"] = f'attachment; filename="{_sanitize_upload_filename(file_name)}"'
+                mime = metadata.get("mime", "text/markdown") if metadata else "text/markdown"
+                response.headers["Content-Type"] = mime
+                return response
+        except Exception as e:
+            logger.exception("Failed to download from Claistore")
+            return web.json_response({"error": f"Claistore download failed: {e}"}, status=500)
+
+    return web.json_response({"error": "Not found."}, status=404)
 
 
 @require_auth_csrf
@@ -3728,6 +3637,7 @@ async def handle_api_community_install(request):
     if builtin is not None:
         item, payload = builtin
     else:
+        # Try local community index first
         items = _read_community_index()
         found_item = None
         for entry in items:
@@ -3735,24 +3645,41 @@ async def handle_api_community_install(request):
                 found_item = entry
                 break
 
-        if found_item is None:
-            return web.json_response({"error": "Not found."}, status=404)
+        if found_item is not None:
+            try:
+                source_path = _community_file_path(found_item.get("stored_name", ""))
+            except ValueError:
+                return web.json_response({"error": "Not found."}, status=404)
 
-        try:
-            source_path = _community_file_path(found_item.get("stored_name", ""))
-        except ValueError:
-            return web.json_response({"error": "Not found."}, status=404)
+            if not os.path.isfile(source_path):
+                return web.json_response({"error": "File not found."}, status=404)
 
-        if not os.path.isfile(source_path):
-            return web.json_response({"error": "File not found."}, status=404)
+            try:
+                with open(source_path, "rb") as f:
+                    payload = f.read()
+            except Exception:
+                return web.json_response({"error": "Failed to read package."}, status=500)
 
-        try:
-            with open(source_path, "rb") as f:
-                payload = f.read()
-        except Exception:
-            return web.json_response({"error": "Failed to read package."}, status=500)
-
-        item = found_item
+            item = found_item
+        else:
+            # Try Claistore (GitHub) if configured
+            if claistore_is_configured():
+                try:
+                    content, metadata = await claistore_read_skill_file(item_id)
+                    if content is not None:
+                        # Get the file name from metadata or default
+                        file_name = metadata.get("file_name", f"{item_id}.md") if metadata else f"{item_id}.md"
+                        payload = content.encode("utf-8")
+                        # Create item from metadata or minimal info
+                        item = metadata if metadata else {
+                            "id": item_id,
+                            "name": item_id,
+                            "file_name": file_name,
+                            "mime": "text/markdown"
+                        }
+                except Exception as e:
+                    logger.exception("Failed to read from Claistore for install")
+                    return web.json_response({"error": f"Claistore read failed: {e}"}, status=500)
 
     if not item or payload is None:
         return web.json_response({"error": "Not found."}, status=404)
