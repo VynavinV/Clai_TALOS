@@ -711,6 +711,51 @@ async def call_anthropic(
     return _build_openai_result(reply_text, tool_calls)
 
 
+# Gemini validates tool parameters against its own OpenAPI subset and rejects
+# anything else outright, so JSON-Schema keywords other providers accept have
+# to be translated or dropped before the call.
+_GEMINI_SCHEMA_KEYS = frozenset({
+    "type", "format", "title", "description", "nullable", "default", "example",
+    "enum", "items", "properties", "required", "propertyOrdering",
+    "additionalProperties", "pattern", "minimum", "maximum",
+    "minItems", "maxItems", "minLength", "maxLength",
+    "minProperties", "maxProperties",
+})
+
+
+def _sanitize_gemini_schema(schema: Any) -> Any:
+    if isinstance(schema, list):
+        return [_sanitize_gemini_schema(item) for item in schema]
+    if not isinstance(schema, dict):
+        return schema
+
+    out: dict[str, Any] = {}
+    for key, value in schema.items():
+        if key in ("oneOf", "anyOf"):
+            # Gemini only knows anyOf; for its purposes here the two are
+            # interchangeable, since both just widen the accepted type.
+            variants = [_sanitize_gemini_schema(v) for v in value if isinstance(v, dict)]
+            if variants:
+                out["anyOf"] = variants
+        elif key == "allOf":
+            # No equivalent exists, so flatten the branches into one schema.
+            for variant in value:
+                if isinstance(variant, dict):
+                    out.update(_sanitize_gemini_schema(variant))
+        elif key == "properties" and isinstance(value, dict):
+            out["properties"] = {k: _sanitize_gemini_schema(v) for k, v in value.items()}
+        elif key == "items":
+            out["items"] = _sanitize_gemini_schema(value)
+        elif key in _GEMINI_SCHEMA_KEYS:
+            out[key] = value
+
+    # A property described only by a union carries no type of its own, which
+    # Gemini also refuses; the anyOf branches already say what is allowed.
+    if "anyOf" in out and "type" in out:
+        out.pop("type")
+    return out
+
+
 async def call_gemini(
     model_id: str,
     messages: list[dict],
@@ -776,13 +821,25 @@ async def call_gemini(
         for tool in tools:
             if tool.get("type") == "function":
                 fn = tool["function"]
-                function_decls.append(
-                    types.FunctionDeclaration(
-                        name=fn["name"],
-                        description=fn.get("description", ""),
-                        parameters=fn.get("parameters", {"type": "object", "properties": {}}),
-                    )
+                parameters = _sanitize_gemini_schema(
+                    fn.get("parameters") or {"type": "object", "properties": {}}
                 )
+                try:
+                    function_decls.append(
+                        types.FunctionDeclaration(
+                            name=fn["name"],
+                            description=fn.get("description", ""),
+                            parameters=parameters,
+                        )
+                    )
+                except Exception:
+                    # One unusable tool schema should not take down the whole
+                    # turn; drop the tool and let the rest through.
+                    logger.warning(
+                        "Skipping tool %r for Gemini: its parameter schema was rejected",
+                        fn.get("name", "?"),
+                        exc_info=True,
+                    )
         if function_decls:
             gemini_tools = [types.Tool(function_declarations=function_decls)]
     
