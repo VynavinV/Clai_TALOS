@@ -3373,6 +3373,16 @@ async def handle_api_tools_get(request):
         if tool_id not in enabled_tools:
             enabled_tools[tool_id] = True
 
+    # Add dynamic tools from registry (including Claistore-installed skills)
+    try:
+        dynamic_tools_list = dynamic_tools.list_tools()
+        for tool in dynamic_tools_list:
+            tool_id = tool.get("name")
+            if tool_id and tool_id not in enabled_tools:
+                enabled_tools[tool_id] = True
+    except Exception:
+        pass
+
     return web.json_response(enabled_tools)
 
 
@@ -3386,6 +3396,27 @@ async def handle_api_tools_post(request):
         json.dump(body, f, indent=2)
 
     return web.json_response({"ok": True})
+
+
+@require_auth
+async def handle_api_tools_dynamic(request):
+    """Return metadata for all dynamic tools (including Claistore-installed skills)."""
+    try:
+        dynamic_tools_list = dynamic_tools.list_tools()
+        result = {}
+        for tool in dynamic_tools_list:
+            name = tool.get("name")
+            if name:
+                result[name] = {
+                    "name": tool.get("name", name),
+                    "desc": tool.get("description", ""),
+                    "category": "dynamic",
+                    "dangerous": tool.get("dangerous", False),
+                }
+        return web.json_response(result)
+    except Exception as e:
+        logger.exception("Failed to list dynamic tools")
+        return web.json_response({"error": str(e)}, status=500)
 
 
 @require_auth
@@ -3850,6 +3881,7 @@ async def main():
     web_app.router.add_post("/api/google/test", handle_api_google_test)
     web_app.router.add_get("/api/tools", handle_api_tools_get)
     web_app.router.add_post("/api/tools", handle_api_tools_post)
+    web_app.router.add_get("/api/tools/dynamic", handle_api_tools_dynamic)
     web_app.router.add_get("/api/community", handle_api_community_get)
     web_app.router.add_post("/api/community/upload", handle_api_community_upload)
     web_app.router.add_post("/api/claistore/test", handle_api_claistore_test)
