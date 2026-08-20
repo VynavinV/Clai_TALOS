@@ -340,6 +340,7 @@ var PROVIDERS = [
   { id: 'gemini', name: 'Gemini', env_key: 'GEMINI_API_KEY', url: 'https://aistudio.google.com/app/apikey', desc: 'Gemini models and optional web search' },
   { id: 'nvidia', name: 'NVIDIA', env_key: 'NVIDIA_API_KEY', url: 'https://build.nvidia.com/', desc: 'NVIDIA hosted AI models' },
   { id: 'cerebras', name: 'Cerebras', env_key: 'CEREBRAS_API_KEY', url: 'https://cloud.cerebras.ai/', desc: 'High-speed Llama inference' },
+  { id: 'groq', name: 'Groq', env_key: 'GROQ_API_KEY', url: 'https://console.groq.com/keys', desc: 'Fast Llama, GPT-OSS and Kimi inference' },
   { id: 'openrouter', name: 'OpenRouter', env_key: 'OPENROUTER_API_KEY', url: 'https://openrouter.ai/keys', desc: 'Access 200+ models through one API' },
   { id: 'ollama', name: 'Ollama', env_key: '', url: 'https://ollama.com', desc: 'Local models, no API key needed' },
 ];
@@ -348,7 +349,7 @@ var _providerModels = {};
 var _providerKeys = {};
 var _activeProvider = '';
 var _fetchTimer = null;
-var _baseUrlValues = { zhipu: '', nvidia: '', cerebras: '', openrouter: '', ollama: '' };
+var _baseUrlValues = { zhipu: '', nvidia: '', cerebras: '', groq: '', openrouter: '', ollama: '' };
 var _otaStatus = null;
 
 function _saveBaseUrls() {
@@ -359,6 +360,8 @@ function _saveBaseUrls() {
   if (el) _baseUrlValues.nvidia = el.value;
   el = document.getElementById('cerebras-base-url');
   if (el) _baseUrlValues.cerebras = el.value;
+  el = document.getElementById('groq-base-url');
+  if (el) _baseUrlValues.groq = el.value;
   el = document.getElementById('openrouter-base-url');
   if (el) _baseUrlValues.openrouter = el.value;
   el = document.getElementById('ollama-base-url');
@@ -505,6 +508,12 @@ function renderProviderPanels() {
       html += '<div class="form-group" style="margin-top:0.5rem;">'
         + '<label>Base URL</label>'
         + '<input type="text" id="cerebras-base-url" placeholder="https://api.cerebras.ai/v1" value="' + (_baseUrlValues.cerebras || '') + '">'
+        + '</div>';
+    }
+    if (p.id === 'groq') {
+      html += '<div class="form-group" style="margin-top:0.5rem;">'
+        + '<label>Base URL</label>'
+        + '<input type="text" id="groq-base-url" placeholder="https://api.groq.com/openai/v1" value="' + (_baseUrlValues.groq || '') + '">'
         + '</div>';
     }
     if (p.id === 'openrouter') {
@@ -977,6 +986,7 @@ async function loadSettings() {
       GEMINI_API_KEY: d.GEMINI_API_KEY || '',
       NVIDIA_API_KEY: d.NVIDIA_API_KEY || '',
       CEREBRAS_API_KEY: d.CEREBRAS_API_KEY || '',
+      GROQ_API_KEY: d.GROQ_API_KEY || '',
       OPENROUTER_API_KEY: d.OPENROUTER_API_KEY || '',
     };
 
@@ -1019,6 +1029,7 @@ async function loadSettings() {
     _baseUrlValues.zhipu = d.CLIENT_BASE_URL || '';
     _baseUrlValues.nvidia = d.NVIDIA_BASE_URL || '';
     _baseUrlValues.cerebras = d.CEREBRAS_BASE_URL || '';
+    _baseUrlValues.groq = d.GROQ_BASE_URL || '';
     _baseUrlValues.openrouter = d.OPENROUTER_BASE_URL || '';
     _baseUrlValues.ollama = d.OLLAMA_BASE_URL || '';
     var cbu = document.getElementById('client-base-url');
@@ -1027,6 +1038,8 @@ async function loadSettings() {
     if (nbu) nbu.value = _baseUrlValues.nvidia;
     var csbu = document.getElementById('cerebras-base-url');
     if (csbu) csbu.value = _baseUrlValues.cerebras;
+    var gbu = document.getElementById('groq-base-url');
+    if (gbu) gbu.value = _baseUrlValues.groq;
     var orbu = document.getElementById('openrouter-base-url');
     if (orbu) orbu.value = _baseUrlValues.openrouter;
     var obu = document.getElementById('ollama-base-url');
@@ -1320,6 +1333,7 @@ async function saveSettings() {
     CLIENT_BASE_URL: (document.getElementById('client-base-url') || {}).value || _baseUrlValues.zhipu || '',
     NVIDIA_BASE_URL: (document.getElementById('nvidia-base-url') || {}).value || _baseUrlValues.nvidia || '',
     CEREBRAS_BASE_URL: (document.getElementById('cerebras-base-url') || {}).value || _baseUrlValues.cerebras || '',
+    GROQ_BASE_URL: (document.getElementById('groq-base-url') || {}).value || _baseUrlValues.groq || '',
     OPENROUTER_BASE_URL: (document.getElementById('openrouter-base-url') || {}).value || _baseUrlValues.openrouter || '',
     OLLAMA_BASE_URL: (document.getElementById('ollama-base-url') || {}).value || _baseUrlValues.ollama || '',
     OLLAMA_MODEL: (document.getElementById('ollama-model-name') || {}).value || _ollamaModel || '',

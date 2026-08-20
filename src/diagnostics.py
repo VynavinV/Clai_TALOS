@@ -386,7 +386,7 @@ async def check_terminal() -> CheckResult:
 async def check_model_providers() -> CheckResult:
     """Key presence and reachability only — this never runs an inference."""
     enabled = []
-    for provider in ("openai", "anthropic", "gemini", "nvidia", "cerebras", "openrouter", "zhipu", "ollama"):
+    for provider in ("openai", "anthropic", "gemini", "nvidia", "cerebras", "groq", "openrouter", "zhipu", "ollama"):
         try:
             if model_router._provider_enabled(provider):
                 enabled.append(provider)

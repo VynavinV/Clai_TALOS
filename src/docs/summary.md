@@ -106,6 +106,7 @@ Windows parity:
   - Zhipu
   - NVIDIA
   - Cerebras
+  - Groq
   - OpenRouter
   - Ollama
 - Includes provider key gating, timeout handling, and some fallback logic.
