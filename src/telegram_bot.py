@@ -18,6 +18,7 @@ import io
 import zipfile
 from datetime import datetime, timezone
 from dotenv import load_dotenv
+import aiohttp
 from aiohttp import web
 from telegram.ext import Application
 from telegram import BotCommand
@@ -106,6 +107,14 @@ COMMUNITY_HUB_MAX_ITEMS = 500
 COMMUNITY_HUB_ALLOWED_EXTENSIONS = frozenset({
     ".zip", ".json", ".md", ".txt", ".yaml", ".yml", ".toml", ".py",
 })
+
+# Claistore - GitHub-backed skill marketplace
+CLAISTORE_GITHUB_REPO = os.getenv("CLAISTORE_GITHUB_REPO", "").strip()  # e.g. "owner/repo"
+CLAISTORE_GITHUB_TOKEN = os.getenv("CLAISTORE_GITHUB_TOKEN", "").strip()
+CLAISTORE_GITHUB_BRANCH = os.getenv("CLAISTORE_GITHUB_BRANCH", "main").strip()
+CLAISTORE_SKILLS_DIR = "skills"  # folder in repo where skills are stored
+CLAISTORE_INDEX_FILE = "index.json"  # index file in skills folder
+
 COMMUNITY_BUILTIN_GUI_SKILL_ID = "builtin_gui_desktop_operator_skill"
 COMMUNITY_BUILTIN_GUI_SKILL_REL_PATH = os.path.join("community", "universal_gui_desktop_operator_skill.md")
 COMMUNITY_BUILTIN_GUI_SKILL_FALLBACK = """# Universal GUI Desktop Access Skill
@@ -1639,6 +1648,106 @@ def _write_community_index(items: list[dict]) -> None:
         json.dump(items, f, indent=2)
 
 
+# ===== Claistore GitHub API Functions =====
+
+async def _claistore_github_request(method: str, path: str, data: dict | None = None) -> dict:
+    """Make a request to the GitHub API for Claistore operations."""
+    if not CLAISTORE_GITHUB_REPO or not CLAISTORE_GITHUB_TOKEN:
+        raise RuntimeError("Claistore not configured: set CLAISTORE_GITHUB_REPO and CLAISTORE_GITHUB_TOKEN")
+
+    url = f"https://api.github.com/repos/{CLAISTORE_GITHUB_REPO}/contents/{CLAISTORE_SKILLS_DIR}/{path}"
+    headers = {
+        "Authorization": f"Bearer {CLAISTORE_GITHUB_TOKEN}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+    async with aiohttp.ClientSession() as session:
+        async with session.request(method, url, headers=headers, json=data) as resp:
+            if resp.status >= 400:
+                text = await resp.text()
+                raise RuntimeError(f"GitHub API error {resp.status}: {text}")
+            return await resp.json()
+
+
+async def _claistore_get_file_sha(path: str) -> str | None:
+    """Get the SHA of an existing file, or None if it doesn't exist."""
+    try:
+        result = await _claistore_github_request("GET", path)
+        return result.get("sha")
+    except RuntimeError as e:
+        if "404" in str(e):
+            return None
+        raise
+
+
+async def _claistore_write_file(path: str, content: str, message: str) -> dict:
+    """Create or update a file in the Claistore GitHub repo."""
+    sha = await _claistore_get_file_sha(path)
+    data = {
+        "message": message,
+        "content": base64.b64encode(content.encode("utf-8")).decode("ascii"),
+        "branch": CLAISTORE_GITHUB_BRANCH,
+    }
+    if sha:
+        data["sha"] = sha
+    return await _claistore_github_request("PUT", path, data)
+
+
+async def _claistore_read_file(path: str) -> str | None:
+    """Read a file from the Claistore GitHub repo."""
+    try:
+        result = await _claistore_github_request("GET", path)
+        content_b64 = result.get("content", "")
+        return base64.b64decode(content_b64).decode("utf-8")
+    except RuntimeError as e:
+        if "404" in str(e):
+            return None
+        raise
+
+
+async def _claistore_fetch_index() -> list[dict]:
+    """Fetch the skill index from GitHub."""
+    content = await _claistore_read_file(CLAISTORE_INDEX_FILE)
+    if content is None:
+        return []
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        logger.exception("Failed to parse Claistore index from GitHub")
+        return []
+
+
+async def _claistore_write_index(items: list[dict]) -> None:
+    """Write the skill index to GitHub."""
+    await _claistore_write_file(
+        CLAISTORE_INDEX_FILE,
+        json.dumps(items, indent=2),
+        "Update Claistore index"
+    )
+
+
+async def _claistore_publish_skill(skill_id: str, skill_data: dict, content: str) -> dict:
+    """Publish a new skill to Claistore (GitHub)."""
+    # Sanitize skill_id for use as filename
+    safe_id = re.sub(r'[^a-zA-Z0-9_-]', '_', skill_id)
+    skill_file = f"{safe_id}.md"
+    meta_file = f"{safe_id}.json"
+
+    # Write skill content file
+    await _claistore_write_file(skill_file, content, f"Add skill: {skill_data.get('name', skill_id)}")
+
+    # Write skill metadata file
+    await _claistore_write_file(meta_file, json.dumps(skill_data, indent=2), f"Add skill metadata: {skill_data.get('name', skill_id)}")
+
+    # Update index
+    index = await _claistore_fetch_index()
+    index.append(skill_data)
+    await _claistore_write_index(index)
+
+    return {"ok": True, "skill_id": skill_id}
+
+
 def _community_file_path(stored_name: str) -> str:
     safe_name = _sanitize_upload_filename(stored_name)
     if not safe_name:
@@ -2660,6 +2769,7 @@ _SECRET_KEYS = frozenset({
     "TELEGRAM_BOT_TOKEN", "ZHIPUAI_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY",
     "ANTHROPIC_API_KEY", "NVIDIA_API_KEY", "CEREBRAS_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY",
     "MISTRAL_API_KEY", "GOOGLE_API_KEY", "GOOGLE_OAUTH_CLIENT_SECRET",
+    "CLAISTORE_GITHUB_TOKEN",
 })
 
 
@@ -2715,6 +2825,9 @@ async def handle_api_settings_get(request):
         "MAX_SUBAGENT_TOOL_ROUNDS": env_vars.get("MAX_SUBAGENT_TOOL_ROUNDS", "5"),
         "MAX_SUBAGENT_TOOL_CALLS_PER_ROUND": env_vars.get("MAX_SUBAGENT_TOOL_CALLS_PER_ROUND", "15"),
         "MAX_CONTEXT_CHARS": env_vars.get("MAX_CONTEXT_CHARS", "120000"),
+        "CLAISTORE_GITHUB_REPO": env_vars.get("CLAISTORE_GITHUB_REPO", ""),
+        "CLAISTORE_GITHUB_TOKEN": env_vars.get("CLAISTORE_GITHUB_TOKEN", ""),
+        "CLAISTORE_GITHUB_BRANCH": env_vars.get("CLAISTORE_GITHUB_BRANCH", "main"),
     }
     # Per-user fallback model from DB
     try:
@@ -2826,6 +2939,7 @@ async def handle_api_settings_post(request):
         "PIPER_VOICE", "CLIENT_BASE_URL", "NVIDIA_BASE_URL", "CEREBRAS_BASE_URL", "GROQ_BASE_URL", "OPENROUTER_BASE_URL", "MISTRAL_BASE_URL", "OLLAMA_BASE_URL", "OLLAMA_MODEL",
         "OLLAMA_NUM_CTX", "OLLAMA_TEMPERATURE", "OLLAMA_MAX_TOKENS", "OLLAMA_KEEP_ALIVE", "OLLAMA_KEEP_WARM", "OLLAMA_TIMEOUT_S",
         "OTA_CHANNEL", "TALOS_LAZY_TOOLS",
+        "CLAISTORE_GITHUB_REPO", "CLAISTORE_GITHUB_TOKEN", "CLAISTORE_GITHUB_BRANCH",
     ]
 
     _is_masked = _is_masked_secret
@@ -3370,11 +3484,26 @@ async def handle_api_tools_post(request):
 
 @require_auth
 async def handle_api_community_get(request):
+    # Fetch from Claistore (GitHub) if configured, otherwise fall back to local
+    if CLAISTORE_GITHUB_REPO and CLAISTORE_GITHUB_TOKEN:
+        try:
+            claistore_items = await _claistore_fetch_index()
+            builtin_entries = _community_builtin_public_entries()
+            return web.json_response({
+                "ok": True,
+                "items": builtin_entries + [_community_public_entry(item) for item in claistore_items],
+                "source": "claistore",
+            })
+        except Exception as e:
+            logger.exception("Failed to fetch from Claistore, falling back to local")
+            # Fall through to local
+
     items = _read_community_index()
     builtin_entries = _community_builtin_public_entries()
     return web.json_response({
         "ok": True,
         "items": builtin_entries + [_community_public_entry(item) for item in items],
+        "source": "local",
     })
 
 
@@ -3421,15 +3550,7 @@ async def handle_api_community_upload(request):
     stamp = now.strftime("%Y%m%d_%H%M%S")
     stored_name = f"{stamp}_{item_id}_{file_name}"
 
-    os.makedirs(COMMUNITY_HUB_PACKAGES_DIR, exist_ok=True)
-    try:
-        saved_path = _community_file_path(stored_name)
-    except ValueError:
-        return web.json_response({"error": "Invalid upload name."}, status=400)
-
-    with open(saved_path, "wb") as f:
-        f.write(content)
-
+    # Build item metadata
     item = {
         "id": item_id,
         "name": _sanitize_text_field(body.get("name", "Untitled Tool"), fallback="Untitled Tool", max_len=120),
@@ -3444,6 +3565,32 @@ async def handle_api_community_upload(request):
         "uploaded_at": now.isoformat(),
         "downloads": 0,
     }
+
+    # If Claistore is configured, publish to GitHub
+    if CLAISTORE_GITHUB_REPO and CLAISTORE_GITHUB_TOKEN:
+        try:
+            # For skills, use the content as markdown/skill file
+            # For other types, we'll still store locally but also publish metadata
+            skill_content = content.decode("utf-8", errors="ignore") if isinstance(content, bytes) else str(content)
+            await _claistore_publish_skill(item_id, item, skill_content)
+            return web.json_response({
+                "ok": True,
+                "item": _community_public_entry(item),
+                "source": "claistore",
+            })
+        except Exception as e:
+            logger.exception("Failed to publish to Claistore, falling back to local")
+            # Fall through to local storage
+
+    # Local storage fallback
+    os.makedirs(COMMUNITY_HUB_PACKAGES_DIR, exist_ok=True)
+    try:
+        saved_path = _community_file_path(stored_name)
+    except ValueError:
+        return web.json_response({"error": "Invalid upload name."}, status=400)
+
+    with open(saved_path, "wb") as f:
+        f.write(content)
 
     items = _read_community_index()
     items.insert(0, item)
@@ -3477,6 +3624,41 @@ async def handle_api_community_upload(request):
     if openclaw_import.get("detected"):
         response_payload["openclaw_import"] = openclaw_import
     return web.json_response(response_payload)
+
+
+@require_auth
+async def handle_api_claistore_test(request):
+    """Test Claistore GitHub configuration."""
+    try:
+        body = request._json_body if isinstance(request._json_body, dict) else {}
+        repo = body.get("repo", "").strip()
+        token = body.get("token", "").strip()
+        branch = body.get("branch", "main").strip()
+
+        if not repo or not token:
+            return web.json_response({"ok": False, "error": "Repository and token are required"}, status=400)
+
+        # Test by fetching the index (or trying to read it)
+        url = f"https://api.github.com/repos/{repo}/contents/{CLAISTORE_SKILLS_DIR}/{CLAISTORE_INDEX_FILE}"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers) as resp:
+                if resp.status == 404:
+                    # Index doesn't exist yet - that's OK, we can create it
+                    return web.json_response({"ok": True})
+                if resp.status >= 400:
+                    text = await resp.text()
+                    return web.json_response({"ok": False, "error": f"GitHub API error {resp.status}: {text}"}, status=400)
+
+        return web.json_response({"ok": True})
+    except Exception as e:
+        logger.exception("Claistore test failed")
+        return web.json_response({"ok": False, "error": str(e)}, status=500)
 
 
 @require_auth
@@ -3743,6 +3925,7 @@ async def main():
     web_app.router.add_post("/api/tools", handle_api_tools_post)
     web_app.router.add_get("/api/community", handle_api_community_get)
     web_app.router.add_post("/api/community/upload", handle_api_community_upload)
+    web_app.router.add_post("/api/claistore/test", handle_api_claistore_test)
     web_app.router.add_get("/api/community/download/{item_id}", handle_api_community_download)
     web_app.router.add_post("/api/community/install/{item_id}", handle_api_community_install)
     web_app.router.add_get("/api/models", handle_api_models)

@@ -306,6 +306,31 @@
   </div>
 
   <div class="section">
+    <div class="section-title">Claistore (Skill Marketplace)</div>
+    <div class="form-hint">Configure GitHub-backed skill marketplace. Skills uploaded in Community tab will be saved to this repo.</div>
+    <div class="form-group">
+      <label>GitHub Repository</label>
+      <input type="text" id="claistore-repo" placeholder="owner/repo (e.g. yourname/claistore-skills)">
+      <div class="form-hint">Public or private repo. Skills stored as markdown + JSON in skills/ folder.</div>
+    </div>
+    <div class="form-group">
+      <label>GitHub Token (PAT)</label>
+      <input type="password" id="claistore-token" placeholder="ghp_xxxxxxxxxxxx" autocomplete="off">
+      <div class="form-hint">Personal Access Token with <code>repo</code> scope. Never shared with clients.</div>
+    </div>
+    <div class="form-group">
+      <label>Branch</label>
+      <input type="text" id="claistore-branch" value="main" placeholder="main">
+      <div class="form-hint">Branch to publish skills to.</div>
+    </div>
+    <div class="google-actions">
+      <button class="btn" id="claistore-test-btn" onclick="testClaistoreConfig()">Test Connection</button>
+      <button class="btn" id="claistore-save-btn" onclick="saveClaistoreConfig()">Save Configuration</button>
+    </div>
+    <div class="status-line" id="claistore-status"></div>
+  </div>
+
+  <div class="section">
     <div class="section-title">Safety Limits (Advanced)</div>
     <div class="form-group"><label>Maximum Helper Rounds</label><input type="text" id="max-tool-rounds" placeholder="5" inputmode="numeric"></div>
     <div class="form-group"><label>Maximum Actions Per Round</label><input type="text" id="max-tool-calls-per-round" placeholder="20" inputmode="numeric"></div>
@@ -1081,6 +1106,10 @@ async function loadSettings() {
     updateStatus('google-api', d.GOOGLE_API_KEY);
     await loadGoogleStatus();
     await checkOtaUpdates(false);
+    // Load Claistore settings
+    document.getElementById('claistore-repo').value = d.CLAISTORE_GITHUB_REPO || '';
+    document.getElementById('claistore-token').value = d.CLAISTORE_GITHUB_TOKEN || '';
+    document.getElementById('claistore-branch').value = d.CLAISTORE_GITHUB_BRANCH || 'main';
     await loadContextUsage();
     startContextUsagePolling();
   } catch (e) {}
@@ -1348,6 +1377,59 @@ async function applyOtaUpdate() {
   applyBtn.disabled = false;
 }
 
+async function testClaistoreConfig() {
+  var repo = document.getElementById('claistore-repo').value.trim();
+  var token = document.getElementById('claistore-token').value.trim();
+  var branch = document.getElementById('claistore-branch').value.trim() || 'main';
+  var statusEl = document.getElementById('claistore-status');
+  var testBtn = document.getElementById('claistore-test-btn');
+
+  if (!repo || !token) {
+    statusEl.textContent = 'Please enter both repository and token.';
+    return;
+  }
+
+  testBtn.disabled = true;
+  statusEl.textContent = 'Testing connection...';
+
+  try {
+    var res = await _post('/api/claistore/test', { repo: repo, token: token, branch: branch });
+    if (res.status === 401) { window.location.href = '/'; return; }
+    var data = await res.json();
+    if (data.ok) {
+      statusEl.textContent = '✓ Connection successful!';
+      statusEl.style.color = '#2ecc71';
+    } else {
+      statusEl.textContent = '✗ ' + (data.error || 'Test failed');
+      statusEl.style.color = '#e74c3c';
+    }
+  } catch (e) {
+    statusEl.textContent = '✗ Connection error';
+    statusEl.style.color = '#e74c3c';
+  }
+
+  testBtn.disabled = false;
+}
+
+async function saveClaistoreConfig() {
+  var statusEl = document.getElementById('claistore-status');
+  var saveBtn = document.getElementById('claistore-save-btn');
+  saveBtn.disabled = true;
+  statusEl.textContent = 'Saving...';
+  statusEl.style.color = '';
+
+  try {
+    await saveSettings();
+    statusEl.textContent = '✓ Configuration saved';
+    statusEl.style.color = '#2ecc71';
+  } catch (e) {
+    statusEl.textContent = '✗ Save failed';
+    statusEl.style.color = '#e74c3c';
+  }
+
+  saveBtn.disabled = false;
+}
+
 async function saveSettings() {
   _saveBaseUrls();
   var mainModel = _currentMainModel;
@@ -1395,6 +1477,9 @@ async function saveSettings() {
     IMAGE_MODEL: getModelValue('image-model'),
     FAST_MODEL: getModelValue('fast-model'),
     FALLBACK_MODEL: getModelValue('fallback-model'),
+    CLAISTORE_GITHUB_REPO: document.getElementById('claistore-repo').value.trim(),
+    CLAISTORE_GITHUB_TOKEN: document.getElementById('claistore-token').value.trim(),
+    CLAISTORE_GITHUB_BRANCH: document.getElementById('claistore-branch').value.trim() || 'main',
     MAX_TOOL_ROUNDS: document.getElementById('max-tool-rounds').value.trim(),
     MAX_TOOL_CALLS_PER_ROUND: document.getElementById('max-tool-calls-per-round').value.trim(),
     MAX_COMMAND_TIMEOUT: document.getElementById('max-command-timeout').value.trim(),
