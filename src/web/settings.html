@@ -122,6 +122,7 @@
   .model-override-btn:hover { color: #63b3ed; border-color: rgba(99,179,237,0.3); background: rgba(99,179,237,0.06); }
   .model-override-btn.active { color: #63b3ed; border-color: rgba(99,179,237,0.4); background: rgba(99,179,237,0.1); }
   .model-override-input { display: none; flex: 1; padding: 0.6rem 0.85rem; background: rgba(255,255,255,0.04); border: 1px solid rgba(99,179,237,0.3); border-radius: 8px; color: #e0e0e0; font-size: 0.85rem; font-family: monospace; outline: none; }
+  .model-override-input.active { display: block; }
   .model-override-input:focus { border-color: rgba(99,179,237,0.5); }
   .model-override-input::placeholder { color: #444; }
   .vision-section { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid rgba(255,255,255,0.06); }
@@ -352,6 +353,7 @@ var PROVIDERS = [
   { id: 'cerebras', name: 'Cerebras', env_key: 'CEREBRAS_API_KEY', url: 'https://cloud.cerebras.ai/', desc: 'High-speed Llama inference' },
   { id: 'groq', name: 'Groq', env_key: 'GROQ_API_KEY', url: 'https://console.groq.com/keys', desc: 'Fast Llama, GPT-OSS and Kimi inference' },
   { id: 'openrouter', name: 'OpenRouter', env_key: 'OPENROUTER_API_KEY', url: 'https://openrouter.ai/keys', desc: 'Access 200+ models through one API' },
+  { id: 'mistral', name: 'Mistral', env_key: 'MISTRAL_API_KEY', url: 'https://console.mistral.ai/api-keys', desc: 'Mistral, Ministral, Codestral and Pixtral models' },
   { id: 'ollama', name: 'Ollama', env_key: '', url: 'https://ollama.com', desc: 'Local models, no API key needed' },
 ];
 
@@ -359,7 +361,7 @@ var _providerModels = {};
 var _providerKeys = {};
 var _activeProvider = '';
 var _fetchTimer = null;
-var _baseUrlValues = { zhipu: '', nvidia: '', cerebras: '', groq: '', openrouter: '', ollama: '' };
+var _baseUrlValues = { zhipu: '', nvidia: '', cerebras: '', groq: '', openrouter: '', mistral: '', ollama: '' };
 var _otaStatus = null;
 
 function _saveBaseUrls() {
@@ -374,6 +376,8 @@ function _saveBaseUrls() {
   if (el) _baseUrlValues.groq = el.value;
   el = document.getElementById('openrouter-base-url');
   if (el) _baseUrlValues.openrouter = el.value;
+  el = document.getElementById('mistral-base-url');
+  if (el) _baseUrlValues.mistral = el.value;
   el = document.getElementById('ollama-base-url');
   if (el) _baseUrlValues.ollama = el.value;
 
@@ -530,6 +534,12 @@ function renderProviderPanels() {
       html += '<div class="form-group" style="margin-top:0.5rem;">'
         + '<label>Base URL</label>'
         + '<input type="text" id="openrouter-base-url" placeholder="https://openrouter.ai/api/v1" value="' + (_baseUrlValues.openrouter || '') + '">'
+        + '</div>';
+    }
+    if (p.id === 'mistral') {
+      html += '<div class="form-group" style="margin-top:0.5rem;">'
+        + '<label>Base URL</label>'
+        + '<input type="text" id="mistral-base-url" placeholder="https://api.mistral.ai/v1" value="' + (_baseUrlValues.mistral || '') + '">'
         + '</div>';
     }
     html += '</div>';
@@ -892,11 +902,22 @@ async function fetchModelsForProvider(providerId, apiKey) {
   sel.innerHTML = models.map(function(m) { return '<option value="' + m + '"' + (m === prevVal ? ' selected' : '') + '>' + m + '</option>'; }).join('');
 }
 
+// Only the per-provider main-model pickers ("model-<provider>") own
+// _currentMainModel; the photo and quick-reply pickers must not touch it.
+function _overrideProviderId(selectId) {
+  if (selectId.indexOf('model-') !== 0) return null;
+  return selectId.slice('model-'.length);
+}
+
+function _isOverrideOn(wrap) {
+  var inp = wrap.querySelector('.model-override-input');
+  return !!inp && inp.classList.contains('active');
+}
+
 function onModelChange(providerId) {
   var sel = document.getElementById('model-' + providerId);
   var wrap = sel.closest('.model-select-wrap');
-  var inp = wrap.querySelector('.model-override-input');
-  if (inp && inp.style.display !== 'none' && inp.style.display !== '') return;
+  if (_isOverrideOn(wrap)) return;
   _currentMainModel = providerId + '/' + sel.value;
 }
 
@@ -905,50 +926,45 @@ function toggleModelOverride(selectId) {
   var wrap = sel.closest('.model-select-wrap');
   var btn = wrap.querySelector('.model-override-btn');
   var inp = wrap.querySelector('.model-override-input');
+  var providerId = _overrideProviderId(selectId);
   if (!inp) {
     inp = document.createElement('input');
     inp.type = 'text';
     inp.className = 'model-override-input';
     inp.placeholder = 'Type model name manually';
+    inp.autocomplete = 'off';
+    inp.spellcheck = false;
     inp.value = sel.value;
     inp.addEventListener('input', function() {
-      var baseId = selectId.replace(/^model-/, '');
-      if (baseId === selectId) baseId = null;
-      if (baseId && baseId !== 'image' && baseId !== 'fast') {
-        _currentMainModel = baseId + '/' + inp.value;
-      }
+      if (providerId) _currentMainModel = providerId + '/' + inp.value.trim();
     });
     wrap.insertBefore(inp, btn);
   }
-  var isOverride = inp.style.display !== 'none' && inp.style.display !== '';
-  if (isOverride) {
-    inp.style.display = 'none';
+
+  if (_isOverrideOn(wrap)) {
+    inp.classList.remove('active');
     sel.style.display = '';
     btn.classList.remove('active');
     btn.innerHTML = '&#9998;';
-    var baseId = selectId.replace(/^model-/, '');
-    if (baseId && baseId !== 'image' && baseId !== 'fast') {
-      _currentMainModel = baseId + '/' + sel.value;
-    }
+    btn.title = 'Type model name manually';
+    if (providerId) _currentMainModel = providerId + '/' + sel.value;
   } else {
     inp.value = sel.value;
-    inp.style.display = '';
+    inp.classList.add('active');
     sel.style.display = 'none';
     btn.classList.add('active');
     btn.innerHTML = '&#10005;';
-    var baseId2 = selectId.replace(/^model-/, '');
-    if (baseId2 && baseId2 !== 'image' && baseId2 !== 'fast') {
-      _currentMainModel = baseId2 + '/' + inp.value;
-    }
+    btn.title = 'Back to the model list';
+    inp.focus();
+    if (providerId) _currentMainModel = providerId + '/' + inp.value.trim();
   }
 }
 
 function getModelValue(selectId) {
   var sel = document.getElementById(selectId);
   var wrap = sel.closest('.model-select-wrap');
-  var inp = wrap.querySelector('.model-override-input');
-  if (inp && inp.style.display !== 'none' && inp.style.display !== '') {
-    return inp.value.trim();
+  if (_isOverrideOn(wrap)) {
+    return wrap.querySelector('.model-override-input').value.trim();
   }
   return sel.value;
 }
@@ -998,6 +1014,7 @@ async function loadSettings() {
       CEREBRAS_API_KEY: d.CEREBRAS_API_KEY || '',
       GROQ_API_KEY: d.GROQ_API_KEY || '',
       OPENROUTER_API_KEY: d.OPENROUTER_API_KEY || '',
+      MISTRAL_API_KEY: d.MISTRAL_API_KEY || '',
     };
 
     _currentMainModel = d.MAIN_MODEL || '';
@@ -1041,6 +1058,7 @@ async function loadSettings() {
     _baseUrlValues.cerebras = d.CEREBRAS_BASE_URL || '';
     _baseUrlValues.groq = d.GROQ_BASE_URL || '';
     _baseUrlValues.openrouter = d.OPENROUTER_BASE_URL || '';
+    _baseUrlValues.mistral = d.MISTRAL_BASE_URL || '';
     _baseUrlValues.ollama = d.OLLAMA_BASE_URL || '';
     var cbu = document.getElementById('client-base-url');
     if (cbu) cbu.value = _baseUrlValues.zhipu;
@@ -1052,6 +1070,8 @@ async function loadSettings() {
     if (gbu) gbu.value = _baseUrlValues.groq;
     var orbu = document.getElementById('openrouter-base-url');
     if (orbu) orbu.value = _baseUrlValues.openrouter;
+    var mbu = document.getElementById('mistral-base-url');
+    if (mbu) mbu.value = _baseUrlValues.mistral;
     var obu = document.getElementById('ollama-base-url');
     if (obu) obu.value = _baseUrlValues.ollama;
 
@@ -1356,6 +1376,7 @@ async function saveSettings() {
     CEREBRAS_BASE_URL: (document.getElementById('cerebras-base-url') || {}).value || _baseUrlValues.cerebras || '',
     GROQ_BASE_URL: (document.getElementById('groq-base-url') || {}).value || _baseUrlValues.groq || '',
     OPENROUTER_BASE_URL: (document.getElementById('openrouter-base-url') || {}).value || _baseUrlValues.openrouter || '',
+    MISTRAL_BASE_URL: (document.getElementById('mistral-base-url') || {}).value || _baseUrlValues.mistral || '',
     OLLAMA_BASE_URL: (document.getElementById('ollama-base-url') || {}).value || _baseUrlValues.ollama || '',
     OLLAMA_MODEL: (document.getElementById('ollama-model-name') || {}).value || _ollamaModel || '',
     OLLAMA_NUM_CTX: (document.getElementById('ollama-num-ctx') || {}).value || _ollamaAdvanced.OLLAMA_NUM_CTX || '',
