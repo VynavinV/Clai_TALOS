@@ -510,6 +510,10 @@ def check_for_updates(channel: str | None = None) -> dict:
 		})
 		return base
 
+	# For source-git mode, check git remote for updates
+	if mode == "source-git":
+		return _check_git_updates(base, selected_channel)
+
 	release = _release_payload(selected_channel)
 	if not release.get("ok"):
 		base.update(
@@ -542,6 +546,79 @@ def check_for_updates(channel: str | None = None) -> dict:
 		}
 	)
 	return base
+
+
+def _check_git_updates(base: dict, channel: str) -> dict:
+	"""Check for git updates in source-git mode."""
+	repo_root = _repo_root()
+	git_bin = shutil.which("git")
+	if not git_bin or not _has_git_checkout(repo_root):
+		base.update({
+			"ok": False,
+			"error": "Git checkout not found; cannot check for updates in source-git mode.",
+		})
+		return base
+
+	try:
+		# Fetch latest from remote
+		fetch = _run([git_bin, "-C", repo_root, "fetch", "--quiet"], timeout=60)
+		if fetch.returncode != 0:
+			base.update({
+				"ok": False,
+				"error": f"git fetch failed: {fetch.stderr}",
+			})
+			return base
+
+		# Get current and remote HEAD
+		head = _run([git_bin, "-C", repo_root, "rev-parse", "HEAD"], timeout=30)
+		remote_head = _run([git_bin, "-C", repo_root, "rev-parse", "@{u}"], timeout=30)
+
+		if head.returncode != 0 or remote_head.returncode != 0:
+			base.update({
+				"ok": False,
+				"error": "Could not determine git HEAD positions.",
+			})
+			return base
+
+		local_commit = head.stdout.strip()
+		remote_commit = remote_head.stdout.strip()
+
+		# Get commit info for remote
+		remote_info = _run([git_bin, "-C", repo_root, "log", "-1", "--format=%H|%s|%an|%ad", remote_commit], timeout=30)
+		remote_details = remote_info.stdout.strip() if remote_info.returncode == 0 else ""
+
+		# Check if behind
+		behind = _run([git_bin, "-C", repo_root, "rev-list", "--count", f"{local_commit}..{remote_commit}"], timeout=30)
+		behind_count = int(behind.stdout.strip()) if behind.returncode == 0 and behind.stdout.strip().isdigit() else 0
+
+		available = behind_count > 0
+		latest_version = remote_commit[:8]
+
+		release_notes = ""
+		if available and remote_details:
+			parts = remote_details.split("|", 3)
+			if len(parts) >= 4:
+				release_notes = f"Commit: {parts[0][:8]}\nMessage: {parts[1]}\nAuthor: {parts[2]}\nDate: {parts[3]}"
+
+		base.update({
+			"repo": _git_remote_repo(repo_root) or "",
+			"latest_version": latest_version,
+			"release_name": f"Git commit {latest_version}",
+			"release_is_prerelease": channel == "prerelease",
+			"release_published_at": parts[3] if available and remote_details and len(parts) >= 4 else "",
+			"release_notes": release_notes or "New commits available from remote.",
+			"update_available": available,
+			"can_apply": available and base.get("can_apply", False),
+			"apply_message": base.get("apply_message", ""),
+			"message": f"{behind_count} new commit(s) available." if available else "Already up to date with remote.",
+		})
+		return base
+	except Exception as exc:
+		base.update({
+			"ok": False,
+			"error": f"Git update check failed: {exc}",
+		})
+		return base
 
 
 def _pick_windows_asset(assets: list[dict]) -> dict | None:

@@ -1227,15 +1227,18 @@ function renderOtaStatus(data) {
     return;
   }
 
+  var isGitMode = (data.install_mode || '') === 'source-git';
+
   currentEl.textContent = 'Current version: ' + (data.current_version || 'unknown');
-  latestEl.textContent = 'Latest release: ' + (data.latest_version || 'not found');
+  latestEl.textContent = (isGitMode ? 'Latest commit: ' : 'Latest release: ') + (data.latest_version || (isGitMode ? 'not found' : 'not found'));
   channelEl.textContent = 'Channel: ' + (data.channel || 'stable');
-  notesEl.value = String(data.release_notes || '').trim() || 'No release notes were provided for this release.';
+  notesEl.value = String(data.release_notes || '').trim() || (isGitMode ? 'No commit details available.' : 'No release notes were provided for this release.');
 
   var meta = [];
   if (data.release_published_at) meta.push('Published: ' + data.release_published_at);
-  if (data.release_url) meta.push('URL: ' + data.release_url);
+  if (data.repo) meta.push('Repo: ' + data.repo);
   if (data.release_is_prerelease) meta.push('Type: prerelease');
+  if (isGitMode && data.release_url) meta.push('URL: ' + data.release_url);
   metaEl.textContent = meta.length ? meta.join(' | ') : 'No release metadata loaded yet.';
 
   if (data.enabled === false) {
@@ -1296,8 +1299,11 @@ async function applyOtaUpdate() {
   }
 
   var warning = 'Apply the latest update now?';
-  if ((_otaStatus.install_mode || '') === 'frozen-windows') {
+  var installMode = (_otaStatus.install_mode || '');
+  if (installMode === 'frozen-windows') {
     warning = 'Apply and restart now? TALOS will close briefly while updating files.';
+  } else if (installMode === 'source-git') {
+    warning = 'Apply update now? This will git pull, install dependencies, and restart.';
   }
   if (!confirm(warning)) return;
 
