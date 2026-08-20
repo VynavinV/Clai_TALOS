@@ -74,6 +74,17 @@ _PROVIDERS = {
         "patterns": ["cerebras", "llama"],
         "env_key": "CEREBRAS_API_KEY",
     },
+    "groq": {
+        "models": {
+            "llama33": "llama-3.3-70b-versatile",
+            "llama31instant": "llama-3.1-8b-instant",
+            "gptoss120b": "openai/gpt-oss-120b",
+            "gptoss20b": "openai/gpt-oss-20b",
+            "kimik2": "moonshotai/kimi-k2-instruct",
+        },
+        "patterns": ["groq"],
+        "env_key": "GROQ_API_KEY",
+    },
     "openrouter": {
         "models": {
             "claude4sonnet": "anthropic/claude-sonnet-4-20250514",
@@ -101,6 +112,7 @@ _gemini_client = None
 _zhipu_client = None
 _nvidia_client = None
 _cerebras_client = None
+_groq_client = None
 _openrouter_client = None
 _ollama_client = None
 
@@ -150,6 +162,7 @@ def _nvidia_endpoint(path: str) -> str:
 
 _NVIDIA_BASE_URL = _normalize_nvidia_base_url(os.getenv("NVIDIA_BASE_URL", _NVIDIA_DEFAULT_BASE_URL))
 _CEREBRAS_BASE_URL = os.getenv("CEREBRAS_BASE_URL", "https://api.cerebras.ai/v1")
+_GROQ_BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
 _OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 _OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
 
@@ -189,9 +202,13 @@ def resolve_model(model: str) -> tuple[str, str]:
     if model_lower.startswith("z-ai/"):
         return "nvidia", _normalize_nvidia_model_id(model_lower)
 
+    # Exact aliases win over patterns: a broad pattern like Cerebras' "llama"
+    # would otherwise swallow another provider's exact alias.
     for provider_name, provider_cfg in _PROVIDERS.items():
         if model_lower in provider_cfg["models"]:
             return provider_name, provider_cfg["models"][model_lower]
+
+    for provider_name, provider_cfg in _PROVIDERS.items():
         for pattern in provider_cfg["patterns"]:
             if pattern in model_lower:
                 return provider_name, model
@@ -206,20 +223,22 @@ def get_all_model_aliases() -> dict[str, str]:
 
 
 def reload_clients():
-    global _openai_client, _anthropic_client, _gemini_client, _zhipu_client, _nvidia_client, _cerebras_client, _openrouter_client, _ollama_client
-    global _CLIENT_BASE_URL, _NVIDIA_BASE_URL, _CEREBRAS_BASE_URL, _OPENROUTER_BASE_URL, _OLLAMA_BASE_URL
+    global _openai_client, _anthropic_client, _gemini_client, _zhipu_client, _nvidia_client, _cerebras_client, _groq_client, _openrouter_client, _ollama_client
+    global _CLIENT_BASE_URL, _NVIDIA_BASE_URL, _CEREBRAS_BASE_URL, _GROQ_BASE_URL, _OPENROUTER_BASE_URL, _OLLAMA_BASE_URL
     _openai_client = None
     _anthropic_client = None
     _gemini_client = None
     _zhipu_client = None
     _nvidia_client = None
     _cerebras_client = None
+    _groq_client = None
     _openrouter_client = None
     _ollama_client = None
     load_dotenv(dotenv_path=app_paths.env_file_path(), override=True)
     _CLIENT_BASE_URL = os.getenv("CLIENT_BASE_URL", "https://api.z.ai/api/coding/paas/v4")
     _NVIDIA_BASE_URL = _normalize_nvidia_base_url(os.getenv("NVIDIA_BASE_URL", _NVIDIA_DEFAULT_BASE_URL))
     _CEREBRAS_BASE_URL = os.getenv("CEREBRAS_BASE_URL", "https://api.cerebras.ai/v1")
+    _GROQ_BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
     _OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
     _OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
 
@@ -302,6 +321,17 @@ def _get_cerebras_client():
             raise RuntimeError("CEREBRAS_API_KEY not set")
         _cerebras_client = AsyncOpenAI(api_key=api_key, base_url=_CEREBRAS_BASE_URL)
     return _cerebras_client
+
+
+def _get_groq_client():
+    global _groq_client
+    if _groq_client is None:
+        from openai import AsyncOpenAI
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            raise RuntimeError("GROQ_API_KEY not set")
+        _groq_client = AsyncOpenAI(api_key=api_key, base_url=_GROQ_BASE_URL)
+    return _groq_client
 
 
 def _get_openrouter_client():
@@ -862,6 +892,24 @@ async def call_cerebras(
     return await _openai_chat(client, kwargs)
 
 
+async def call_groq(
+    model_id: str,
+    messages: list[dict],
+    tools: list[dict] | None,
+    runtime_profile: dict[str, Any] | None = None,
+) -> dict:
+    client = _get_groq_client()
+    kwargs: dict[str, Any] = {
+        "model": model_id,
+        "messages": messages,
+    }
+    if tools:
+        kwargs["tools"] = _tools_to_openai(tools)
+        kwargs["tool_choice"] = "auto"
+
+    return await _openai_chat(client, kwargs)
+
+
 async def call_openrouter(
     model_id: str,
     messages: list[dict],
@@ -1130,6 +1178,7 @@ _CALLERS = {
     "zhipu": call_zhipu,
     "nvidia": call_nvidia,
     "cerebras": call_cerebras,
+    "groq": call_groq,
     "openrouter": call_openrouter,
     "ollama": call_ollama,
 }
@@ -1451,6 +1500,24 @@ def _fetch_cerebras_models(api_key: str) -> list[str]:
     return models if models else list(_PROVIDERS["cerebras"]["models"].values())
 
 
+def _fetch_groq_models(api_key: str) -> list[str]:
+    import httpx
+    models = []
+    try:
+        r = httpx.get(
+            f"{_GROQ_BASE_URL}/models",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=10,
+        )
+        r.raise_for_status()
+        for m in r.json().get("data", []):
+            mid = m["id"]
+            models.append(mid)
+    except Exception:
+        pass
+    return models if models else list(_PROVIDERS["groq"]["models"].values())
+
+
 def _fetch_openrouter_models(api_key: str) -> list[str]:
     import httpx
     models = []
@@ -1496,6 +1563,7 @@ def fetch_provider_models(provider: str, api_key: str) -> dict:
         "zhipu": _fetch_zhipu_models,
         "nvidia": _fetch_nvidia_models,
         "cerebras": _fetch_cerebras_models,
+        "groq": _fetch_groq_models,
         "openrouter": _fetch_openrouter_models,
         "ollama": _fetch_ollama_models,
     }
@@ -1607,6 +1675,21 @@ def list_provider_models() -> list[str]:
         except Exception:
             pass
 
+    if os.getenv("GROQ_API_KEY"):
+        try:
+            r = httpx.get(
+                f"{_GROQ_BASE_URL}/models",
+                headers={"Authorization": f"Bearer {os.getenv('GROQ_API_KEY')}"},
+                timeout=10,
+            )
+            r.raise_for_status()
+            for m in r.json().get("data", []):
+                mid = m["id"]
+                if mid not in models:
+                    models.append(mid)
+        except Exception:
+            pass
+
     if os.getenv("OPENROUTER_API_KEY"):
         try:
             r = httpx.get(
@@ -1693,6 +1776,20 @@ def list_models_with_provider() -> list[str]:
             for m in r.json().get("data", []):
                 mid = m["id"]
                 tagged = "cerebras/" + mid
+                if tagged not in seen:
+                    seen.add(tagged)
+                    result.append(tagged)
+        except Exception:
+            pass
+
+    if os.getenv("GROQ_API_KEY"):
+        try:
+            import httpx
+            r = httpx.get(f"{_GROQ_BASE_URL}/models", headers={"Authorization": f"Bearer {os.getenv('GROQ_API_KEY')}"}, timeout=10)
+            r.raise_for_status()
+            for m in r.json().get("data", []):
+                mid = m["id"]
+                tagged = "groq/" + mid
                 if tagged not in seen:
                     seen.add(tagged)
                     result.append(tagged)

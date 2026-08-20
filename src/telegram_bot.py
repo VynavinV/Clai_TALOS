@@ -66,6 +66,7 @@ MANAGED_KEYS = [
     {"env_key": "ANTHROPIC_API_KEY", "label": "Anthropic", "icon": "&#129302;"},
     {"env_key": "NVIDIA_API_KEY", "label": "NVIDIA", "icon": "&#9889;"},
     {"env_key": "CEREBRAS_API_KEY", "label": "Cerebras", "icon": "&#9889;"},
+    {"env_key": "GROQ_API_KEY", "label": "Groq", "icon": "&#9889;"},
     {"env_key": "OPENROUTER_API_KEY", "label": "OpenRouter", "icon": "&#128279;"},
 ]
 
@@ -1964,6 +1965,7 @@ async def handle_api_onboarding_model(request):
         "zhipu": "ZHIPUAI_API_KEY",
         "nvidia": "NVIDIA_API_KEY",
         "cerebras": "CEREBRAS_API_KEY",
+        "groq": "GROQ_API_KEY",
         "openrouter": "OPENROUTER_API_KEY",
     }
 
@@ -2636,7 +2638,7 @@ async def handle_projects_page(request):
 
 _SECRET_KEYS = frozenset({
     "TELEGRAM_BOT_TOKEN", "ZHIPUAI_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY",
-    "ANTHROPIC_API_KEY", "NVIDIA_API_KEY", "CEREBRAS_API_KEY", "OPENROUTER_API_KEY",
+    "ANTHROPIC_API_KEY", "NVIDIA_API_KEY", "CEREBRAS_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY",
     "GOOGLE_API_KEY", "GOOGLE_OAUTH_CLIENT_SECRET",
 })
 
@@ -2669,6 +2671,7 @@ async def handle_api_settings_get(request):
         "CLIENT_BASE_URL": env_vars.get("CLIENT_BASE_URL", "https://api.z.ai/api/coding/paas/v4"),
         "NVIDIA_BASE_URL": env_vars.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
         "CEREBRAS_BASE_URL": env_vars.get("CEREBRAS_BASE_URL", "https://api.cerebras.ai/v1"),
+        "GROQ_BASE_URL": env_vars.get("GROQ_BASE_URL", "https://api.groq.com/openai/v1"),
         "OPENROUTER_BASE_URL": env_vars.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
         "OLLAMA_BASE_URL": env_vars.get("OLLAMA_BASE_URL", "http://localhost:11434/v1"),
         "OLLAMA_MODEL": env_vars.get("OLLAMA_MODEL", ""),
@@ -2781,11 +2784,11 @@ async def handle_api_settings_post(request):
 
     _TEXT_KEYS = [
         "BOT_NAME", "TELEGRAM_BOT_TOKEN", "WEB_PORT",
-        "ZHIPUAI_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "NVIDIA_API_KEY", "CEREBRAS_API_KEY", "OPENROUTER_API_KEY",
+        "ZHIPUAI_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "NVIDIA_API_KEY", "CEREBRAS_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY",
         "GOOGLE_API_KEY", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET",
         "GOOGLE_OAUTH_REDIRECT_URI", "GOOGLE_APPS_SCRIPT_URL", "GOOGLE_OAUTH_SCOPES",
         "HIMALAYA_BIN", "HIMALAYA_CONFIG", "HIMALAYA_DEFAULT_ACCOUNT",
-        "PIPER_VOICE", "CLIENT_BASE_URL", "NVIDIA_BASE_URL", "CEREBRAS_BASE_URL", "OPENROUTER_BASE_URL", "OLLAMA_BASE_URL", "OLLAMA_MODEL",
+        "PIPER_VOICE", "CLIENT_BASE_URL", "NVIDIA_BASE_URL", "CEREBRAS_BASE_URL", "GROQ_BASE_URL", "OPENROUTER_BASE_URL", "OLLAMA_BASE_URL", "OLLAMA_MODEL",
         "OLLAMA_NUM_CTX", "OLLAMA_TEMPERATURE", "OLLAMA_MAX_TOKENS", "OLLAMA_KEEP_ALIVE", "OLLAMA_KEEP_WARM", "OLLAMA_TIMEOUT_S",
         "OTA_CHANNEL", "TALOS_LAZY_TOOLS",
     ]
