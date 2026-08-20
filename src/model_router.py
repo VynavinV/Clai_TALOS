@@ -39,9 +39,11 @@ _PROVIDERS = {
     },
     "gemini": {
         "models": {
-            "gemini15flash": "gemini-1.5-flash",
-            "gemini20flash": "gemini-2.0-flash",
             "gemini25pro": "gemini-2.5-pro",
+            "gemini25flash": "gemini-2.5-flash",
+            "gemini25flashlite": "gemini-2.5-flash-lite",
+            "gemini20flash": "gemini-2.0-flash",
+            "gemini20flashlite": "gemini-2.0-flash-lite",
         },
         "patterns": ["gemini", "flash", "pro"],
         "env_key": "GEMINI_API_KEY",
@@ -99,6 +101,19 @@ _PROVIDERS = {
         "patterns": ["anthropic/", "openai/", "google/", "meta-llama/", "deepseek/", "qwen/", "mistralai/"],
         "env_key": "OPENROUTER_API_KEY",
     },
+    "mistral": {
+        "models": {
+            "mistrallarge": "mistral-large-latest",
+            "mistralmedium": "mistral-medium-latest",
+            "mistralsmall": "mistral-small-latest",
+            "ministral8b": "ministral-8b-latest",
+            "magistralmedium": "magistral-medium-latest",
+            "codestral": "codestral-latest",
+            "pixtrallarge": "pixtral-large-latest",
+        },
+        "patterns": ["mistral", "ministral", "magistral", "codestral", "devstral", "pixtral"],
+        "env_key": "MISTRAL_API_KEY",
+    },
     "ollama": {
         "models": {},
         "patterns": ["ollama"],
@@ -114,6 +129,7 @@ _nvidia_client = None
 _cerebras_client = None
 _groq_client = None
 _openrouter_client = None
+_mistral_client = None
 _ollama_client = None
 
 _NVIDIA_DEFAULT_BASE_URL = "https://integrate.api.nvidia.com/v1"
@@ -164,6 +180,7 @@ _NVIDIA_BASE_URL = _normalize_nvidia_base_url(os.getenv("NVIDIA_BASE_URL", _NVID
 _CEREBRAS_BASE_URL = os.getenv("CEREBRAS_BASE_URL", "https://api.cerebras.ai/v1")
 _GROQ_BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
 _OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+_MISTRAL_BASE_URL = os.getenv("MISTRAL_BASE_URL", "https://api.mistral.ai/v1")
 _OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
 
 _CLIENT_BASE_URL = os.getenv("CLIENT_BASE_URL", "https://api.z.ai/api/coding/paas/v4")
@@ -223,8 +240,8 @@ def get_all_model_aliases() -> dict[str, str]:
 
 
 def reload_clients():
-    global _openai_client, _anthropic_client, _gemini_client, _zhipu_client, _nvidia_client, _cerebras_client, _groq_client, _openrouter_client, _ollama_client
-    global _CLIENT_BASE_URL, _NVIDIA_BASE_URL, _CEREBRAS_BASE_URL, _GROQ_BASE_URL, _OPENROUTER_BASE_URL, _OLLAMA_BASE_URL
+    global _openai_client, _anthropic_client, _gemini_client, _zhipu_client, _nvidia_client, _cerebras_client, _groq_client, _openrouter_client, _mistral_client, _ollama_client
+    global _CLIENT_BASE_URL, _NVIDIA_BASE_URL, _CEREBRAS_BASE_URL, _GROQ_BASE_URL, _OPENROUTER_BASE_URL, _MISTRAL_BASE_URL, _OLLAMA_BASE_URL
     _openai_client = None
     _anthropic_client = None
     _gemini_client = None
@@ -233,6 +250,7 @@ def reload_clients():
     _cerebras_client = None
     _groq_client = None
     _openrouter_client = None
+    _mistral_client = None
     _ollama_client = None
     load_dotenv(dotenv_path=app_paths.env_file_path(), override=True)
     _CLIENT_BASE_URL = os.getenv("CLIENT_BASE_URL", "https://api.z.ai/api/coding/paas/v4")
@@ -240,6 +258,7 @@ def reload_clients():
     _CEREBRAS_BASE_URL = os.getenv("CEREBRAS_BASE_URL", "https://api.cerebras.ai/v1")
     _GROQ_BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
     _OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+    _MISTRAL_BASE_URL = os.getenv("MISTRAL_BASE_URL", "https://api.mistral.ai/v1")
     _OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
 
     # Config just changed: re-resolve context windows and let the warm-up loop
@@ -347,6 +366,17 @@ def _get_openrouter_client():
             default_headers={"HTTP-Referer": "https://github.com/clai-talos", "X-Title": "Clai-TALOS"},
         )
     return _openrouter_client
+
+
+def _get_mistral_client():
+    global _mistral_client
+    if _mistral_client is None:
+        from openai import AsyncOpenAI
+        api_key = os.getenv("MISTRAL_API_KEY")
+        if not api_key:
+            raise RuntimeError("MISTRAL_API_KEY not set")
+        _mistral_client = AsyncOpenAI(api_key=api_key, base_url=_MISTRAL_BASE_URL)
+    return _mistral_client
 
 
 def _get_ollama_client():
@@ -928,6 +958,24 @@ async def call_openrouter(
     return await _openai_chat(client, kwargs)
 
 
+async def call_mistral(
+    model_id: str,
+    messages: list[dict],
+    tools: list[dict] | None,
+    runtime_profile: dict[str, Any] | None = None,
+) -> dict:
+    client = _get_mistral_client()
+    kwargs: dict[str, Any] = {
+        "model": model_id,
+        "messages": messages,
+    }
+    if tools:
+        kwargs["tools"] = _tools_to_openai(tools)
+        kwargs["tool_choice"] = "auto"
+
+    return await _openai_chat(client, kwargs)
+
+
 def _env_float(name: str) -> float | None:
     raw = os.getenv(name, "").strip()
     if not raw:
@@ -1180,6 +1228,7 @@ _CALLERS = {
     "cerebras": call_cerebras,
     "groq": call_groq,
     "openrouter": call_openrouter,
+    "mistral": call_mistral,
     "ollama": call_ollama,
 }
 
@@ -1215,6 +1264,7 @@ _IMAGE_MODEL_HINTS = (
     "gemini-2.0",
     "gemini-1.5",
     "glm-4v",
+    "pixtral",
 )
 
 
@@ -1368,12 +1418,24 @@ def _fetch_gemini_models(api_key: str) -> list[str]:
     import google.genai as genai
     client = genai.Client(api_key=api_key)
     models = []
-    available = client.models.list()
-    for m in available:
-        name = getattr(m, "name", "").removeprefix("models/")
-        if any(p in name.lower() for p in _PROVIDERS["gemini"]["patterns"]):
-            models.append(name)
-    return models
+    seen = set()
+    for m in client.models.list():
+        name = str(getattr(m, "name", "") or "").removeprefix("models/")
+        if not name or name in seen:
+            continue
+        lowered = name.lower()
+        if not any(p in lowered for p in _PROVIDERS["gemini"]["patterns"]):
+            continue
+        # Embedding and image-generation endpoints show up in the same listing
+        # but cannot answer a chat turn.
+        if "embedding" in lowered or "aqa" in lowered:
+            continue
+        actions = getattr(m, "supported_actions", None)
+        if actions and "generateContent" not in actions:
+            continue
+        seen.add(name)
+        models.append(name)
+    return models if models else list(_PROVIDERS["gemini"]["models"].values())
 
 
 def _fetch_openai_models(api_key: str) -> list[str]:
@@ -1537,6 +1599,36 @@ def _fetch_openrouter_models(api_key: str) -> list[str]:
     return models if models else list(_PROVIDERS["openrouter"]["models"].values())
 
 
+def _fetch_mistral_models(api_key: str) -> list[str]:
+    import httpx
+    models = []
+    seen = set()
+    try:
+        r = httpx.get(
+            f"{_MISTRAL_BASE_URL}/models",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=10,
+        )
+        r.raise_for_status()
+        for m in r.json().get("data", []):
+            mid = m.get("id", "")
+            # Mistral lists embedding, moderation and OCR endpoints alongside
+            # the chat models, and repeats ids across their aliases.
+            if not mid or mid in seen:
+                continue
+            lowered = mid.lower()
+            if any(skip in lowered for skip in ("embed", "moderation", "ocr")):
+                continue
+            capabilities = m.get("capabilities") or {}
+            if capabilities and not capabilities.get("completion_chat", True):
+                continue
+            seen.add(mid)
+            models.append(mid)
+    except Exception:
+        pass
+    return models if models else list(_PROVIDERS["mistral"]["models"].values())
+
+
 def _fetch_ollama_models(api_key: str) -> list[str]:
     import httpx
     models = []
@@ -1565,6 +1657,7 @@ def fetch_provider_models(provider: str, api_key: str) -> dict:
         "cerebras": _fetch_cerebras_models,
         "groq": _fetch_groq_models,
         "openrouter": _fetch_openrouter_models,
+        "mistral": _fetch_mistral_models,
         "ollama": _fetch_ollama_models,
     }
     fetcher = fetchers.get(provider)
@@ -1705,6 +1798,11 @@ def list_provider_models() -> list[str]:
         except Exception:
             pass
 
+    if os.getenv("MISTRAL_API_KEY"):
+        for m in _fetch_mistral_models(os.getenv("MISTRAL_API_KEY", "")):
+            if m not in models:
+                models.append(m)
+
     ollama_model = os.getenv("OLLAMA_MODEL", "").strip()
     if ollama_model:
         tagged = ollama_model if ollama_model.startswith("ollama/") else "ollama/" + ollama_model
@@ -1810,6 +1908,13 @@ def list_models_with_provider() -> list[str]:
                         result.append(tagged)
         except Exception:
             pass
+
+    if os.getenv("MISTRAL_API_KEY"):
+        for m in _fetch_mistral_models(os.getenv("MISTRAL_API_KEY", "")):
+            tagged = "mistral/" + m
+            if tagged not in seen:
+                seen.add(tagged)
+                result.append(tagged)
 
     ollama_model = os.getenv("OLLAMA_MODEL", "").strip()
     if ollama_model:

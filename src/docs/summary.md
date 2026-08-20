@@ -108,6 +108,7 @@ Windows parity:
   - Cerebras
   - Groq
   - OpenRouter
+  - Mistral
   - Ollama
 - Includes provider key gating, timeout handling, and some fallback logic.
 
