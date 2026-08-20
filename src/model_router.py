@@ -712,14 +712,16 @@ async def call_anthropic(
 
 
 # Gemini validates tool parameters against its own OpenAPI subset and rejects
-# anything else outright, so JSON-Schema keywords other providers accept have
-# to be translated or dropped before the call.
+# anything else outright, so JSON-Schema keywords other providers accept have to
+# be translated or dropped before the call. This is exactly the field set of the
+# Gemini API's Schema type; the SDK's Schema model is wider because it also
+# covers Vertex AI, so keys like additionalProperties, defs and ref pass
+# client-side validation and are then rejected by the REST endpoint.
 _GEMINI_SCHEMA_KEYS = frozenset({
     "type", "format", "title", "description", "nullable", "default", "example",
-    "enum", "items", "properties", "required", "propertyOrdering",
-    "additionalProperties", "pattern", "minimum", "maximum",
-    "minItems", "maxItems", "minLength", "maxLength",
-    "minProperties", "maxProperties",
+    "enum", "items", "properties", "required", "propertyOrdering", "anyOf",
+    "pattern", "minimum", "maximum", "minItems", "maxItems",
+    "minLength", "maxLength", "minProperties", "maxProperties",
 })
 
 
@@ -821,9 +823,11 @@ async def call_gemini(
         for tool in tools:
             if tool.get("type") == "function":
                 fn = tool["function"]
-                parameters = _sanitize_gemini_schema(
-                    fn.get("parameters") or {"type": "object", "properties": {}}
-                )
+                parameters = _sanitize_gemini_schema(fn.get("parameters") or {})
+                # Gemini refuses an OBJECT whose properties map is empty, so a
+                # no-argument tool has to omit its parameters entirely.
+                if not parameters.get("properties"):
+                    parameters = None
                 try:
                     function_decls.append(
                         types.FunctionDeclaration(
