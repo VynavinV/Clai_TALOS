@@ -672,12 +672,32 @@ def _apply_source_git() -> dict:
 				"details": _clip(pip_output),
 			}
 
+	# Restart the process to pick up the new code
+	try:
+		target_script = os.path.join(app_paths.source_root(), "telegram_bot.py")
+		if sys.platform == "win32":
+			subprocess.Popen([sys.executable, target_script], close_fds=True)
+		else:
+			os.execv(sys.executable, [sys.executable, target_script])
+	except Exception as exc:
+		return {
+			"ok": True,
+			"mode": "source-git",
+			"applied": True,
+			"restart_required": True,
+			"message": "Update downloaded and installed. Restart TALOS to use the new version.",
+			"details": {
+				"git": _clip((pull.stdout or "") + "\n" + (pull.stderr or "")),
+				"pip": _clip(pip_output),
+			},
+		}
+
 	return {
 		"ok": True,
 		"mode": "source-git",
 		"applied": True,
-		"restart_required": True,
-		"message": "Update downloaded and installed. Restart TALOS to use the new version.",
+		"restarting_now": True,
+		"message": "Update applied. Restarting now...",
 		"details": {
 			"git": _clip((pull.stdout or "") + "\n" + (pull.stderr or "")),
 			"pip": _clip(pip_output),

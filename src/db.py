@@ -76,10 +76,12 @@ def init():
             conn.execute("ALTER TABLE user_settings ADD COLUMN speed_mode TEXT NOT NULL DEFAULT 'normal'")
         if "reasoning_enabled" not in cols:
             conn.execute("ALTER TABLE user_settings ADD COLUMN reasoning_enabled INTEGER NOT NULL DEFAULT 1")
+        if "fallback_model" not in cols:
+            conn.execute("ALTER TABLE user_settings ADD COLUMN fallback_model TEXT")
 
         conn.execute("UPDATE user_settings SET speed_mode = COALESCE(speed_mode, 'normal')")
         conn.execute("UPDATE user_settings SET reasoning_enabled = COALESCE(reasoning_enabled, 1)")
-        
+
         chat_cols = [r["name"] for r in conn.execute("PRAGMA table_info(chat_history)").fetchall()]
         if "image_b64" not in chat_cols:
             conn.execute("ALTER TABLE chat_history ADD COLUMN image_b64 TEXT")
@@ -334,6 +336,35 @@ def set_image_model(user_id: int, image_model: str) -> None:
                ON CONFLICT(user_id) DO UPDATE SET image_model = excluded.image_model""",
             (user_id, image_model),
         )
+
+
+def get_fallback_model(user_id: int) -> str | None:
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT fallback_model FROM user_settings WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+        if row and row["fallback_model"]:
+            return row["fallback_model"]
+    env_model = os.getenv("FALLBACK_MODEL", "").strip()
+    if env_model:
+        return env_model
+    return None
+
+
+def set_fallback_model(user_id: int, fallback_model: str | None) -> None:
+    with _conn() as conn:
+        if fallback_model:
+            conn.execute(
+                """INSERT INTO user_settings (user_id, fallback_model) VALUES (?, ?)
+                   ON CONFLICT(user_id) DO UPDATE SET fallback_model = excluded.fallback_model""",
+                (user_id, fallback_model),
+            )
+        else:
+            conn.execute(
+                "UPDATE user_settings SET fallback_model = NULL WHERE user_id = ?",
+                (user_id,),
+            )
 
 
 def get_summary(user_id: int) -> str | None:

@@ -227,6 +227,16 @@
         </div>
       </div>
     </div>
+
+    <div class="vision-section">
+      <div class="form-group">
+        <label>Fallback Model <span class="form-hint" style="display:inline;margin-left:0.3rem;">(used automatically if the main model fails)</span></label>
+        <div class="model-select-wrap">
+          <select id="fallback-model"></select>
+          <button class="model-override-btn" onclick="toggleModelOverride('fallback-model')" title="Type model name manually">&#9998;</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="section">
@@ -1047,6 +1057,7 @@ async function loadSettings() {
 
     await loadImageModels(d);
     await loadFastModels(d);
+    await loadFallbackModels(d);
     updateStatus('google-api', d.GOOGLE_API_KEY);
     await loadGoogleStatus();
     await checkOtaUpdates(false);
@@ -1102,6 +1113,16 @@ async function loadFastModels(d) {
     fs.innerHTML = '<option value="">Not set (optional)</option>';
     allModels.forEach(function(m) { fs.innerHTML += '<option value="' + m + '">' + m + '</option>'; });
     if (d.FAST_MODEL) fs.value = d.FAST_MODEL;
+  } catch (e) {}
+}
+
+async function loadFallbackModels(d) {
+  try {
+    var allModels = window._allModels || [];
+    var fb = document.getElementById('fallback-model');
+    fb.innerHTML = '<option value="">Not set (optional)</option>';
+    allModels.forEach(function(m) { fb.innerHTML += '<option value="' + m + '">' + m + '</option>'; });
+    if (d.USER_FALLBACK_MODEL) fb.value = d.USER_FALLBACK_MODEL;
   } catch (e) {}
 }
 
@@ -1346,6 +1367,7 @@ async function saveSettings() {
     MAIN_MODEL: mainModel,
     IMAGE_MODEL: getModelValue('image-model'),
     FAST_MODEL: getModelValue('fast-model'),
+    FALLBACK_MODEL: getModelValue('fallback-model'),
     MAX_TOOL_ROUNDS: document.getElementById('max-tool-rounds').value.trim(),
     MAX_TOOL_CALLS_PER_ROUND: document.getElementById('max-tool-calls-per-round').value.trim(),
     MAX_COMMAND_TIMEOUT: document.getElementById('max-command-timeout').value.trim(),

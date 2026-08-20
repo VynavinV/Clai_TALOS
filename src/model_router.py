@@ -1299,11 +1299,16 @@ async def call_model(
     speed_mode: str | None = None,
     reasoning_enabled: bool | None = None,
     on_delta: Any = None,
+    user_id: int | None = None,
+    _fallback_attempted: bool = False,
 ) -> dict:
     """Call a model, optionally streaming fragments to `on_delta`.
 
     `on_delta` is an async callable `(kind, text)` where kind is one of
     "content", "reasoning", "tool", or "tool_args".
+
+    If `user_id` is provided and the call fails, attempts to fall back to
+    the user's configured fallback model (unless `_fallback_attempted` is True).
     """
     provider, model_id = resolve_model(model)
     caller = _CALLERS.get(provider)
@@ -1324,6 +1329,9 @@ async def call_model(
             f"{provider} call timed out after {timeout}s for model {model_id} "
             f"(speed={runtime_profile['speed_mode']}, reasoning={runtime_profile['reasoning_enabled']})"
         )
+        # Try fallback on timeout
+        if user_id is not None and not _fallback_attempted:
+            return await _try_fallback(user_id, messages, tools, speed_mode, reasoning_enabled, on_delta, f"Model call to {provider}/{model_id} timed out after {timeout}s.")
         return {"content": f"Model call to {provider}/{model_id} timed out after {timeout}s. The API may be overloaded.", "tool_calls": [], "message": None}
     except Exception as e:
         logger.exception(f"{provider} call failed for model {model_id}")
@@ -1338,9 +1346,47 @@ async def call_model(
                     "tool_calls": [],
                     "message": None,
                 }
+        # Try fallback on error
+        if user_id is not None and not _fallback_attempted:
+            return await _try_fallback(user_id, messages, tools, speed_mode, reasoning_enabled, on_delta, f"Error communicating with {provider}: {e}")
         return {"content": f"Error communicating with {provider}: {e}", "tool_calls": [], "message": None}
     finally:
         _STREAM_SINK.reset(sink_token)
+
+
+async def _try_fallback(
+    user_id: int,
+    messages: list[dict],
+    tools: list[dict] | None,
+    speed_mode: str | None,
+    reasoning_enabled: bool | None,
+    on_delta: Any,
+    original_error: str,
+) -> dict:
+    """Attempt to call the fallback model for a user."""
+    import db
+    fallback = db.get_fallback_model(user_id)
+    if not fallback:
+        return {"content": f"{original_error} No fallback model configured.", "tool_calls": [], "message": None}
+
+    logger.warning(f"Primary model failed ({original_error}). Trying fallback model: {fallback}")
+
+    # Call recursively with _fallback_attempted=True to prevent infinite fallback loop
+    result = await call_model(
+        fallback,
+        messages,
+        tools,
+        speed_mode=speed_mode,
+        reasoning_enabled=reasoning_enabled,
+        on_delta=on_delta,
+        user_id=user_id,
+        _fallback_attempted=True,
+    )
+
+    # Prepend fallback notice to the response
+    if "content" in result and result["content"]:
+        result["content"] = f"⚠️ Primary model failed, using fallback ({fallback}):\n\n{result['content']}"
+    return result
 
 
 async def call_model_simple(
@@ -1349,6 +1395,7 @@ async def call_model_simple(
     prompt: str,
     speed_mode: str | None = None,
     reasoning_enabled: bool | None = None,
+    user_id: int | None = None,
 ) -> str:
     messages = []
     if system:
@@ -1360,6 +1407,7 @@ async def call_model_simple(
         None,
         speed_mode=speed_mode,
         reasoning_enabled=reasoning_enabled,
+        user_id=user_id,
     )
     return result.get("content", "")
 

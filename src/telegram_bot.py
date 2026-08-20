@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from dotenv import load_dotenv
 from aiohttp import web
 from telegram.ext import Application
+from telegram import BotCommand
 import bcrypt
 from bot_handlers import register_handlers, HELP_TEXT
 import AI
@@ -172,6 +173,20 @@ if _migrated_runtime_items:
     print(f"[info] Migrated legacy runtime data to {app_paths.data_root()}: {', '.join(_migrated_runtime_items)}")
 
 
+async def _post_init(application: Application) -> None:
+    """Set bot commands so they appear in Telegram's / autocomplete menu."""
+    commands = [
+        BotCommand("start", "Start or restart the bot"),
+        BotCommand("model", "Change AI model"),
+        BotCommand("speed", "Set response speed (quick|fast|normal)"),
+        BotCommand("reasoning", "Toggle deep reasoning (on|off)"),
+        BotCommand("fast", "Use fast model for next message"),
+        BotCommand("clear", "Clear chat history"),
+        BotCommand("help", "Show help message"),
+    ]
+    await application.bot.set_my_commands(commands)
+
+
 def _build_telegram_application(token: str) -> Application:
     app = (
         Application.builder()
@@ -180,6 +195,7 @@ def _build_telegram_application(token: str) -> Application:
         .read_timeout(30)
         .write_timeout(30)
         .pool_timeout(30)
+        .post_init(_post_init)
         .build()
     )
     register_handlers(app)
@@ -2660,6 +2676,8 @@ async def handle_api_settings_get(request):
         "MAIN_MODEL": env_vars.get("MAIN_MODEL", ""),
         "IMAGE_MODEL": env_vars.get("IMAGE_MODEL", ""),
         "FAST_MODEL": env_vars.get("FAST_MODEL", ""),
+        "FALLBACK_MODEL": env_vars.get("FALLBACK_MODEL", ""),
+        "USER_FALLBACK_MODEL": "",
         "GOOGLE_OAUTH_CLIENT_ID": env_vars.get("GOOGLE_OAUTH_CLIENT_ID", ""),
         "GOOGLE_OAUTH_REDIRECT_URI": env_vars.get("GOOGLE_OAUTH_REDIRECT_URI", ""),
         "GOOGLE_APPS_SCRIPT_URL": env_vars.get("GOOGLE_APPS_SCRIPT_URL", ""),
@@ -2689,6 +2707,14 @@ async def handle_api_settings_get(request):
         "MAX_SUBAGENT_TOOL_CALLS_PER_ROUND": env_vars.get("MAX_SUBAGENT_TOOL_CALLS_PER_ROUND", "15"),
         "MAX_CONTEXT_CHARS": env_vars.get("MAX_CONTEXT_CHARS", "120000"),
     }
+    # Per-user fallback model from DB
+    try:
+        web_user_id = _get_web_user_id(request)
+        user_fallback = db.get_fallback_model(web_user_id)
+        if user_fallback:
+            result["USER_FALLBACK_MODEL"] = user_fallback
+    except Exception:
+        logger.exception("Could not load per-user fallback model")
     for key in _SECRET_KEYS:
         result[key] = _mask_secret(env_vars.get(key, ""))
     return web.json_response(result)
@@ -2796,7 +2822,7 @@ async def handle_api_settings_post(request):
     def _is_masked(val: str) -> bool:
         return "****" in val and len(val) < 20
 
-    _MODEL_KEYS = ["MAIN_MODEL", "IMAGE_MODEL", "FAST_MODEL"]
+    _MODEL_KEYS = ["MAIN_MODEL", "IMAGE_MODEL", "FAST_MODEL", "FALLBACK_MODEL"]
 
     for key in _MODEL_KEYS:
         if key in body:
@@ -2856,6 +2882,19 @@ async def handle_api_settings_post(request):
             db.set_model_for_all(saved_main_model)
         except Exception:
             logger.exception("Could not sync main model to user settings")
+
+    # Per-user fallback model (stored in DB)
+    if "FALLBACK_MODEL" in body:
+        try:
+            web_user_id = _get_web_user_id(request)
+            fallback = str(body.get("FALLBACK_MODEL", "")).strip()
+            if fallback:
+                db.set_fallback_model(web_user_id, fallback)
+            else:
+                db.set_fallback_model(web_user_id, None)
+        except Exception:
+            logger.exception("Could not save per-user fallback model")
+
     AI.reload_clients()
 
     new_bot_name = str(env_vars.get("BOT_NAME", "")).strip()
