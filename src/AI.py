@@ -1358,7 +1358,11 @@ def _get_all_tools(include_subagent: bool = True, include_telegram: bool = False
                                     "value": {"description": "Cell value (string/number/boolean/null)"},
                                     "formula": {"type": "boolean"},
                                     "number_format": {"type": "string"},
-                                    "values": {"type": "array", "description": "Row values (mixed types allowed)"}
+                                    "values": {
+                                        "type": "array",
+                                        "description": "Row values (mixed types allowed)",
+                                        "items": {"anyOf": [{"type": "string"}, {"type": "number"}, {"type": "boolean"}]},
+                                    }
                                 }
                             }
                         },

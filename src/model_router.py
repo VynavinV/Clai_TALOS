@@ -725,6 +725,11 @@ _GEMINI_SCHEMA_KEYS = frozenset({
 })
 
 
+# What an untyped or unconstrained value becomes: Gemini has no "any" type, but
+# a union of the scalars covers what a tool argument can actually hold.
+_GEMINI_ANY_SCALAR = {"anyOf": [{"type": "string"}, {"type": "number"}, {"type": "boolean"}]}
+
+
 def _sanitize_gemini_schema(schema: Any) -> Any:
     if isinstance(schema, list):
         return [_sanitize_gemini_schema(item) for item in schema]
@@ -751,10 +756,33 @@ def _sanitize_gemini_schema(schema: Any) -> Any:
         elif key in _GEMINI_SCHEMA_KEYS:
             out[key] = value
 
-    # A property described only by a union carries no type of its own, which
-    # Gemini also refuses; the anyOf branches already say what is allowed.
-    if "anyOf" in out and "type" in out:
-        out.pop("type")
+    # JSON Schema allows a list of types ("string" or null); Gemini takes a
+    # single type plus the nullable flag.
+    declared = out.get("type")
+    if isinstance(declared, list):
+        named = [str(t) for t in declared if str(t).lower() != "null"]
+        if len(named) < len(declared):
+            out["nullable"] = True
+        if len(named) == 1:
+            out["type"] = named[0]
+        else:
+            out.pop("type", None)
+            out.setdefault("anyOf", [{"type": t} for t in named] or _GEMINI_ANY_SCALAR["anyOf"])
+
+    # A schema described only by a union carries no type of its own, and Gemini
+    # rejects the two side by side.
+    if "anyOf" in out:
+        out.pop("type", None)
+
+    # An enum is only meaningful against a type, and Gemini expects a string one.
+    if "enum" in out and not out.get("type"):
+        out["type"] = "string"
+
+    # Gemini requires every ARRAY to say what it holds; a bare {"type": "array"}
+    # is rejected with "items: missing field".
+    if str(out.get("type", "")).lower() == "array" and not isinstance(out.get("items"), dict):
+        out["items"] = dict(_GEMINI_ANY_SCALAR)
+
     return out
 
 
