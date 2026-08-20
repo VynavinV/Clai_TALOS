@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="csrf-token" content="{{CSRF_TOKEN}}">
 <title>{{BOT_NAME}} — Tools</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -80,6 +81,13 @@
 </main>
 
 <script>
+var _csrfToken = document.querySelector('meta[name="csrf-token"]') ? document.querySelector('meta[name="csrf-token"]').getAttribute('content') : '';
+
+function _post(url, body) {
+  body.csrf_token = _csrfToken;
+  return fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+}
+
 var tools = [
   { id: 'execute_command', name: 'Terminal', desc: 'Execute shell commands', category: 'system', dangerous: true },
   { id: 'execute_workflow', name: 'Workflow', desc: 'Multi-step command sequences', category: 'system', dangerous: true },
@@ -137,7 +145,7 @@ function showMsg(t, ok) { var el = document.getElementById('msg'); el.textConten
 
 async function saveTools() {
   try {
-    var res = await fetch('/api/tools', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(enabledTools) });
+    var res = await _post('/api/tools', enabledTools);
     if (res.status === 401) { window.location.href = '/'; return; }
     var data = await res.json();
     if (data.ok) showMsg('Saved', true); else showMsg(data.error || 'Failed', false);
