@@ -1571,6 +1571,92 @@ def _import_openclaw_compatibility(file_name: str, content: bytes) -> dict:
     return report
 
 
+def _parse_markdown_frontmatter(content: str) -> dict | None:
+    """Parse YAML frontmatter from markdown content."""
+    content = content.strip()
+    if not content.startswith("---"):
+        return None
+    end = content.find("---", 3)
+    if end == -1:
+        return None
+    frontmatter_text = content[3:end].strip()
+    if not frontmatter_text:
+        return None
+
+    result = {}
+    for line in frontmatter_text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if ":" not in line:
+            continue
+        key, _, value = line.partition(":")
+        key = key.strip()
+        value = value.strip()
+        if value.startswith(("'", '"')) and value.endswith(value[0]):
+            value = value[1:-1]
+        result[key] = value
+
+    return result if result else None
+
+
+def _install_skill_as_tool(file_name: str, content: str) -> dict:
+    """Install a markdown skill as a dynamic tool if it has valid frontmatter."""
+    result = {"registered": False, "tool_name": "", "error": ""}
+
+    frontmatter = _parse_markdown_frontmatter(content)
+    if not frontmatter:
+        result["error"] = "No valid YAML frontmatter found."
+        return result
+
+    name = frontmatter.get("name", "").strip()
+    if not name:
+        result["error"] = "Frontmatter missing 'name' field."
+        return result
+
+    tool_name = _normalize_openclaw_identifier(name, prefix="skill")
+    description = frontmatter.get("description", "").strip()
+    if not description:
+        description = f"Skill installed from Claistore: {name}"
+
+    command_template = frontmatter.get("command", "").strip()
+    if not command_template:
+        command_template = f"echo 'Skill {name} executed with args: {{args}}'"
+
+    parameters = {}
+    required = []
+    params_text = frontmatter.get("parameters", "").strip()
+    if params_text:
+        for param in params_text.split(","):
+            param = param.strip()
+            if not param:
+                continue
+            param_name = param.split(":")[0].strip() if ":" in param else param
+            if param_name:
+                parameters[param_name] = {"type": "string", "description": param_name}
+
+    try:
+        create_result = dynamic_tools.create_tool(
+            name=tool_name,
+            description=description,
+            command_template=command_template,
+            parameters=parameters if parameters else None,
+            required=required if required else None,
+            timeout=30,
+            guide=content,
+            overwrite=True,
+        )
+        if create_result.get("ok"):
+            result["registered"] = True
+            result["tool_name"] = tool_name
+        else:
+            result["error"] = create_result.get("error", "Unknown error")
+    except Exception as exc:
+        result["error"] = str(exc)
+
+    return result
+
+
 def _community_public_entry(item: dict) -> dict:
     item_id = str(item.get("id", "")).strip()
     return {
@@ -3731,6 +3817,7 @@ async def handle_api_community_install(request):
     openclaw_import = _import_openclaw_compatibility(safe_file_name, payload)
 
     installed_skill_doc = ""
+    tool_registration = None
     lower_name = safe_file_name.lower()
     if not openclaw_import.get("detected") and lower_name.endswith((".md", ".txt")):
         docs_dir = app_paths.dynamic_tools_docs_dir()
@@ -3743,6 +3830,9 @@ async def handle_api_community_install(request):
             with open(doc_path, "w", encoding="utf-8") as f:
                 f.write(decoded.rstrip() + "\n")
             installed_skill_doc = doc_name
+
+            # Try to register as a dynamic tool if frontmatter is present
+            tool_registration = _install_skill_as_tool(safe_file_name, decoded)
         except Exception:
             installed_skill_doc = ""
 
@@ -3756,6 +3846,8 @@ async def handle_api_community_install(request):
     }
     if installed_skill_doc:
         response_payload["skill_doc"] = installed_skill_doc
+    if tool_registration:
+        response_payload["tool_registration"] = tool_registration
     return web.json_response(response_payload)
 
 

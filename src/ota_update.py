@@ -278,16 +278,13 @@ def current_version() -> str:
 
 
 def install_mode() -> str:
-	if app_paths.is_frozen() and sys.platform == "win32":
-		return "frozen-windows"
-	if app_paths.is_frozen():
-		return "frozen"
+	# Prefer source-git mode if a git checkout exists, even for frozen builds
+	if _has_git_checkout(_repo_root()):
+		return "source-git"
 	if sys.platform.startswith("linux"):
 		source_root = os.path.realpath(app_paths.source_root())
 		if source_root.startswith("/opt/clai-talos/") and shutil.which("dpkg") and shutil.which("apt-get"):
 			return "linux-deb"
-	if _has_git_checkout(_repo_root()):
-		return "source-git"
 	return "source"
 
 
