@@ -486,9 +486,19 @@ async def cmd_checkupdate(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await update.message.reply_text("Please complete onboarding first with /start.")
         return
 
+    admin_id = os.getenv("OTA_ADMIN_TELEGRAM_ID", "")
+    if admin_id and str(uid) != admin_id:
+        await update.message.reply_text("⚠️ You are not authorized to perform OTA operations.")
+        return
+
     await update.message.reply_text("Checking for updates...")
 
-    result = ota_update.check_for_updates()
+    try:
+        result = await asyncio.to_thread(ota_update.check_for_updates)
+    except Exception as exc:
+        logger.exception("OTA check_for_updates failed")
+        await update.message.reply_text(f"❌ Check failed: {exc}")
+        return
 
     if not result.get("ok"):
         await update.message.reply_text(f"❌ Check failed: {result.get('error', 'Unknown error')}")
@@ -524,9 +534,23 @@ async def cmd_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await update.message.reply_text("Please complete onboarding first with /start.")
         return
 
+    admin_id = os.getenv("OTA_ADMIN_TELEGRAM_ID", "")
+    if admin_id and str(uid) != admin_id:
+        await update.message.reply_text("⚠️ You are not authorized to perform OTA operations.")
+        return
+
     await update.message.reply_text("Applying update...")
 
-    result = ota_update.apply_update()
+    try:
+        result = await asyncio.to_thread(ota_update.apply_update)
+    except Exception as exc:
+        logger.exception("OTA apply_update failed")
+        await update.message.reply_text(f"❌ Update failed: {exc}")
+        return
+
+    if not result.get("update_available", True):
+        await update.message.reply_text("✅ Already up to date. No update to apply.")
+        return
 
     if not result.get("ok"):
         error = result.get("error", "Unknown error")
@@ -554,9 +578,19 @@ async def cmd_rollback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await update.message.reply_text("Please complete onboarding first with /start.")
         return
 
+    admin_id = os.getenv("OTA_ADMIN_TELEGRAM_ID", "")
+    if admin_id and str(uid) != admin_id:
+        await update.message.reply_text("⚠️ You are not authorized to perform OTA operations.")
+        return
+
     await update.message.reply_text("Rolling back to previous version...")
 
-    result = ota_update.rollback_update()
+    try:
+        result = await asyncio.to_thread(ota_update.rollback_update)
+    except Exception as exc:
+        logger.exception("OTA rollback_update failed")
+        await update.message.reply_text(f"❌ Rollback failed: {exc}")
+        return
 
     if not result.get("ok"):
         await update.message.reply_text(f"❌ Rollback failed: {result.get('error', 'Unknown error')}")
