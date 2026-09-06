@@ -158,6 +158,43 @@ async def run_due_jobs() -> list[dict]:
     return results
 
 
+def ota_auto_check() -> dict:
+    """Check for OTA updates. Suitable for use via a self-prompt cron job.
+
+    To set up automatic OTA notifications, create a cron job via /cron with a
+    self-prompt command such as:
+        self:check for OTA updates and notify me if one is available.
+
+    Environment variables:
+        OTA_ENABLED — master kill switch (set to "0" to disable all OTA).
+    """
+    import ota_update
+
+    result = ota_update.check_for_updates()
+
+    if not result.get("ok"):
+        return {"ok": False, "error": result.get("error", "Check failed")}
+
+    if not result.get("enabled", True):
+        return {"ok": False, "message": "OTA updates are disabled."}
+
+    if not result.get("update_available"):
+        logger.info("OTA auto-check: up to date (%s)", result.get("current_version"))
+        return {"ok": True, "update_available": False, "current_version": result.get("current_version")}
+
+    commits = result.get("commits_behind", 0)
+    latest = result.get("latest_version", "unknown")
+    logger.info("OTA auto-check: update available — %s (%d commits behind)", latest, commits)
+    return {
+        "ok": True,
+        "update_available": True,
+        "current_version": result.get("current_version"),
+        "latest_version": latest,
+        "commits_behind": commits,
+        "message": f"{commits} commit(s) available: {latest}",
+    }
+
+
 async def cron_loop(stop_event: asyncio.Event | None = None, interval_seconds: int = 30) -> None:
     while True:
         if stop_event and stop_event.is_set():
