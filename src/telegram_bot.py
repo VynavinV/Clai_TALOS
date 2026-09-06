@@ -2902,17 +2902,22 @@ async def handle_api_updates_check(request):
         }
 
     # Add rollback info (check_for_updates() does not return it).
-    try:
-        rollback_meta = ota_update._load_rollback_metadata()
-    except Exception:
-        rollback_meta = None
-
-    if rollback_meta:
-        status["rollback_available"] = True
-        status["rollback_tag"] = rollback_meta.get("tag", "")
-        status["rollback_timestamp"] = rollback_meta.get("timestamp", "")
-    else:
+    # Enforce OTA_ENABLED kill switch: if OTA is disabled, never advertise
+    # a rollback even when metadata exists on disk.
+    if not status.get("enabled", True):
         status["rollback_available"] = False
+    else:
+        try:
+            rollback_meta = ota_update._load_rollback_metadata()
+        except Exception:
+            rollback_meta = None
+
+        if rollback_meta:
+            status["rollback_available"] = True
+            status["rollback_tag"] = rollback_meta.get("tag", "")
+            status["rollback_timestamp"] = rollback_meta.get("timestamp", "")
+        else:
+            status["rollback_available"] = False
 
     http_status = 200 if status.get("ok") else 502
     return web.json_response(status, status=http_status)
@@ -2939,6 +2944,10 @@ async def handle_api_updates_apply(request):
 async def handle_api_updates_rollback(request):
     from aiohttp import web
     import ota_update
+
+    # Enforce OTA_ENABLED kill switch on the rollback path.
+    if os.getenv("OTA_ENABLED", "1") == "0":
+        return web.json_response({"ok": False, "error": "OTA updates are disabled"})
 
     result = ota_update.rollback_update()
 

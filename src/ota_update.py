@@ -355,6 +355,10 @@ def apply_update() -> dict:
 
 
 def rollback_update() -> dict:
+    # Enforce OTA_ENABLED kill switch: rollback must not run when OTA is disabled.
+    if not _bool_env("OTA_ENABLED", True):
+        return {"ok": False, "error": "OTA updates are disabled by OTA_ENABLED=0."}
+
     metadata = _load_rollback_metadata()
     if not metadata:
         return {"ok": False, "error": "No rollback metadata found. Nothing to rollback to."}
