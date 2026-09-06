@@ -1,11 +1,10 @@
-import hashlib
 import json
 import os
 import shutil
 import subprocess
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 import app_paths
 
@@ -74,7 +73,7 @@ def _save_rollback_metadata(tag: str, previous_head: str, commit_count: int) -> 
 
     metadata = {
         "tag": tag,
-        "timestamp": datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+        "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "previous_head": previous_head,
         "commit_count": commit_count,
     }
@@ -125,11 +124,26 @@ def _delete_rollback_tag(tag: str) -> None:
 
 
 def _health_check(timeout_s: int = 30) -> bool:
+    """Best-effort health check.
+
+    Reads OTA_HEALTH_CHECK_URL (default http://localhost:{PORT}/) and
+    OTA_HEALTH_CHECK_TIMEOUT_S (overrides timeout_s) from the environment.
+
+    NOTE: When called after _run_clai_restart(), the 'clai restart' command
+    typically kills this process, so the health check will not complete in
+    the restarting process. This is a known limitation of the restart model.
+    """
     import urllib.request
     import urllib.error
 
+    env_timeout = os.getenv("OTA_HEALTH_CHECK_TIMEOUT_S", "").strip()
+    if env_timeout.isdigit():
+        timeout_s = int(env_timeout)
+
     port = os.getenv("PORT", "8080")
-    url = f"http://localhost:{port}/"
+    url = os.getenv("OTA_HEALTH_CHECK_URL", "").strip()
+    if not url:
+        url = f"http://localhost:{port}/"
     deadline = time.time() + timeout_s
 
     while time.time() < deadline:
@@ -309,8 +323,26 @@ def apply_update() -> dict:
             "restart_required": True,
         }
 
-    # Health check (in background, don't block response)
-    # The actual health check will be done by the caller after restart
+    # Best-effort auto-rollback health check.
+    # Limitation: 'clai restart' launches a background process that restarts
+    # the service, which typically kills the current process. In that case
+    # the code below will not finish executing; the health check only runs
+    # to completion if the current process survives the restart (e.g. during
+    # testing, or if the restart is deferred). Callers should not rely on
+    # this being a complete safety net.
+    time.sleep(5)
+
+    env_timeout_raw = os.getenv("OTA_HEALTH_CHECK_TIMEOUT_S", "").strip()
+    health_timeout = int(env_timeout_raw) if env_timeout_raw.isdigit() else 30
+
+    if not _health_check(timeout_s=health_timeout):
+        rollback_result = rollback_update()
+        return {
+            "ok": False,
+            "error": "Health check failed after restart; attempted rollback",
+            "rollback_tag": tag,
+            "rollback_result": rollback_result,
+        }
 
     return {
         "ok": True,
