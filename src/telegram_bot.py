@@ -3709,8 +3709,8 @@ async def handle_api_claistore_test(request):
         if not repo or not token:
             return web.json_response({"ok": False, "error": "Repository and token are required"}, status=400)
 
-        # Test using the claistore module
-        result = await claistore_test_connection()
+        # Test using the claistore module with the provided credentials
+        result = await claistore_test_connection(repo=repo, token=token, branch=branch)
         return web.json_response(result)
     except Exception as e:
         logger.exception("Claistore test failed")

@@ -16,17 +16,26 @@ import aiohttp
 
 logger = logging.getLogger(__name__)
 
-# Configuration - read from environment
-CLAISTORE_GITHUB_REPO = os.getenv("CLAISTORE_GITHUB_REPO", "").strip()
-CLAISTORE_GITHUB_TOKEN = os.getenv("CLAISTORE_GITHUB_TOKEN", "").strip()
-CLAISTORE_GITHUB_BRANCH = os.getenv("CLAISTORE_GITHUB_BRANCH", "main").strip()
+# Configuration - read from environment at call time (not import time)
 CLAISTORE_SKILLS_DIR = "skills"
 CLAISTORE_INDEX_FILE = "index.json"
 
 
+def _repo() -> str:
+    return os.getenv("CLAISTORE_GITHUB_REPO", "").strip()
+
+
+def _token() -> str:
+    return os.getenv("CLAISTORE_GITHUB_TOKEN", "").strip()
+
+
+def _branch() -> str:
+    return os.getenv("CLAISTORE_GITHUB_BRANCH", "main").strip()
+
+
 def is_configured() -> bool:
     """Check if Claistore is configured with required credentials."""
-    return bool(CLAISTORE_GITHUB_REPO and CLAISTORE_GITHUB_TOKEN)
+    return bool(_repo() and _token())
 
 
 async def _claistore_github_request(method: str, path: str, data: Optional[Dict] = None) -> Dict:
@@ -34,9 +43,9 @@ async def _claistore_github_request(method: str, path: str, data: Optional[Dict]
     if not is_configured():
         raise RuntimeError("Claistore not configured: set CLAISTORE_GITHUB_REPO and CLAISTORE_GITHUB_TOKEN")
 
-    url = f"https://api.github.com/repos/{CLAISTORE_GITHUB_REPO}/contents/{CLAISTORE_SKILLS_DIR}/{path}"
+    url = f"https://api.github.com/repos/{_repo()}/contents/{CLAISTORE_SKILLS_DIR}/{path}"
     headers = {
-        "Authorization": f"Bearer {CLAISTORE_GITHUB_TOKEN}",
+        "Authorization": f"Bearer {_token()}",
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
     }
@@ -66,7 +75,7 @@ async def write_file(path: str, content: str, message: str) -> Dict:
     data = {
         "message": message,
         "content": base64.b64encode(content.encode("utf-8")).decode("ascii"),
-        "branch": CLAISTORE_GITHUB_BRANCH,
+        "branch": _branch(),
     }
     if sha:
         data["sha"] = sha
@@ -146,13 +155,41 @@ async def read_skill_file(skill_id: str) -> Tuple[Optional[str], Optional[Dict]]
         raise
 
 
-async def test_connection() -> Dict[str, Any]:
-    """Test the Claistore GitHub connection."""
-    if not is_configured():
+async def test_connection(repo: str = None, token: str = None, branch: str = None) -> Dict[str, Any]:
+    """Test the Claistore GitHub connection.
+
+    Optional overrides let the caller test credentials that haven't been saved yet.
+    """
+    test_repo = (repo or _repo()).strip()
+    test_token = (token or _token()).strip()
+    test_branch = (branch or _branch()).strip() or "main"
+
+    if not test_repo or not test_token:
         return {"ok": False, "error": "Claistore not configured (missing repo or token)"}
+
+    # Temporarily override env for the test
+    old_repo = os.environ.get("CLAISTORE_GITHUB_REPO")
+    old_token = os.environ.get("CLAISTORE_GITHUB_TOKEN")
+    old_branch = os.environ.get("CLAISTORE_GITHUB_BRANCH")
     try:
-        # Try to fetch the index as a connectivity test
+        os.environ["CLAISTORE_GITHUB_REPO"] = test_repo
+        os.environ["CLAISTORE_GITHUB_TOKEN"] = test_token
+        os.environ["CLAISTORE_GITHUB_BRANCH"] = test_branch
         await fetch_index()
-        return {"ok": True, "repo": CLAISTORE_GITHUB_REPO, "branch": CLAISTORE_GITHUB_BRANCH}
+        return {"ok": True, "repo": test_repo, "branch": test_branch}
     except Exception as e:
         return {"ok": False, "error": str(e)}
+    finally:
+        # Restore previous values
+        if old_repo is None:
+            os.environ.pop("CLAISTORE_GITHUB_REPO", None)
+        else:
+            os.environ["CLAISTORE_GITHUB_REPO"] = old_repo
+        if old_token is None:
+            os.environ.pop("CLAISTORE_GITHUB_TOKEN", None)
+        else:
+            os.environ["CLAISTORE_GITHUB_TOKEN"] = old_token
+        if old_branch is None:
+            os.environ.pop("CLAISTORE_GITHUB_BRANCH", None)
+        else:
+            os.environ["CLAISTORE_GITHUB_BRANCH"] = old_branch
