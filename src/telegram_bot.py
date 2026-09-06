@@ -2883,7 +2883,7 @@ async def handle_api_context_usage(request):
 async def handle_api_updates_check(request):
     channel = str(request.query.get("channel", "")).strip()
     try:
-        status = ota_update.check_for_updates(channel=channel)
+        status = ota_update.check_for_updates()
     except Exception as exc:
         status = {
             "ok": False,
@@ -2904,7 +2904,7 @@ async def handle_api_updates_check(request):
 async def handle_api_updates_apply(request):
     body = request._json_body if isinstance(request._json_body, dict) else {}
     channel = str(body.get("channel", "")).strip()
-    result = ota_update.apply_update(channel=channel)
+    result = ota_update.apply_update()
     http_status = 200 if result.get("ok") else 400
 
     if result.get("ok") and result.get("restarting_now"):
@@ -2915,6 +2915,24 @@ async def handle_api_updates_apply(request):
         asyncio.create_task(_exit_after_response())
 
     return web.json_response(result, status=http_status)
+
+
+@require_auth_csrf
+async def handle_api_updates_rollback(request):
+    from aiohttp import web
+    import ota_update
+
+    result = ota_update.rollback_update()
+
+    if result.get("restarting_now"):
+        # Schedule exit after response
+        import asyncio
+        async def delayed_exit():
+            await asyncio.sleep(1)
+            os._exit(0)
+        asyncio.create_task(delayed_exit())
+
+    return web.json_response(result)
 
 
 @require_auth_csrf
@@ -3968,6 +3986,7 @@ async def main():
     web_app.router.add_post("/api/settings", handle_api_settings_post)
     web_app.router.add_get("/api/updates/check", handle_api_updates_check)
     web_app.router.add_post("/api/updates/apply", handle_api_updates_apply)
+    web_app.router.add_post("/api/updates/rollback", handle_api_updates_rollback)
     web_app.router.add_get("/api/context-usage", handle_api_context_usage)
     web_app.router.add_get("/api/google/status", handle_api_google_status)
     web_app.router.add_post("/api/google/connect", handle_api_google_connect)
