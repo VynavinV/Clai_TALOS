@@ -477,6 +477,100 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(HELP_TEXT)
 
 
+async def cmd_checkupdate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Check for OTA updates."""
+    import ota_update
+
+    uid = update.effective_user.id
+    if not db.has_user_profile(uid):
+        await update.message.reply_text("Please complete onboarding first with /start.")
+        return
+
+    await update.message.reply_text("Checking for updates...")
+
+    result = ota_update.check_for_updates()
+
+    if not result.get("ok"):
+        await update.message.reply_text(f"❌ Check failed: {result.get('error', 'Unknown error')}")
+        return
+
+    if not result.get("enabled", True):
+        await update.message.reply_text("⚠️ OTA updates are disabled.")
+        return
+
+    if result.get("update_available"):
+        commits = result.get("commits_behind", 0)
+        latest = result.get("latest_version", "unknown")
+        await update.message.reply_text(
+            f"✅ Update available!\n\n"
+            f"Current: {result.get('current_version', 'unknown')}\n"
+            f"Latest: {latest}\n"
+            f"Commits behind: {commits}\n\n"
+            f"Use /update to apply."
+        )
+    else:
+        await update.message.reply_text(
+            f"✅ You're up to date!\n"
+            f"Current version: {result.get('current_version', 'unknown')}"
+        )
+
+
+async def cmd_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Apply OTA update."""
+    import ota_update
+
+    uid = update.effective_user.id
+    if not db.has_user_profile(uid):
+        await update.message.reply_text("Please complete onboarding first with /start.")
+        return
+
+    await update.message.reply_text("Applying update...")
+
+    result = ota_update.apply_update()
+
+    if not result.get("ok"):
+        error = result.get("error", "Unknown error")
+        await update.message.reply_text(f"❌ Update failed: {error}")
+        if result.get("restart_required"):
+            await update.message.reply_text("⚠️ Please restart manually with: clai restart")
+        return
+
+    if result.get("restarting_now"):
+        await update.message.reply_text(
+            f"✅ Update applied!\n"
+            f"Rollback tag: {result.get('rollback_tag', 'created')}\n"
+            f"Restarting now... Bot will be back in ~15 seconds."
+        )
+    else:
+        await update.message.reply_text("✅ Update ready. Please restart manually.")
+
+
+async def cmd_rollback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Rollback to previous version."""
+    import ota_update
+
+    uid = update.effective_user.id
+    if not db.has_user_profile(uid):
+        await update.message.reply_text("Please complete onboarding first with /start.")
+        return
+
+    await update.message.reply_text("Rolling back to previous version...")
+
+    result = ota_update.rollback_update()
+
+    if not result.get("ok"):
+        await update.message.reply_text(f"❌ Rollback failed: {result.get('error', 'Unknown error')}")
+        return
+
+    if result.get("restarting_now"):
+        await update.message.reply_text(
+            f"✅ Rollback successful!\n"
+            f"Restarting now... Bot will be back in ~15 seconds."
+        )
+    else:
+        await update.message.reply_text("✅ Rollback ready. Please restart manually.")
+
+
 async def cmd_clear(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     uid = update.effective_user.id
     if not db.has_user_profile(uid):
@@ -826,6 +920,9 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("clear", cmd_clear))
     app.add_handler(CommandHandler("fast", cmd_fast))
     app.add_handler(CommandHandler("help", cmd_help))
+    app.add_handler(CommandHandler("checkupdate", cmd_checkupdate))
+    app.add_handler(CommandHandler("update", cmd_update))
+    app.add_handler(CommandHandler("rollback", cmd_rollback))
     app.add_handler(CallbackQueryHandler(callback_model, pattern=r"^model:"))
     app.add_handler(CallbackQueryHandler(callback_speed, pattern=r"^speed:"))
     app.add_handler(CallbackQueryHandler(callback_reasoning, pattern=r"^reasoning:"))

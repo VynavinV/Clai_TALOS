@@ -203,6 +203,9 @@ async def _post_init(application: Application) -> None:
         BotCommand("fast", "Use fast model for next message"),
         BotCommand("clear", "Clear chat history"),
         BotCommand("help", "Show help message"),
+        BotCommand("checkupdate", "Check for OTA updates"),
+        BotCommand("update", "Apply OTA update"),
+        BotCommand("rollback", "Rollback to previous version"),
     ]
     await application.bot.set_my_commands(commands)
 
