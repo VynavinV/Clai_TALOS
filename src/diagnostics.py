@@ -804,10 +804,12 @@ async def check_ota() -> CheckResult:
     # Try a lightweight check: fetch with --dry-run to verify connectivity
     # without modifying anything. This is the OTA "self-test" entry point.
     try:
+        # Configure safe.directory inline to bypass git's ownership check
+        git_cmd = [git, "-c", f"safe.directory={repo_root}"]
         result = await asyncio.get_event_loop().run_in_executor(
             None,
             lambda: ota_update._run(
-                [git, "-C", repo_root, "fetch", "--dry-run", "--quiet", "origin"],
+                git_cmd + ["-C", repo_root, "fetch", "--dry-run", "--quiet", "origin"],
                 timeout=30,
             ),
         )

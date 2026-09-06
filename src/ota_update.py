@@ -41,6 +41,16 @@ def _git_bin() -> str | None:
     return shutil.which("git")
 
 
+def _git_cmd(repo_root: str) -> list[str]:
+    """Return base git command with safe.directory configured to avoid ownership errors."""
+    git = _git_bin()
+    if not git:
+        return []
+    # Configure safe.directory inline to bypass git's ownership check
+    # This is needed when the service runs as a different user than the repo owner
+    return [git, "-c", f"safe.directory={repo_root}"]
+
+
 def current_version() -> str:
     configured = str(os.getenv("TALOS_VERSION", "")).strip()
     if configured:
@@ -52,11 +62,11 @@ def current_version() -> str:
         return "unknown"
 
     try:
-        result = _run([git, "-C", repo_root, "rev-parse", "--short", "HEAD"], timeout=10)
+        result = _run(_git_cmd(repo_root) + ["-C", repo_root, "rev-parse", "--short", "HEAD"], timeout=10)
         if result.returncode == 0:
             version = result.stdout.strip()
             # Check if dirty
-            dirty = _run([git, "-C", repo_root, "diff", "--quiet", "--ignore-submodules", "HEAD"], timeout=10)
+            dirty = _run(_git_cmd(repo_root) + ["-C", repo_root, "diff", "--quiet", "--ignore-submodules", "HEAD"], timeout=10)
             if dirty.returncode != 0:
                 version += "-dirty"
             return version
@@ -107,7 +117,7 @@ def _create_rollback_tag() -> str:
     timestamp = time.strftime("%Y%m%d-%H%M%S")
     tag = f"talos-rollback-{timestamp}"
 
-    result = _run([git, "-C", repo_root, "tag", "-f", tag, "HEAD"], timeout=10)
+    result = _run(_git_cmd(repo_root) + ["-C", repo_root, "tag", "-f", tag, "HEAD"], timeout=10)
     if result.returncode != 0:
         raise RuntimeError(f"Failed to create rollback tag: {result.stderr}")
 
@@ -120,7 +130,7 @@ def _delete_rollback_tag(tag: str) -> None:
     if not git or not _has_git_checkout(repo_root):
         return
 
-    _run([git, "-C", repo_root, "tag", "-d", tag], timeout=10)
+    _run(_git_cmd(repo_root) + ["-C", repo_root, "tag", "-d", tag], timeout=10)
 
 
 def _health_check(timeout_s: int = 30) -> bool:
@@ -196,7 +206,7 @@ def check_for_updates() -> dict:
 
     # Fetch latest
     try:
-        fetch = _run([git, "-C", repo_root, "fetch", "--quiet", "origin"], timeout=60)
+        fetch = _run(_git_cmd(repo_root) + ["-C", repo_root, "fetch", "--quiet", "origin"], timeout=60)
         if fetch.returncode != 0:
             base["ok"] = False
             base["error"] = f"git fetch failed: {fetch.stderr}"
@@ -208,8 +218,8 @@ def check_for_updates() -> dict:
 
     # Compare HEAD vs origin/HEAD
     try:
-        head = _run([git, "-C", repo_root, "rev-parse", "HEAD"], timeout=10)
-        remote_head = _run([git, "-C", repo_root, "rev-parse", "origin/HEAD"], timeout=10)
+        head = _run(_git_cmd(repo_root) + ["-C", repo_root, "rev-parse", "HEAD"], timeout=10)
+        remote_head = _run(_git_cmd(repo_root) + ["-C", repo_root, "rev-parse", "origin/HEAD"], timeout=10)
 
         if head.returncode != 0 or remote_head.returncode != 0:
             base["ok"] = False
@@ -220,7 +230,7 @@ def check_for_updates() -> dict:
         remote_commit = remote_head.stdout.strip()
 
         # Count commits behind
-        behind = _run([git, "-C", repo_root, "rev-list", "--count", f"{local_commit}..{remote_commit}"], timeout=10)
+        behind = _run(_git_cmd(repo_root) + ["-C", repo_root, "rev-list", "--count", f"{local_commit}..{remote_commit}"], timeout=10)
         behind_count = int(behind.stdout.strip()) if behind.returncode == 0 and behind.stdout.strip().isdigit() else 0
 
         available = behind_count > 0
@@ -228,7 +238,7 @@ def check_for_updates() -> dict:
         # Get latest commit info
         latest_commit = {}
         if available:
-            log = _run([git, "-C", repo_root, "log", "-1", "--format=%H|%s|%an|%ad", remote_commit], timeout=10)
+            log = _run(_git_cmd(repo_root) + ["-C", repo_root, "log", "-1", "--format=%H|%s|%an|%ad", remote_commit], timeout=10)
             if log.returncode == 0:
                 parts = log.stdout.strip().split("|", 3)
                 if len(parts) >= 4:
@@ -273,7 +283,7 @@ def apply_update() -> dict:
 
     # Create rollback tag
     try:
-        previous_head = _run([git, "-C", repo_root, "rev-parse", "HEAD"], timeout=10).stdout.strip()
+        previous_head = _run(_git_cmd(repo_root) + ["-C", repo_root, "rev-parse", "HEAD"], timeout=10).stdout.strip()
         tag = _create_rollback_tag()
         commit_count = status.get("commits_behind", 0)
         _save_rollback_metadata(tag, previous_head, commit_count)
@@ -282,7 +292,7 @@ def apply_update() -> dict:
 
     # Pull updates
     try:
-        pull = _run([git, "-C", repo_root, "pull", "--ff-only", "origin"], timeout=180)
+        pull = _run(_git_cmd(repo_root) + ["-C", repo_root, "pull", "--ff-only", "origin"], timeout=180)
         if pull.returncode != 0:
             return {
                 "ok": False,
@@ -373,13 +383,13 @@ def rollback_update() -> dict:
         return {"ok": False, "error": "Git checkout not found"}
 
     # Verify tag exists
-    tag_check = _run([git, "-C", repo_root, "tag", "-l", tag], timeout=10)
+    tag_check = _run(_git_cmd(repo_root) + ["-C", repo_root, "tag", "-l", tag], timeout=10)
     if tag_check.returncode != 0 or tag not in tag_check.stdout:
         return {"ok": False, "error": f"Rollback tag '{tag}' not found."}
 
     # Reset to tag
     try:
-        reset = _run([git, "-C", repo_root, "reset", "--hard", tag], timeout=30)
+        reset = _run(_git_cmd(repo_root) + ["-C", repo_root, "reset", "--hard", tag], timeout=30)
         if reset.returncode != 0:
             return {
                 "ok": False,
