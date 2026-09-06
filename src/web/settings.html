@@ -135,6 +135,8 @@
   .btn:disabled { opacity: 0.4; cursor: not-allowed; }
   .btn-danger { background: rgba(245,101,101,0.15); border-color: rgba(245,101,101,0.3); color: #f56565; }
   .btn-danger:hover { background: rgba(245,101,101,0.25); }
+  .btn-warning { background: rgba(214,158,46,0.15); border-color: rgba(214,158,46,0.3); color: #d69e2e; }
+  .btn-warning:hover { background: rgba(214,158,46,0.25); }
   .msg { font-size: 0.82rem; margin-top: 1rem; min-height: 1.2em; }
   .msg-ok { color: #48bb78; } .msg-err { color: #f56565; }
   .status-line { font-size: 0.8rem; color: #888; margin-top: 0.5rem; }
@@ -298,6 +300,10 @@
       <button class="btn" id="ota-apply-btn" onclick="applyOtaUpdate()" disabled>Download and Apply</button>
     </div>
     <div class="status-line" id="ota-status-line"></div>
+    <div class="form-group" id="ota-rollback-group" style="display:none; margin-top:1rem;">
+      <button type="button" class="btn btn-warning" id="ota-rollback-btn">Rollback to Previous Version</button>
+      <div id="ota-rollback-info" style="margin-top:0.5rem; font-size:0.9em; color:#888;"></div>
+    </div>
     <div class="form-group" style="margin-top:0.8rem;">
       <label>Release Notes Preview</label>
       <textarea id="ota-release-notes" readonly style="min-height:120px; background:rgba(255,255,255,0.02);" placeholder="Release notes will appear after checking for updates."></textarea>
@@ -1245,8 +1251,29 @@ function startContextUsagePolling() {
   contextUsageTimer = setInterval(loadContextUsage, 3000);
 }
 
+function renderOtaRollback(data) {
+  var rollbackGroup = document.getElementById('ota-rollback-group');
+  var rollbackBtn = document.getElementById('ota-rollback-btn');
+  var rollbackInfo = document.getElementById('ota-rollback-info');
+  if (!rollbackGroup || !rollbackBtn || !rollbackInfo) return;
+
+  if (!data || !data.rollback_available) {
+    rollbackGroup.style.display = 'none';
+    rollbackInfo.textContent = '';
+    return;
+  }
+
+  var parts = [];
+  if (data.rollback_tag) parts.push('Rollback tag: ' + data.rollback_tag);
+  if (data.rollback_timestamp) parts.push('Saved: ' + data.rollback_timestamp);
+  rollbackInfo.textContent = parts.join(' | ') || 'Rollback available.';
+  rollbackGroup.style.display = 'block';
+}
+
 function renderOtaStatus(data) {
   _otaStatus = data || null;
+
+  renderOtaRollback(data);
 
   var currentEl = document.getElementById('ota-current-version');
   var latestEl = document.getElementById('ota-latest-version');
@@ -1389,6 +1416,61 @@ async function applyOtaUpdate() {
 
   applyBtn.disabled = false;
 }
+
+// Fallback: refresh rollback availability without re-rendering the whole OTA card.
+async function checkRollbackAvailable() {
+  var rollbackGroup = document.getElementById('ota-rollback-group');
+  if (!rollbackGroup) return;
+
+  try {
+    var resp = await fetch('/api/updates/check');
+    var data = await resp.json();
+    renderOtaRollback(data);
+  } catch (e) {
+    rollbackGroup.style.display = 'none';
+  }
+}
+
+async function rollbackOtaUpdate() {
+  if (!confirm('Rollback to the previous version? This will restart the bot.')) return;
+
+  var btn = document.getElementById('ota-rollback-btn');
+  var statusEl = document.getElementById('ota-status-line');
+  btn.disabled = true;
+  btn.textContent = 'Rolling back...';
+  statusEl.textContent = 'Rolling back to the previous version...';
+
+  try {
+    // CSRF token must be sent in the JSON body; _post() injects it.
+    var res = await _post('/api/updates/rollback', {});
+    if (res.status === 401) { window.location.href = '/'; return; }
+
+    var result = await res.json();
+
+    if (result.ok && result.restarting_now) {
+      btn.textContent = 'Restarting now...';
+      statusEl.textContent = result.message || 'Rolled back. Restarting now...';
+      showMsg('Rollback complete. Restarting now...', true);
+      setTimeout(function() { window.location.reload(); }, 15000);
+      return;
+    }
+
+    showMsg(result.error || 'Rollback failed.', false);
+    statusEl.textContent = result.error || 'Rollback failed.';
+    btn.disabled = false;
+    btn.textContent = 'Rollback to Previous Version';
+  } catch (e) {
+    showMsg('Rollback request failed.', false);
+    statusEl.textContent = 'Rollback request failed.';
+    btn.disabled = false;
+    btn.textContent = 'Rollback to Previous Version';
+  }
+}
+
+(function() {
+  var rollbackBtn = document.getElementById('ota-rollback-btn');
+  if (rollbackBtn) rollbackBtn.addEventListener('click', rollbackOtaUpdate);
+})();
 
 async function testClaistoreConfig() {
   var repo = document.getElementById('claistore-repo').value.trim();

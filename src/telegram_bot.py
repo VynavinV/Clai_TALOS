@@ -2894,8 +2894,23 @@ async def handle_api_updates_check(request):
             "update_available": False,
             "can_apply": False,
             "apply_message": "",
+            "rollback_available": False,
             "error": f"Could not load OTA status: {exc}",
         }
+
+    # Add rollback info (check_for_updates() does not return it).
+    try:
+        rollback_meta = ota_update._load_rollback_metadata()
+    except Exception:
+        rollback_meta = None
+
+    if rollback_meta:
+        status["rollback_available"] = True
+        status["rollback_tag"] = rollback_meta.get("tag", "")
+        status["rollback_timestamp"] = rollback_meta.get("timestamp", "")
+    else:
+        status["rollback_available"] = False
+
     http_status = 200 if status.get("ok") else 502
     return web.json_response(status, status=http_status)
 
