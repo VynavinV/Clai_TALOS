@@ -74,7 +74,7 @@ def _save_rollback_metadata(tag: str, previous_head: str, commit_count: int) -> 
 
     metadata = {
         "tag": tag,
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
         "previous_head": previous_head,
         "commit_count": commit_count,
     }
