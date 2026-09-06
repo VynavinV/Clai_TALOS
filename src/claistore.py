@@ -159,6 +159,7 @@ async def test_connection(repo: str = None, token: str = None, branch: str = Non
     """Test the Claistore GitHub connection.
 
     Optional overrides let the caller test credentials that haven't been saved yet.
+    Makes a direct API call without touching os.environ, so concurrent calls are safe.
     """
     test_repo = (repo or _repo()).strip()
     test_token = (token or _token()).strip()
@@ -167,29 +168,23 @@ async def test_connection(repo: str = None, token: str = None, branch: str = Non
     if not test_repo or not test_token:
         return {"ok": False, "error": "Claistore not configured (missing repo or token)"}
 
-    # Temporarily override env for the test
-    old_repo = os.environ.get("CLAISTORE_GITHUB_REPO")
-    old_token = os.environ.get("CLAISTORE_GITHUB_TOKEN")
-    old_branch = os.environ.get("CLAISTORE_GITHUB_BRANCH")
+    url = f"https://api.github.com/repos/{test_repo}/contents/{CLAISTORE_SKILLS_DIR}/{CLAISTORE_INDEX_FILE}"
+    headers = {
+        "Authorization": f"Bearer {test_token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
     try:
-        os.environ["CLAISTORE_GITHUB_REPO"] = test_repo
-        os.environ["CLAISTORE_GITHUB_TOKEN"] = test_token
-        os.environ["CLAISTORE_GITHUB_BRANCH"] = test_branch
-        await fetch_index()
-        return {"ok": True, "repo": test_repo, "branch": test_branch}
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers) as resp:
+                if resp.status == 401 or resp.status == 403:
+                    return {"ok": False, "error": f"Authentication failed (HTTP {resp.status})"}
+                if resp.status == 404:
+                    return {"ok": False, "error": f"Repo or path not found (HTTP 404)"}
+                if resp.status >= 400:
+                    text = await resp.text()
+                    return {"ok": False, "error": f"GitHub API error {resp.status}: {text}"}
+                return {"ok": True, "repo": test_repo, "branch": test_branch}
     except Exception as e:
         return {"ok": False, "error": str(e)}
-    finally:
-        # Restore previous values
-        if old_repo is None:
-            os.environ.pop("CLAISTORE_GITHUB_REPO", None)
-        else:
-            os.environ["CLAISTORE_GITHUB_REPO"] = old_repo
-        if old_token is None:
-            os.environ.pop("CLAISTORE_GITHUB_TOKEN", None)
-        else:
-            os.environ["CLAISTORE_GITHUB_TOKEN"] = old_token
-        if old_branch is None:
-            os.environ.pop("CLAISTORE_GITHUB_BRANCH", None)
-        else:
-            os.environ["CLAISTORE_GITHUB_BRANCH"] = old_branch
