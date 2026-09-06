@@ -198,7 +198,81 @@ Use `--channel prerelease` if you want preview builds.
 
 This updater preserves runtime/user data in the target copy (for example `.env`, credentials, API keys, Telegram token, logs, database, projects, and local service configs) while overlaying updated code.
 
-### What startup does automatically
+## OTA Updates
+
+Clai TALOS includes an over-the-air (OTA) update system that pulls the latest code from the git remote and restarts the bot. Updates are source-git-only using `git pull --ff-only` and `clai restart`.
+
+### Checking for Updates
+
+**Telegram:** `/checkupdate`
+**Web Dashboard:** Settings → Over-the-Air Updates → "Check for Updates"
+**AI Agent:** Ask "Can you check for updates?"
+
+### Applying Updates
+
+**Telegram:** `/update`
+**Web Dashboard:** Settings → Over-the-Air Updates → "Download and Apply"
+**AI Agent:** Ask "Can you apply the update?"
+
+The update process:
+1. Creates a rollback tag at the current HEAD (e.g., `talos-rollback-20260905-143022`)
+2. Pulls latest code from git (`git pull --ff-only`)
+3. Installs Python dependencies (`pip install -r requirements.txt`)
+4. Restarts the bot via `clai restart`
+5. Best-effort health check with auto-rollback if it fails
+
+The bot will be unavailable for ~15 seconds during restart.
+
+### Rolling Back
+
+If an update causes issues, you can rollback to the previous version:
+
+**Telegram:** `/rollback`
+**Web Dashboard:** Settings → Over-the-Air Updates → "Rollback to Previous Version"
+**AI Agent:** Ask "Can you rollback the update?"
+
+The rollback process:
+1. Verifies the rollback tag exists (created by last `apply_update`)
+2. Resets git HEAD to the rollback tag (hard reset)
+3. Reinstalls Python dependencies
+4. Restarts the bot via `clai restart`
+5. Deletes the rollback tag and metadata
+
+### Configuration
+
+Environment variables:
+- `OTA_ENABLED=1` — Set to `0` to disable all OTA operations
+- `TALOS_VERSION` — Override the reported version string
+- `OTA_HEALTH_CHECK_URL` — URL to check after restart (default: `http://localhost:{PORT}/`)
+- `OTA_HEALTH_CHECK_TIMEOUT_S` — Health check timeout in seconds (default: 30)
+
+### Safety
+
+- Updates use `git pull --ff-only` to avoid merge conflicts
+- A rollback tag is created before every update
+- All API endpoints require authentication and CSRF protection
+- The AI agent will always confirm with the user before applying or rolling back updates
+- Health check runs after restart with automatic rollback if it fails
+
+### API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/updates/check` | Check for updates (returns update status + rollback availability) |
+| POST | `/api/updates/apply` | Apply update (requires auth + CSRF) |
+| POST | `/api/updates/rollback` | Rollback to previous version (requires auth + CSRF) |
+
+### Automatic Update Checks
+
+To set up automatic OTA notifications, create a cron job via the `/cron` Telegram command with a self-prompt:
+
+```
+self:check for OTA updates and notify me if one is available
+```
+
+The `ota_auto_check()` function in `src/cron_jobs.py` can also be called programmatically.
+
+## What startup does automatically
 
 The startup scripts (`start.sh`, `start.bat`) automatically:
 
@@ -246,6 +320,8 @@ This behavior is Linux-specific.
 - [Sudoers Behavior (Linux)](#sudoers-behavior-linux)
 - [First Boot and Onboarding](#first-boot-and-onboarding)
 - [Upgrade Older Copied Installs (Pre-OTA)](#upgrade-older-copied-installs-pre-ota)
+- [OTA Updates](#ota-updates)
+- [What startup does automatically](#what-startup-does-automatically)
 - [Dashboard Guide](#dashboard-guide)
 - [HTTP Routes and API Reference](#http-routes-and-api-reference)
 - [Configuration Reference (.env)](#configuration-reference-env)
