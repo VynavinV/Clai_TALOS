@@ -510,12 +510,16 @@ TALOS reads `.env` and supports hot reload for most runtime settings.
 | `ANTHROPIC_API_KEY` | empty | Anthropic provider key |
 | `NVIDIA_API_KEY` | empty | NVIDIA provider key |
 | `CEREBRAS_API_KEY` | empty | Cerebras provider key |
+| `GROQ_API_KEY` | empty | Groq provider key |
+| `QWEN_API_KEY` | empty | Qwen provider key |
 | `OPENROUTER_API_KEY` | empty | OpenRouter provider key |
 | `MAIN_MODEL` | auto best | Preferred text model |
 | `IMAGE_MODEL` | auto best | Preferred vision/image model |
 | `CLIENT_BASE_URL` | `https://api.z.ai/api/coding/paas/v4` | Zhipu API base URL |
 | `NVIDIA_BASE_URL` | `https://integrate.api.nvidia.com/v1` | NVIDIA API base URL |
 | `CEREBRAS_BASE_URL` | `https://api.cerebras.ai/v1` | Cerebras API base URL |
+| `GROQ_BASE_URL` | `https://api.groq.com/openai/v1` | Groq API base URL |
+| `QWEN_BASE_URL` | `https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1` | Qwen API base URL (international) |
 | `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | OpenRouter API base URL |
 
 ### Ollama (local models)

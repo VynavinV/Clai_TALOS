@@ -377,6 +377,7 @@ var PROVIDERS = [
   { id: 'nvidia', name: 'NVIDIA', env_key: 'NVIDIA_API_KEY', url: 'https://build.nvidia.com/', desc: 'NVIDIA hosted AI models' },
   { id: 'cerebras', name: 'Cerebras', env_key: 'CEREBRAS_API_KEY', url: 'https://cloud.cerebras.ai/', desc: 'High-speed Llama inference' },
   { id: 'groq', name: 'Groq', env_key: 'GROQ_API_KEY', url: 'https://console.groq.com/keys', desc: 'Fast Llama, GPT-OSS and Kimi inference' },
+  { id: 'qwen', name: 'Qwen', env_key: 'QWEN_API_KEY', url: 'https://www.alibabacloud.com/', desc: 'Alibaba Qwen models (Max, Plus, Turbo, Coder)' },
   { id: 'openrouter', name: 'OpenRouter', env_key: 'OPENROUTER_API_KEY', url: 'https://openrouter.ai/keys', desc: 'Access 200+ models through one API' },
   { id: 'mistral', name: 'Mistral', env_key: 'MISTRAL_API_KEY', url: 'https://console.mistral.ai/api-keys', desc: 'Mistral, Ministral, Codestral and Pixtral models' },
   { id: 'ollama', name: 'Ollama', env_key: '', url: 'https://ollama.com', desc: 'Local models, no API key needed' },
@@ -386,7 +387,7 @@ var _providerModels = {};
 var _providerKeys = {};
 var _activeProvider = '';
 var _fetchTimer = null;
-var _baseUrlValues = { zhipu: '', nvidia: '', cerebras: '', groq: '', openrouter: '', mistral: '', ollama: '' };
+var _baseUrlValues = { zhipu: '', nvidia: '', cerebras: '', groq: '', qwen: '', openrouter: '', mistral: '', ollama: '' };
 var _otaStatus = null;
 
 function _saveBaseUrls() {
@@ -399,6 +400,8 @@ function _saveBaseUrls() {
   if (el) _baseUrlValues.cerebras = el.value;
   el = document.getElementById('groq-base-url');
   if (el) _baseUrlValues.groq = el.value;
+  el = document.getElementById('qwen-base-url');
+  if (el) _baseUrlValues.qwen = el.value;
   el = document.getElementById('openrouter-base-url');
   if (el) _baseUrlValues.openrouter = el.value;
   el = document.getElementById('mistral-base-url');
@@ -553,6 +556,12 @@ function renderProviderPanels() {
       html += '<div class="form-group" style="margin-top:0.5rem;">'
         + '<label>Base URL</label>'
         + '<input type="text" id="groq-base-url" placeholder="https://api.groq.com/openai/v1" value="' + (_baseUrlValues.groq || '') + '">'
+        + '</div>';
+    }
+    if (p.id === 'qwen') {
+      html += '<div class="form-group" style="margin-top:0.5rem;">'
+        + '<label>Base URL</label>'
+        + '<input type="text" id="qwen-base-url" placeholder="https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1" value="' + (_baseUrlValues.qwen || '') + '">'
         + '</div>';
     }
     if (p.id === 'openrouter') {
@@ -1038,6 +1047,7 @@ async function loadSettings() {
       NVIDIA_API_KEY: d.NVIDIA_API_KEY || '',
       CEREBRAS_API_KEY: d.CEREBRAS_API_KEY || '',
       GROQ_API_KEY: d.GROQ_API_KEY || '',
+      QWEN_API_KEY: d.QWEN_API_KEY || '',
       OPENROUTER_API_KEY: d.OPENROUTER_API_KEY || '',
       MISTRAL_API_KEY: d.MISTRAL_API_KEY || '',
     };
@@ -1082,6 +1092,7 @@ async function loadSettings() {
     _baseUrlValues.nvidia = d.NVIDIA_BASE_URL || '';
     _baseUrlValues.cerebras = d.CEREBRAS_BASE_URL || '';
     _baseUrlValues.groq = d.GROQ_BASE_URL || '';
+    _baseUrlValues.qwen = d.QWEN_BASE_URL || '';
     _baseUrlValues.openrouter = d.OPENROUTER_BASE_URL || '';
     _baseUrlValues.mistral = d.MISTRAL_BASE_URL || '';
     _baseUrlValues.ollama = d.OLLAMA_BASE_URL || '';
@@ -1093,6 +1104,8 @@ async function loadSettings() {
     if (csbu) csbu.value = _baseUrlValues.cerebras;
     var gbu = document.getElementById('groq-base-url');
     if (gbu) gbu.value = _baseUrlValues.groq;
+    var qbu = document.getElementById('qwen-base-url');
+    if (qbu) qbu.value = _baseUrlValues.qwen;
     var orbu = document.getElementById('openrouter-base-url');
     if (orbu) orbu.value = _baseUrlValues.openrouter;
     var mbu = document.getElementById('mistral-base-url');
@@ -1463,6 +1476,7 @@ async function saveSettings() {
     NVIDIA_BASE_URL: (document.getElementById('nvidia-base-url') || {}).value || _baseUrlValues.nvidia || '',
     CEREBRAS_BASE_URL: (document.getElementById('cerebras-base-url') || {}).value || _baseUrlValues.cerebras || '',
     GROQ_BASE_URL: (document.getElementById('groq-base-url') || {}).value || _baseUrlValues.groq || '',
+    QWEN_BASE_URL: (document.getElementById('qwen-base-url') || {}).value || _baseUrlValues.qwen || '',
     OPENROUTER_BASE_URL: (document.getElementById('openrouter-base-url') || {}).value || _baseUrlValues.openrouter || '',
     MISTRAL_BASE_URL: (document.getElementById('mistral-base-url') || {}).value || _baseUrlValues.mistral || '',
     OLLAMA_BASE_URL: (document.getElementById('ollama-base-url') || {}).value || _baseUrlValues.ollama || '',

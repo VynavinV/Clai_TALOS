@@ -87,6 +87,18 @@ _PROVIDERS = {
         "patterns": ["groq"],
         "env_key": "GROQ_API_KEY",
     },
+    "qwen": {
+        "models": {
+            "qwen3max": "qwen3-max",
+            "qwenmax": "qwen-max",
+            "qwenplus": "qwen-plus",
+            "qwenturbo": "qwen-turbo",
+            "qwencoder": "qwen3-coder-plus",
+            "qwenvl": "qwen-vl-max",
+        },
+        "patterns": ["qwen"],
+        "env_key": "QWEN_API_KEY",
+    },
     "openrouter": {
         "models": {
             "claude4sonnet": "anthropic/claude-sonnet-4-20250514",
@@ -128,6 +140,7 @@ _zhipu_client = None
 _nvidia_client = None
 _cerebras_client = None
 _groq_client = None
+_qwen_client = None
 _openrouter_client = None
 _mistral_client = None
 _ollama_client = None
@@ -179,6 +192,7 @@ def _nvidia_endpoint(path: str) -> str:
 _NVIDIA_BASE_URL = _normalize_nvidia_base_url(os.getenv("NVIDIA_BASE_URL", _NVIDIA_DEFAULT_BASE_URL))
 _CEREBRAS_BASE_URL = os.getenv("CEREBRAS_BASE_URL", "https://api.cerebras.ai/v1")
 _GROQ_BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
+_QWEN_BASE_URL = os.getenv("QWEN_BASE_URL", "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1")
 _OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 _MISTRAL_BASE_URL = os.getenv("MISTRAL_BASE_URL", "https://api.mistral.ai/v1")
 _OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
@@ -240,8 +254,8 @@ def get_all_model_aliases() -> dict[str, str]:
 
 
 def reload_clients():
-    global _openai_client, _anthropic_client, _gemini_client, _zhipu_client, _nvidia_client, _cerebras_client, _groq_client, _openrouter_client, _mistral_client, _ollama_client
-    global _CLIENT_BASE_URL, _NVIDIA_BASE_URL, _CEREBRAS_BASE_URL, _GROQ_BASE_URL, _OPENROUTER_BASE_URL, _MISTRAL_BASE_URL, _OLLAMA_BASE_URL
+    global _openai_client, _anthropic_client, _gemini_client, _zhipu_client, _nvidia_client, _cerebras_client, _groq_client, _qwen_client, _openrouter_client, _mistral_client, _ollama_client
+    global _CLIENT_BASE_URL, _NVIDIA_BASE_URL, _CEREBRAS_BASE_URL, _GROQ_BASE_URL, _QWEN_BASE_URL, _OPENROUTER_BASE_URL, _MISTRAL_BASE_URL, _OLLAMA_BASE_URL
     _openai_client = None
     _anthropic_client = None
     _gemini_client = None
@@ -249,6 +263,7 @@ def reload_clients():
     _nvidia_client = None
     _cerebras_client = None
     _groq_client = None
+    _qwen_client = None
     _openrouter_client = None
     _mistral_client = None
     _ollama_client = None
@@ -257,6 +272,7 @@ def reload_clients():
     _NVIDIA_BASE_URL = _normalize_nvidia_base_url(os.getenv("NVIDIA_BASE_URL", _NVIDIA_DEFAULT_BASE_URL))
     _CEREBRAS_BASE_URL = os.getenv("CEREBRAS_BASE_URL", "https://api.cerebras.ai/v1")
     _GROQ_BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
+    _QWEN_BASE_URL = os.getenv("QWEN_BASE_URL", "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1")
     _OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
     _MISTRAL_BASE_URL = os.getenv("MISTRAL_BASE_URL", "https://api.mistral.ai/v1")
     _OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
@@ -351,6 +367,17 @@ def _get_groq_client():
             raise RuntimeError("GROQ_API_KEY not set")
         _groq_client = AsyncOpenAI(api_key=api_key, base_url=_GROQ_BASE_URL)
     return _groq_client
+
+
+def _get_qwen_client():
+    global _qwen_client
+    if _qwen_client is None:
+        from openai import AsyncOpenAI
+        api_key = os.getenv("QWEN_API_KEY")
+        if not api_key:
+            raise RuntimeError("QWEN_API_KEY not set")
+        _qwen_client = AsyncOpenAI(api_key=api_key, base_url=_QWEN_BASE_URL)
+    return _qwen_client
 
 
 def _get_openrouter_client():
@@ -1029,6 +1056,24 @@ async def call_groq(
     return await _openai_chat(client, kwargs)
 
 
+async def call_qwen(
+    model_id: str,
+    messages: list[dict],
+    tools: list[dict] | None,
+    runtime_profile: dict[str, Any] | None = None,
+) -> dict:
+    client = _get_qwen_client()
+    kwargs: dict[str, Any] = {
+        "model": model_id,
+        "messages": messages,
+    }
+    if tools:
+        kwargs["tools"] = _tools_to_openai(tools)
+        kwargs["tool_choice"] = "auto"
+
+    return await _openai_chat(client, kwargs)
+
+
 async def call_openrouter(
     model_id: str,
     messages: list[dict],
@@ -1316,6 +1361,7 @@ _CALLERS = {
     "nvidia": call_nvidia,
     "cerebras": call_cerebras,
     "groq": call_groq,
+    "qwen": call_qwen,
     "openrouter": call_openrouter,
     "mistral": call_mistral,
     "ollama": call_ollama,
@@ -1717,6 +1763,24 @@ def _fetch_groq_models(api_key: str) -> list[str]:
     return models if models else list(_PROVIDERS["groq"]["models"].values())
 
 
+def _fetch_qwen_models(api_key: str) -> list[str]:
+    import httpx
+    models = []
+    try:
+        r = httpx.get(
+            f"{_QWEN_BASE_URL}/models",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=10,
+        )
+        r.raise_for_status()
+        for m in r.json().get("data", []):
+            mid = m["id"]
+            models.append(mid)
+    except Exception:
+        pass
+    return models if models else list(_PROVIDERS["qwen"]["models"].values())
+
+
 def _fetch_openrouter_models(api_key: str) -> list[str]:
     import httpx
     models = []
@@ -1793,6 +1857,7 @@ def fetch_provider_models(provider: str, api_key: str) -> dict:
         "nvidia": _fetch_nvidia_models,
         "cerebras": _fetch_cerebras_models,
         "groq": _fetch_groq_models,
+        "qwen": _fetch_qwen_models,
         "openrouter": _fetch_openrouter_models,
         "mistral": _fetch_mistral_models,
         "ollama": _fetch_ollama_models,
@@ -2025,6 +2090,20 @@ def list_models_with_provider() -> list[str]:
             for m in r.json().get("data", []):
                 mid = m["id"]
                 tagged = "groq/" + mid
+                if tagged not in seen:
+                    seen.add(tagged)
+                    result.append(tagged)
+        except Exception:
+            pass
+
+    if os.getenv("QWEN_API_KEY"):
+        try:
+            import httpx
+            r = httpx.get(f"{_QWEN_BASE_URL}/models", headers={"Authorization": f"Bearer {os.getenv('QWEN_API_KEY')}"}, timeout=10)
+            r.raise_for_status()
+            for m in r.json().get("data", []):
+                mid = m["id"]
+                tagged = "qwen/" + mid
                 if tagged not in seen:
                     seen.add(tagged)
                     result.append(tagged)
