@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import socket
 import hmac
 import secrets
 import logging
@@ -13,10 +14,14 @@ import mimetypes
 import zlib
 import re
 import html
+import io
+import zipfile
 from datetime import datetime, timezone
 from dotenv import load_dotenv
+import aiohttp
 from aiohttp import web
 from telegram.ext import Application
+from telegram import BotCommand
 import bcrypt
 from bot_handlers import register_handlers, HELP_TEXT
 import AI
@@ -24,11 +29,17 @@ import db
 import cron_jobs
 import memory
 import gateway
+import dynamic_tools
 import model_router
 import core
 import google_integration
 import activity_tracker
+import ollama_setup
 import app_paths
+import ota_update
+import email_tools
+import diagnostics
+import claistore
 from auth_policy import MIN_DASHBOARD_PASSWORD_LENGTH, validate_dashboard_password
 
 SCRIPT_DIR = app_paths.resource_root()
@@ -58,8 +69,24 @@ MANAGED_KEYS = [
     {"env_key": "ANTHROPIC_API_KEY", "label": "Anthropic", "icon": "&#129302;"},
     {"env_key": "NVIDIA_API_KEY", "label": "NVIDIA", "icon": "&#9889;"},
     {"env_key": "CEREBRAS_API_KEY", "label": "Cerebras", "icon": "&#9889;"},
+    {"env_key": "GROQ_API_KEY", "label": "Groq", "icon": "&#9889;"},
+    {"env_key": "QWEN_API_KEY", "label": "Qwen", "icon": "&#9729;"},
     {"env_key": "OPENROUTER_API_KEY", "label": "OpenRouter", "icon": "&#128279;"},
+    {"env_key": "MISTRAL_API_KEY", "label": "Mistral", "icon": "&#127787;"},
 ]
+
+PROVIDER_ENV_KEYS = {
+    "openai": "OPENAI_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+    "gemini": "GEMINI_API_KEY",
+    "zhipu": "ZHIPUAI_API_KEY",
+    "nvidia": "NVIDIA_API_KEY",
+    "cerebras": "CEREBRAS_API_KEY",
+    "groq": "GROQ_API_KEY",
+    "qwen": "QWEN_API_KEY",
+    "openrouter": "OPENROUTER_API_KEY",
+    "mistral": "MISTRAL_API_KEY",
+}
 
 SESSION_COOKIE = "talos_session"
 SESSION_MAX_AGE = 86400
@@ -74,6 +101,80 @@ CSRF_MAX_AGE = 3600
 WEB_CHAT_MAX_INLINE_IMAGE_BYTES = 2 * 1024 * 1024
 WEB_CHAT_MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 WEB_UPLOAD_DIR = app_paths.web_upload_dir()
+COMMUNITY_HUB_DIR = app_paths.community_hub_dir()
+COMMUNITY_HUB_PACKAGES_DIR = app_paths.community_hub_packages_dir()
+COMMUNITY_HUB_INSTALLED_DIR = app_paths.data_path("community_hub", "installed")
+COMMUNITY_HUB_INDEX_FILE = app_paths.community_hub_index_path()
+COMMUNITY_HUB_MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+COMMUNITY_HUB_MAX_ITEMS = 500
+COMMUNITY_HUB_ALLOWED_EXTENSIONS = frozenset({
+    ".zip", ".json", ".md", ".txt", ".yaml", ".yml", ".toml", ".py",
+})
+
+# Claistore config is now in claistore.py module
+
+COMMUNITY_BUILTIN_GUI_SKILL_ID = "builtin_gui_desktop_operator_skill"
+COMMUNITY_BUILTIN_GUI_SKILL_REL_PATH = os.path.join("community", "universal_gui_desktop_operator_skill.md")
+COMMUNITY_BUILTIN_GUI_SKILL_FALLBACK = """# Universal GUI Desktop Access Skill
+
+This community skill helps Clai automate desktop GUI apps on the local computer.
+It is designed for broad app coverage with explicit user approval and safety checks.
+
+## Core capabilities
+- Open and focus desktop applications.
+- Navigate windows, menus, buttons, and form fields.
+- Read screen state with screenshots and OCR.
+- Run repeatable GUI workflows across different applications.
+
+## Safety contract
+- Ask for confirmation before any destructive or irreversible action.
+- Restrict actions to the app and window the user names.
+- Announce planned click and type steps before execution.
+- Stop and ask for help when UI state is uncertain.
+
+## Suggested dependencies
+- pyautogui
+- pygetwindow
+- pillow
+- mss
+- pytesseract
+
+## Recommended flow
+1. Confirm the target app and action boundaries.
+2. Open or focus the target window.
+3. Capture a screenshot to verify controls.
+4. Perform actions step-by-step with checkpoints.
+5. Summarize outcomes and attach evidence.
+"""
+_COMMUNITY_BUILTIN_ITEMS = {
+    COMMUNITY_BUILTIN_GUI_SKILL_ID: {
+        "id": COMMUNITY_BUILTIN_GUI_SKILL_ID,
+        "name": "Universal GUI Desktop Access Skill",
+        "kind": "skill",
+        "description": (
+            "Guided desktop automation skill for operating nearly any GUI app on the host machine "
+            "with explicit user confirmation checkpoints."
+        ),
+        "author": "Clai Community",
+        "file_name": "universal_gui_desktop_operator_skill.md",
+        "mime": "text/markdown; charset=utf-8",
+        "uploaded_at": "2026-04-19T00:00:00+00:00",
+        "downloads": 0,
+        "resource_rel_path": COMMUNITY_BUILTIN_GUI_SKILL_REL_PATH,
+        "fallback_text": COMMUNITY_BUILTIN_GUI_SKILL_FALLBACK,
+    },
+}
+_OPENCLAW_COMPAT_KEYS = frozenset({
+    "openclaw",
+    "openclaw_version",
+    "tools",
+    "tool",
+    "skills",
+    "skill",
+})
+_OPENCLAW_MAX_IMPORT_ITEMS = 64
+_OPENCLAW_ZIP_SCAN_LIMIT = 300
+_OPENCLAW_ZIP_JSON_SIZE_LIMIT = 2 * 1024 * 1024
 GOOGLE_OAUTH_PENDING_MAX_AGE = 900
 google_oauth_pending: dict[str, dict] = {}
 start_time = None
@@ -81,6 +182,7 @@ _telegram_runtime_app: Application | None = None
 _telegram_runtime_token: str = ""
 _telegram_runtime_lock: asyncio.Lock | None = None
 
+logger = logging.getLogger("talos")
 security_logger = logging.getLogger("talos.security")
 security_logger.setLevel(logging.INFO)
 handler = logging.FileHandler(SECURITY_LOG)
@@ -91,6 +193,23 @@ if _migrated_runtime_items:
     print(f"[info] Migrated legacy runtime data to {app_paths.data_root()}: {', '.join(_migrated_runtime_items)}")
 
 
+async def _post_init(application: Application) -> None:
+    """Set bot commands so they appear in Telegram's / autocomplete menu."""
+    commands = [
+        BotCommand("start", "Start or restart the bot"),
+        BotCommand("model", "Change AI model"),
+        BotCommand("speed", "Set response speed (quick|fast|normal)"),
+        BotCommand("reasoning", "Toggle deep reasoning (on|off)"),
+        BotCommand("fast", "Use fast model for next message"),
+        BotCommand("clear", "Clear chat history"),
+        BotCommand("help", "Show help message"),
+        BotCommand("checkupdate", "Check for OTA updates"),
+        BotCommand("update", "Apply OTA update"),
+        BotCommand("rollback", "Rollback to previous version"),
+    ]
+    await application.bot.set_my_commands(commands)
+
+
 def _build_telegram_application(token: str) -> Application:
     app = (
         Application.builder()
@@ -99,6 +218,7 @@ def _build_telegram_application(token: str) -> Application:
         .read_timeout(30)
         .write_timeout(30)
         .pool_timeout(30)
+        .post_init(_post_init)
         .build()
     )
     register_handlers(app)
@@ -232,6 +352,22 @@ def needs_onboarding() -> bool:
     """Check if first-time onboarding is needed (no telegram token configured)."""
     env = _read_env_file()
     return not env.get("TELEGRAM_BOT_TOKEN", "").strip()
+
+
+def _write_env_file(env_vars: dict[str, str]) -> None:
+    """Write .env and lock it down.
+
+    This file holds API keys and the email app password. Written under a normal
+    umask it lands as 0664 — group- and world-readable — which is how a fresh
+    install ended up flagging its own permissions on first run.
+    """
+    with open(ENV_FILE, "w") as f:
+        for k, v in env_vars.items():
+            f.write(f"{k}={v}\n")
+    try:
+        os.chmod(ENV_FILE, 0o600)
+    except OSError:
+        pass
 
 
 def _read_env_file() -> dict[str, str]:
@@ -532,6 +668,352 @@ def check_funnel():
     return False, "not configured"
 
 
+# ---------------------------------------------------------------------------
+# Tailscale HTTPS
+#
+# The dashboard itself only ever speaks plain HTTP on the loopback port. HTTPS
+# comes from Tailscale terminating TLS in front of it — `tailscale serve` for
+# tailnet-only access, `tailscale funnel` for the public internet. Nothing set
+# either of those up automatically before, so every install stayed on HTTP.
+# ---------------------------------------------------------------------------
+
+# Tailnet-only by default. Funnel publishes to the whole internet, which is not
+# something setup should ever switch on without being asked.
+TAILSCALE_HTTPS_MODE = str(os.getenv("TAILSCALE_HTTPS_MODE", "serve")).strip().lower()
+_VALID_HTTPS_MODES = {"serve", "funnel", "off"}
+
+_CERT_HINT = (
+    "Enable HTTPS certificates for your tailnet at "
+    "https://login.tailscale.com/admin/dns (DNS → HTTPS Certificates), then try again."
+)
+
+
+def _run_tailscale(args: list[str], timeout: int = 20) -> tuple[int, str, str]:
+    """Run a tailscale subcommand. Returns (returncode, stdout, stderr).
+
+    The streams stay separate because tailscale writes a client/server version
+    skew warning to stderr on every call, and mixing that into stdout corrupts
+    the JSON that `status --json` produces.
+    """
+    tailscale_bin = _resolve_tailscale_bin()
+    if not tailscale_bin:
+        return 127, "", "tailscale is not installed or not on PATH"
+    try:
+        result = subprocess.run(
+            [tailscale_bin] + args,
+            capture_output=True, text=True, timeout=timeout,
+            stdin=subprocess.DEVNULL,
+        )
+    except subprocess.TimeoutExpired:
+        return 124, "", f"`tailscale {' '.join(args)}` timed out after {timeout}s"
+    except Exception as exc:
+        return 1, "", f"could not run tailscale: {exc}"
+    return result.returncode, (result.stdout or "").strip(), (result.stderr or "").strip()
+
+
+def _tailscale_output(code: int, stdout: str, stderr: str) -> str:
+    """Human-facing text for an error, preferring whichever stream spoke."""
+    return (stderr or stdout or "").strip()
+
+
+def get_serve_config() -> dict:
+    """Parsed `tailscale serve status --json`, or {} when nothing is configured."""
+    code, stdout, _ = _run_tailscale(["serve", "status", "--json"], timeout=10)
+    if code != 0:
+        return {}
+    start = stdout.find("{")
+    if start < 0:
+        return {}
+    try:
+        # raw_decode stops at the end of the first complete JSON value, so any
+        # trailing chatter after the object is ignored rather than fatal.
+        parsed, _ = json.JSONDecoder().raw_decode(stdout[start:])
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def probe_https_port(timeout: float = 4.0) -> tuple[bool, str]:
+    """Can anything actually accept TLS on this node's tailnet address:443?
+
+    Config alone is not proof. If two tailscaled daemons are installed (a
+    packaged one plus a GUI app, which is common on macOS and easy to end up
+    with on Linux), the CLI writes the serve config to one daemon while the
+    other one holds the tailnet address — so `serve status` looks perfect and
+    nothing is listening.
+    """
+    ip = get_tailscale_ip()
+    if not ip:
+        return False, "no Tailscale IP assigned"
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(timeout)
+    try:
+        sock.connect((ip, 443))
+        return True, f"{ip}:443 accepting connections"
+    except Exception as exc:
+        return False, f"{ip}:443 unreachable ({exc})"
+    finally:
+        sock.close()
+
+
+def tailscale_https_state() -> dict:
+    """Full picture of whether HTTPS is fronting the dashboard.
+
+    Returns {ok, configured, reachable, mode, detail, daemons, url}. Callers
+    grade severity themselves: "no config at all" is a different problem from
+    "configured but nothing is listening", and only the first is fixed by
+    running `tailscale serve` again.
+    """
+    base = {
+        "ok": False, "configured": False, "reachable": False,
+        "mode": "none", "detail": "", "daemons": 1, "url": "",
+    }
+
+    if not _resolve_tailscale_bin():
+        return {**base, "detail": "Tailscale is not installed."}
+
+    config = get_serve_config()
+    if not config:
+        return {**base, "detail": "Tailscale is not serving anything — the dashboard is HTTP only."}
+
+    target = f"127.0.0.1:{WEB_PORT}"
+    serving_us = False
+    for _, handlers in (config.get("Web") or {}).items():
+        for _, handler in (handlers.get("Handlers") or {}).items():
+            proxy = str(handler.get("Proxy", ""))
+            if target in proxy or f"localhost:{WEB_PORT}" in proxy:
+                serving_us = True
+                break
+
+    if not serving_us:
+        return {**base, "detail": f"Tailscale is serving something, but not the dashboard on port {WEB_PORT}."}
+
+    https_on = any(cfg.get("HTTPS") is True or str(cfg.get("HTTPS", "")).lower() == "true"
+                   for cfg in (config.get("TCP") or {}).values())
+    if not https_on:
+        return {**base, "detail": "Tailscale is proxying the dashboard, but not over HTTPS."}
+
+    mode = "funnel" if any((config.get("AllowFunnel") or {}).values()) else "serve"
+    hostname = get_tailscale_hostname() or ""
+    reachable, probe_detail = probe_https_port()
+    daemons = _count_tailscale_daemons() if not reachable else 1
+
+    if not reachable:
+        if daemons > 1:
+            detail = (
+                f"HTTPS is configured but not reachable ({probe_detail}). More than one Tailscale "
+                "daemon is running, so the serve config and the tailnet address belong to different "
+                "daemons — keep a single Tailscale installation."
+            )
+        else:
+            detail = (
+                f"HTTPS is configured but the port did not accept a connection ({probe_detail}). "
+                "If other devices on your tailnet can reach it, this is only a local self-connect "
+                "quirk; otherwise restart Tailscale."
+            )
+        return {
+            "ok": False, "configured": True, "reachable": False, "mode": mode,
+            "detail": detail, "daemons": daemons,
+            "url": f"https://{hostname}" if hostname else "",
+        }
+
+    detail = ("HTTPS is active and published publicly via Funnel." if mode == "funnel"
+              else "HTTPS is active on your tailnet via Tailscale Serve.")
+    return {
+        "ok": True, "configured": True, "reachable": True, "mode": mode,
+        "detail": detail, "daemons": daemons,
+        "url": f"https://{hostname}" if hostname else "",
+    }
+
+
+def check_tailscale_https() -> tuple[bool, str, str]:
+    """Backwards-compatible tuple view of `tailscale_https_state`."""
+    state = tailscale_https_state()
+    return state["ok"], state["detail"], state["mode"]
+
+
+def _count_tailscale_daemons() -> int:
+    """Rough count of running tailscaled-like processes. Best effort only."""
+    if sys.platform == "win32":
+        return 1
+    try:
+        result = subprocess.run(
+            ["ps", "ax", "-o", "comm="],
+            capture_output=True, text=True, timeout=8, stdin=subprocess.DEVNULL,
+        )
+    except Exception:
+        return 1
+    count = 0
+    for line in (result.stdout or "").splitlines():
+        # `-o comm=` yields the process name only. Matching full command lines
+        # counted worker threads and the probe itself, producing a false
+        # "duplicate daemon" verdict on ordinary single-daemon servers.
+        name = line.strip().rsplit("/", 1)[-1]
+        if name in ("tailscaled", "IPNExtension"):
+            count += 1
+    return max(1, count)
+
+
+def _is_permission_error(text: str) -> bool:
+    """Tailscale refusing to write serve config because we are not root/operator.
+
+    Looks like: `sending serve config: Access denied: serve config denied` with
+    a follow-up suggesting `sudo tailscale ...` or `tailscale set --operator`.
+    """
+    lowered = (text or "").lower()
+    return (
+        "access denied" in lowered
+        or "serve config denied" in lowered
+        or "operator" in lowered
+        or ("permission denied" in lowered and "tailscale" in lowered)
+    )
+
+
+def _sudo_available() -> bool:
+    """True when sudo runs without prompting for a password."""
+    if sys.platform == "win32" or not shutil.which("sudo"):
+        return False
+    try:
+        result = subprocess.run(
+            ["sudo", "-n", "true"],
+            capture_output=True, text=True, timeout=10, stdin=subprocess.DEVNULL,
+        )
+    except Exception:
+        return False
+    return result.returncode == 0
+
+
+def grant_tailscale_operator() -> tuple[bool, str]:
+    """Register the current user as Tailscale operator so serve needs no sudo.
+
+    This is the one-time fix Tailscale itself recommends. Doing it once means
+    every later `serve`/`funnel` call — at startup, from onboarding, from the
+    repair button — works as the service user with no password prompt.
+    """
+    tailscale_bin = _resolve_tailscale_bin()
+    if not tailscale_bin:
+        return False, "Tailscale is not installed."
+
+    user = os.getenv("USER") or os.getenv("LOGNAME") or ""
+    if not user:
+        try:
+            import getpass
+            user = getpass.getuser()
+        except Exception:
+            return False, "Could not determine the current username."
+
+    if not _sudo_available():
+        return False, (
+            f"Root access is required once to allow this account to configure Tailscale. Run:\n"
+            f"    sudo tailscale set --operator={user}\n"
+            "then run this repair again."
+        )
+
+    try:
+        result = subprocess.run(
+            ["sudo", "-n", tailscale_bin, "set", f"--operator={user}"],
+            capture_output=True, text=True, timeout=30, stdin=subprocess.DEVNULL,
+        )
+    except Exception as exc:
+        return False, f"Could not set the Tailscale operator: {exc}"
+
+    if result.returncode != 0:
+        detail = ((result.stderr or "") + (result.stdout or "")).strip()[:250]
+        return False, f"`sudo tailscale set --operator={user}` failed: {detail or 'no output'}"
+
+    return True, f"Registered '{user}' as the Tailscale operator."
+
+
+def enable_tailscale_https(mode: str = "") -> tuple[bool, str]:
+    """Put Tailscale in front of the dashboard on HTTPS. Idempotent.
+
+    Handles the permission gate automatically: on a fresh Linux install the
+    service account is not the Tailscale operator, so the first `serve` call is
+    denied. Rather than failing with Tailscale's raw message, we register the
+    operator once (the fix Tailscale itself recommends) and retry.
+
+    Note there is no permission pre-check anywhere in this flow. Tailscale
+    refuses *writes* only, so every read used as a probe succeeds and reports
+    that all is well — the denial is only discoverable by attempting the real
+    operation, which is what this function does.
+    """
+    requested = (str(mode or "").strip().lower() or TAILSCALE_HTTPS_MODE)
+    if requested not in _VALID_HTTPS_MODES:
+        return False, f"Unknown mode '{requested}'. Use serve, funnel or off."
+    if requested == "off":
+        return False, "Tailscale HTTPS is disabled (TAILSCALE_HTTPS_MODE=off)."
+
+    if not _resolve_tailscale_bin():
+        return False, "Tailscale is not installed. Install it from https://tailscale.com/download."
+
+    connected, detail = check_tailscale()
+    if not connected:
+        return False, f"Tailscale is not connected ({detail}). Run `tailscale up` and sign in first."
+
+    notes: list[str] = []
+
+    def _attempt() -> tuple[int, str]:
+        # `serve`/`funnel` with a bare port publishes HTTPS on 443 and proxies to it.
+        code, stdout, stderr = _run_tailscale([requested, "--bg", str(WEB_PORT)], timeout=45)
+        return code, _tailscale_output(code, stdout, stderr)
+
+    code, output = _attempt()
+
+    if code != 0 and _is_permission_error(output):
+        granted, grant_msg = grant_tailscale_operator()
+        notes.append(grant_msg)
+        if granted:
+            code, output = _attempt()
+        else:
+            # Last resort: run the command itself under sudo, if that is free.
+            if _sudo_available():
+                tailscale_bin = _resolve_tailscale_bin()
+                try:
+                    result = subprocess.run(
+                        ["sudo", "-n", tailscale_bin, requested, "--bg", str(WEB_PORT)],
+                        capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL,
+                    )
+                    code = result.returncode
+                    output = ((result.stderr or "") + (result.stdout or "")).strip()
+                except Exception as exc:
+                    code, output = 1, str(exc)
+
+    if code != 0:
+        lowered = output.lower()
+        if _is_permission_error(output):
+            user = os.getenv("USER") or "$USER"
+            return False, (
+                "Tailscale refused the request because this account is not permitted to "
+                f"configure it. Run this once, then retry:\n    sudo tailscale set --operator={user}"
+            )
+        if "https" in lowered and ("cert" in lowered or "disabled" in lowered or "enable" in lowered):
+            return False, f"Tailscale rejected the request: {output.splitlines()[0][:200]}. {_CERT_HINT}"
+        if "funnel" in lowered and ("not allowed" in lowered or "attribute" in lowered
+                                    or "not enabled" in lowered):
+            return False, (
+                f"Funnel is not permitted for this tailnet: {output.splitlines()[0][:200]}. "
+                "Enable Funnel at https://login.tailscale.com/admin/acls, or use tailnet-only "
+                "HTTPS by setting TAILSCALE_HTTPS_MODE=serve."
+            )
+        return False, f"`tailscale {requested}` failed: {output[:300] or 'no output'}"
+
+    state = tailscale_https_state()
+    if not state["ok"]:
+        return False, f"Command succeeded but HTTPS is still not active: {state['detail']}"
+
+    url = state["url"] or "your tailnet HTTPS address"
+    prefix = (" ".join(notes) + " ") if notes else ""
+    return True, f"{prefix}HTTPS enabled via Tailscale {state['mode']}. Dashboard: {url}"
+
+
+def disable_tailscale_https() -> tuple[bool, str]:
+    """Tear down the Tailscale serve/funnel config for this node."""
+    code, stdout, stderr = _run_tailscale(["serve", "reset"], timeout=30)
+    if code != 0:
+        return False, f"`tailscale serve reset` failed: {_tailscale_output(code, stdout, stderr)[:250]}"
+    return True, "Tailscale serve configuration cleared."
+
+
 def check_venv():
     if sys.platform == "win32":
         pip_path = os.path.join(VENV_DIR, "Scripts", "pip.exe")
@@ -611,6 +1093,668 @@ def _sanitize_upload_filename(filename: str) -> str:
         raw = "upload.bin"
     safe = re.sub(r"[^A-Za-z0-9._-]", "_", raw)
     return safe[:120] if safe else "upload.bin"
+
+
+def _sanitize_text_field(value: str, *, fallback: str = "", max_len: int = 160) -> str:
+    cleaned = re.sub(r"\s+", " ", str(value or "").strip())
+    if max_len > 0:
+        cleaned = cleaned[:max_len]
+    return cleaned or fallback
+
+
+def _load_builtin_community_content(item: dict) -> bytes:
+    rel_path = str(item.get("resource_rel_path", "")).strip()
+    if rel_path:
+        try:
+            base = os.path.realpath(SCRIPT_DIR)
+            candidate = os.path.realpath(os.path.join(base, rel_path))
+            if candidate != base and candidate.startswith(base + os.sep) and os.path.isfile(candidate):
+                with open(candidate, "rb") as f:
+                    payload = f.read()
+                if payload:
+                    return payload
+        except Exception:
+            pass
+
+    fallback_text = str(item.get("fallback_text", ""))
+    return fallback_text.encode("utf-8")
+
+
+def _resolve_builtin_community_item(item_id: str) -> tuple[dict, bytes] | None:
+    raw_item = _COMMUNITY_BUILTIN_ITEMS.get(item_id)
+    if not isinstance(raw_item, dict):
+        return None
+
+    item = dict(raw_item)
+    payload = _load_builtin_community_content(item)
+    item["file_name"] = _sanitize_upload_filename(item.get("file_name", "download.bin"))
+    item["mime"] = _sanitize_text_field(
+        item.get("mime", "application/octet-stream"),
+        fallback="application/octet-stream",
+        max_len=120,
+    )
+    item["size_bytes"] = len(payload)
+    item["downloads"] = max(0, int(item.get("downloads", 0) or 0))
+    return item, payload
+
+
+def _community_builtin_public_entries() -> list[dict]:
+    entries: list[dict] = []
+    for item_id in _COMMUNITY_BUILTIN_ITEMS.keys():
+        resolved = _resolve_builtin_community_item(item_id)
+        if resolved is None:
+            continue
+        item, _payload = resolved
+        entries.append(_community_public_entry(item))
+    return entries
+
+
+def _json_from_bytes(payload: bytes) -> object | None:
+    if not isinstance(payload, (bytes, bytearray)) or not payload:
+        return None
+
+    raw = bytes(payload)
+    for encoding in ("utf-8-sig", "utf-16", "utf-16-le", "utf-16-be"):
+        try:
+            text = raw.decode(encoding)
+        except Exception:
+            continue
+        try:
+            return json.loads(text)
+        except Exception:
+            continue
+    return None
+
+
+def _looks_like_openclaw_manifest(payload: object) -> bool:
+    if isinstance(payload, dict):
+        keys = {str(key).strip().lower() for key in payload.keys()}
+        if keys & _OPENCLAW_COMPAT_KEYS:
+            return True
+
+        payload_type = str(payload.get("type", "")).strip().lower()
+        if "openclaw" in payload_type:
+            return True
+
+        has_tool_shape = (
+            any(key in keys for key in {"command", "command_template", "cmd", "script", "shell"})
+            and any(key in keys for key in {"name", "id", "tool_name", "title"})
+        )
+        if has_tool_shape:
+            return True
+
+        has_skill_shape = (
+            any(key in keys for key in {"prompt", "instructions", "content", "text", "guide"})
+            and any(key in keys for key in {"name", "id", "title", "skill_name"})
+        )
+        if has_skill_shape:
+            return True
+
+        return False
+
+    if isinstance(payload, list):
+        for item in payload[:3]:
+            if _looks_like_openclaw_manifest(item):
+                return True
+
+    return False
+
+
+def _collect_openclaw_manifest_candidates(file_name: str, content: bytes) -> list[tuple[str, object]]:
+    candidates: list[tuple[str, object]] = []
+    lower_name = str(file_name or "").strip().lower()
+
+    if lower_name.endswith(".json"):
+        parsed = _json_from_bytes(content)
+        if parsed is not None:
+            candidates.append((file_name, parsed))
+        return candidates
+
+    if not lower_name.endswith(".zip"):
+        return candidates
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(content)) as archive:
+            scanned = 0
+            for info in archive.infolist():
+                scanned += 1
+                if scanned > _OPENCLAW_ZIP_SCAN_LIMIT:
+                    break
+
+                if info.is_dir():
+                    continue
+
+                member_name = str(info.filename or "")
+                member_lower = member_name.lower()
+                if not member_lower.endswith(".json"):
+                    continue
+                if info.file_size <= 0 or info.file_size > _OPENCLAW_ZIP_JSON_SIZE_LIMIT:
+                    continue
+
+                try:
+                    member_payload = archive.read(info)
+                except Exception:
+                    continue
+
+                parsed = _json_from_bytes(member_payload)
+                if parsed is None:
+                    continue
+
+                candidates.append((member_name, parsed))
+    except Exception:
+        return []
+
+    return candidates
+
+
+def _normalize_openclaw_identifier(value: str, *, prefix: str) -> str:
+    raw = re.sub(r"[^a-z0-9_]+", "_", str(value or "").strip().lower())
+    raw = re.sub(r"_+", "_", raw).strip("_")
+    if not raw:
+        raw = prefix
+    if not raw[0].isalpha():
+        raw = f"{prefix}_{raw}"
+    raw = re.sub(r"[^a-z0-9_]", "_", raw)
+    raw = re.sub(r"_+", "_", raw).strip("_")
+    if len(raw) < 3:
+        raw = (raw + "_" + prefix)[:63]
+    return raw[:63]
+
+
+def _normalize_openclaw_param_name(value: str) -> str:
+    raw = re.sub(r"[^A-Za-z0-9_]+", "_", str(value or "").strip())
+    raw = re.sub(r"_+", "_", raw).strip("_")
+    if not raw:
+        return ""
+    if not re.match(r"^[A-Za-z_]", raw):
+        raw = f"arg_{raw}"
+    return raw[:64]
+
+
+def _append_openclaw_candidate(candidates: list[dict], seen_ids: set[int], value: object) -> None:
+    if not isinstance(value, dict):
+        return
+    marker = id(value)
+    if marker in seen_ids:
+        return
+    seen_ids.add(marker)
+    candidates.append(value)
+
+
+def _extract_openclaw_tools(payload: object) -> list[dict]:
+    candidates: list[dict] = []
+    seen_ids: set[int] = set()
+
+    if isinstance(payload, dict):
+        for key in ("tools", "tool_defs", "toolset", "actions"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                for item in value:
+                    _append_openclaw_candidate(candidates, seen_ids, item)
+
+        _append_openclaw_candidate(candidates, seen_ids, payload.get("tool"))
+
+        keys = {str(key).strip().lower() for key in payload.keys()}
+        if (
+            any(key in keys for key in {"command", "command_template", "cmd", "script", "shell"})
+            and any(key in keys for key in {"name", "id", "tool_name", "title"})
+        ):
+            _append_openclaw_candidate(candidates, seen_ids, payload)
+
+    elif isinstance(payload, list):
+        for item in payload:
+            _append_openclaw_candidate(candidates, seen_ids, item)
+
+    return candidates
+
+
+def _extract_openclaw_skills(payload: object) -> list[dict]:
+    candidates: list[dict] = []
+    seen_ids: set[int] = set()
+
+    if isinstance(payload, dict):
+        for key in ("skills", "skill_defs", "prompts"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                for item in value:
+                    _append_openclaw_candidate(candidates, seen_ids, item)
+
+        _append_openclaw_candidate(candidates, seen_ids, payload.get("skill"))
+
+        keys = {str(key).strip().lower() for key in payload.keys()}
+        if (
+            any(key in keys for key in {"prompt", "instructions", "content", "text", "guide"})
+            and any(key in keys for key in {"name", "id", "title", "skill_name"})
+        ):
+            _append_openclaw_candidate(candidates, seen_ids, payload)
+
+    elif isinstance(payload, list):
+        for item in payload:
+            _append_openclaw_candidate(candidates, seen_ids, item)
+
+    return candidates
+
+
+def _openclaw_command_template(tool: dict) -> str:
+    command = (
+        tool.get("command_template")
+        or tool.get("command")
+        or tool.get("cmd")
+        or tool.get("script")
+        or tool.get("shell")
+    )
+
+    if isinstance(command, str):
+        return command.strip()
+
+    if isinstance(command, list):
+        parts = [str(part).strip() for part in command if str(part).strip()]
+        return " ".join(parts).strip()
+
+    if isinstance(command, dict):
+        nested = command.get("command") or command.get("cmd") or command.get("script")
+        if isinstance(nested, str):
+            return nested.strip()
+
+    return ""
+
+
+def _openclaw_parameter_spec(tool: dict) -> tuple[dict, list[str]]:
+    source = tool.get("parameters")
+    if source is None:
+        source = tool.get("args")
+    if source is None:
+        source = tool.get("input_schema")
+
+    properties: dict = {}
+    required: list[str] = []
+
+    if isinstance(source, dict):
+        schema_props = source.get("properties") if isinstance(source.get("properties"), dict) else None
+        raw_props = schema_props if schema_props is not None else source
+        raw_required = source.get("required") if isinstance(source.get("required"), list) else []
+
+        for raw_name, descriptor in raw_props.items():
+            if schema_props is None and raw_name in {"type", "properties", "required", "additionalProperties"}:
+                continue
+
+            param_name = _normalize_openclaw_param_name(raw_name)
+            if not param_name:
+                continue
+
+            if isinstance(descriptor, dict):
+                param_type = str(descriptor.get("type", "string")).strip().lower() or "string"
+                if param_type not in {"string", "number", "integer", "boolean"}:
+                    param_type = "string"
+                prop = {"type": param_type}
+                desc = str(descriptor.get("description", "")).strip()
+                if desc:
+                    prop["description"] = desc
+                properties[param_name] = prop
+            elif isinstance(descriptor, str):
+                text = descriptor.strip()
+                if text:
+                    properties[param_name] = text
+                else:
+                    properties[param_name] = {"type": "string"}
+            else:
+                properties[param_name] = {"type": "string"}
+
+        for raw_req in raw_required:
+            param_name = _normalize_openclaw_param_name(raw_req)
+            if param_name and param_name in properties and param_name not in required:
+                required.append(param_name)
+
+    elif isinstance(source, list):
+        for raw_name in source:
+            param_name = _normalize_openclaw_param_name(raw_name)
+            if not param_name:
+                continue
+            if param_name not in properties:
+                properties[param_name] = {"type": "string"}
+
+    tool_level_required = tool.get("required")
+    if isinstance(tool_level_required, list):
+        for raw_req in tool_level_required:
+            param_name = _normalize_openclaw_param_name(raw_req)
+            if param_name and param_name in properties and param_name not in required:
+                required.append(param_name)
+
+    return properties, required
+
+
+def _openclaw_skill_content(skill: dict) -> str:
+    for key in ("content", "prompt", "instructions", "text", "guide"):
+        value = skill.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    messages = skill.get("messages")
+    if isinstance(messages, list):
+        lines: list[str] = []
+        for item in messages[:30]:
+            if not isinstance(item, dict):
+                continue
+            role = str(item.get("role", "message")).strip() or "message"
+            text = str(item.get("content", "")).strip()
+            if not text:
+                continue
+            lines.append(f"- {role}: {text}")
+        if lines:
+            return "\n".join(lines)
+
+    return ""
+
+
+def _import_openclaw_compatibility(file_name: str, content: bytes) -> dict:
+    report = {
+        "detected": False,
+        "manifest_sources": [],
+        "tools_imported": 0,
+        "skills_imported": 0,
+        "tool_names": [],
+        "skill_docs": [],
+        "errors": [],
+    }
+
+    candidates = _collect_openclaw_manifest_candidates(file_name, content)
+    if not candidates:
+        return report
+
+    docs_dir = app_paths.dynamic_tools_docs_dir()
+    os.makedirs(docs_dir, exist_ok=True)
+
+    for source_name, payload in candidates:
+        if not _looks_like_openclaw_manifest(payload):
+            continue
+
+        report["detected"] = True
+        report["manifest_sources"].append(source_name)
+
+        tool_candidates = _extract_openclaw_tools(payload)[:_OPENCLAW_MAX_IMPORT_ITEMS]
+        skill_candidates = _extract_openclaw_skills(payload)[:_OPENCLAW_MAX_IMPORT_ITEMS]
+
+        for idx, tool in enumerate(tool_candidates, start=1):
+            raw_name = (
+                tool.get("name")
+                or tool.get("tool_name")
+                or tool.get("id")
+                or tool.get("title")
+                or f"openclaw_tool_{idx}"
+            )
+            tool_name = _normalize_openclaw_identifier(raw_name, prefix="openclaw_tool")
+            description = str(
+                tool.get("description")
+                or tool.get("summary")
+                or f"Imported from OpenClaw package ({source_name})."
+            ).strip()
+            command_template = _openclaw_command_template(tool)
+
+            if not command_template:
+                report["errors"].append(f"Skipped OpenClaw tool '{tool_name}' (missing command template)")
+                continue
+
+            parameters, required = _openclaw_parameter_spec(tool)
+            timeout = tool.get("timeout", 60)
+            guide = str(tool.get("guide") or tool.get("instructions") or "").strip()
+
+            create_result = dynamic_tools.create_tool(
+                name=tool_name,
+                description=description,
+                command_template=command_template,
+                parameters=parameters,
+                required=required,
+                timeout=timeout,
+                guide=guide,
+                overwrite=True,
+            )
+
+            if not create_result.get("ok"):
+                fallback_name = _normalize_openclaw_identifier(
+                    f"openclaw_{tool_name}_{idx}",
+                    prefix="openclaw_tool",
+                )
+                if fallback_name != tool_name:
+                    create_result = dynamic_tools.create_tool(
+                        name=fallback_name,
+                        description=description,
+                        command_template=command_template,
+                        parameters=parameters,
+                        required=required,
+                        timeout=timeout,
+                        guide=guide,
+                        overwrite=True,
+                    )
+
+            if create_result.get("ok"):
+                resolved_name = str(create_result.get("tool", {}).get("name", tool_name)).strip() or tool_name
+                if resolved_name not in report["tool_names"]:
+                    report["tool_names"].append(resolved_name)
+            else:
+                err = str(create_result.get("error", "unknown error")).strip() or "unknown error"
+                report["errors"].append(f"Failed to import OpenClaw tool '{tool_name}': {err}")
+
+        for idx, skill in enumerate(skill_candidates, start=1):
+            raw_name = (
+                skill.get("name")
+                or skill.get("skill_name")
+                or skill.get("id")
+                or skill.get("title")
+                or f"openclaw_skill_{idx}"
+            )
+            doc_name = _normalize_openclaw_identifier(raw_name, prefix="openclaw_skill")
+            doc_path = os.path.join(docs_dir, f"{doc_name}.md")
+
+            title = str(skill.get("title") or skill.get("name") or doc_name).strip() or doc_name
+            description = str(skill.get("description") or skill.get("summary") or "").strip()
+            content_text = _openclaw_skill_content(skill)
+
+            if not content_text and not description:
+                report["errors"].append(f"Skipped OpenClaw skill '{doc_name}' (no content)")
+                continue
+
+            lines = [
+                f"# {title}",
+                "",
+                "Imported from OpenClaw compatibility package.",
+            ]
+            if description:
+                lines.extend(["", description])
+            if content_text:
+                lines.extend(["", "## Instructions", content_text])
+
+            try:
+                with open(doc_path, "w", encoding="utf-8") as f:
+                    f.write("\n".join(lines).rstrip() + "\n")
+                if doc_name not in report["skill_docs"]:
+                    report["skill_docs"].append(doc_name)
+            except Exception as exc:
+                report["errors"].append(f"Failed to import OpenClaw skill '{doc_name}': {exc}")
+
+    report["tools_imported"] = len(report["tool_names"])
+    report["skills_imported"] = len(report["skill_docs"])
+    return report
+
+
+def _parse_markdown_frontmatter(content: str) -> dict | None:
+    """Parse YAML frontmatter from markdown content."""
+    content = content.strip()
+    if not content.startswith("---"):
+        return None
+    end = content.find("---", 3)
+    if end == -1:
+        return None
+    frontmatter_text = content[3:end].strip()
+    if not frontmatter_text:
+        return None
+
+    result = {}
+    for line in frontmatter_text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if ":" not in line:
+            continue
+        key, _, value = line.partition(":")
+        key = key.strip()
+        value = value.strip()
+        if value.startswith(("'", '"')) and value.endswith(value[0]):
+            value = value[1:-1]
+        result[key] = value
+
+    return result if result else None
+
+
+def _install_skill_as_tool(file_name: str, content: str) -> dict:
+    """Install a markdown skill as a dynamic tool if it has valid frontmatter."""
+    result = {"registered": False, "tool_name": "", "error": ""}
+
+    frontmatter = _parse_markdown_frontmatter(content)
+    if not frontmatter:
+        result["error"] = "No valid YAML frontmatter found."
+        return result
+
+    name = frontmatter.get("name", "").strip()
+    if not name:
+        result["error"] = "Frontmatter missing 'name' field."
+        return result
+
+    tool_name = _normalize_openclaw_identifier(name, prefix="skill")
+    description = frontmatter.get("description", "").strip()
+    if not description:
+        description = f"Skill installed from Claistore: {name}"
+
+    command_template = frontmatter.get("command", "").strip()
+    if not command_template:
+        command_template = f"echo 'Skill {name} executed with args: {{args}}'"
+
+    parameters = {}
+    required = []
+    params_text = frontmatter.get("parameters", "").strip()
+    if params_text:
+        for param in params_text.split(","):
+            param = param.strip()
+            if not param:
+                continue
+            param_name = param.split(":")[0].strip() if ":" in param else param
+            if param_name:
+                parameters[param_name] = {"type": "string", "description": param_name}
+
+    try:
+        create_result = dynamic_tools.create_tool(
+            name=tool_name,
+            description=description,
+            command_template=command_template,
+            parameters=parameters if parameters else None,
+            required=required if required else None,
+            timeout=30,
+            guide=content,
+            overwrite=True,
+        )
+        if create_result.get("ok"):
+            result["registered"] = True
+            result["tool_name"] = tool_name
+        else:
+            result["error"] = create_result.get("error", "Unknown error")
+    except Exception as exc:
+        result["error"] = str(exc)
+
+    return result
+
+
+def _community_public_entry(item: dict) -> dict:
+    item_id = str(item.get("id", "")).strip()
+    return {
+        "id": item_id,
+        "name": str(item.get("name", "")),
+        "kind": str(item.get("kind", "tool")),
+        "description": str(item.get("description", "")),
+        "author": str(item.get("author", "")),
+        "file_name": str(item.get("file_name", "download.bin")),
+        "size_bytes": int(item.get("size_bytes", 0) or 0),
+        "mime": str(item.get("mime", "application/octet-stream")),
+        "uploaded_at": str(item.get("uploaded_at", "")),
+        "downloads": int(item.get("downloads", 0) or 0),
+        "download_url": f"/api/community/download/{item_id}",
+        "install_url": f"/api/community/install/{item_id}",
+    }
+
+
+def _normalize_community_entry(raw: dict) -> dict | None:
+    if not isinstance(raw, dict):
+        return None
+
+    item_id = _sanitize_text_field(raw.get("id", ""), max_len=64)
+    if not item_id:
+        return None
+
+    stored_name = _sanitize_upload_filename(raw.get("stored_name", ""))
+    if not stored_name:
+        return None
+
+    return {
+        "id": item_id,
+        "name": _sanitize_text_field(raw.get("name", "Untitled Tool"), fallback="Untitled Tool", max_len=120),
+        "kind": _sanitize_text_field(raw.get("kind", "tool"), fallback="tool", max_len=24).lower(),
+        "description": _sanitize_text_field(raw.get("description", ""), max_len=360),
+        "author": _sanitize_text_field(raw.get("author", ""), max_len=120),
+        "uploader": _sanitize_text_field(raw.get("uploader", ""), max_len=120),
+        "file_name": _sanitize_upload_filename(raw.get("file_name", stored_name)),
+        "stored_name": stored_name,
+        "size_bytes": max(0, int(raw.get("size_bytes", 0) or 0)),
+        "mime": _sanitize_text_field(raw.get("mime", "application/octet-stream"), fallback="application/octet-stream", max_len=120),
+        "uploaded_at": _sanitize_text_field(raw.get("uploaded_at", ""), max_len=48),
+        "downloads": max(0, int(raw.get("downloads", 0) or 0)),
+    }
+
+
+def _read_community_index() -> list[dict]:
+    if not os.path.isfile(COMMUNITY_HUB_INDEX_FILE):
+        return []
+
+    try:
+        with open(COMMUNITY_HUB_INDEX_FILE, "r") as f:
+            payload = json.load(f)
+    except Exception:
+        return []
+
+    if not isinstance(payload, list):
+        return []
+
+    items: list[dict] = []
+    for raw in payload:
+        normalized = _normalize_community_entry(raw)
+        if normalized is not None:
+            items.append(normalized)
+    return items
+
+
+def _write_community_index(items: list[dict]) -> None:
+    os.makedirs(COMMUNITY_HUB_DIR, exist_ok=True)
+    with open(COMMUNITY_HUB_INDEX_FILE, "w") as f:
+        json.dump(items, f, indent=2)
+
+
+# Claistore functions are now in claistore.py module
+from claistore import (
+    is_configured as claistore_is_configured,
+    fetch_index as claistore_fetch_index,
+    publish_skill as claistore_publish_skill,
+    read_skill_file as claistore_read_skill_file,
+    test_connection as claistore_test_connection,
+)
+
+
+def _community_file_path(stored_name: str) -> str:
+    safe_name = _sanitize_upload_filename(stored_name)
+    if not safe_name:
+        raise ValueError("invalid file name")
+
+    base = os.path.realpath(COMMUNITY_HUB_PACKAGES_DIR)
+    candidate = os.path.realpath(os.path.join(base, safe_name))
+    if candidate == base or not candidate.startswith(base + os.sep):
+        raise ValueError("invalid file path")
+    return candidate
 
 
 def _decode_data_url(data_url: str) -> tuple[str, bytes]:
@@ -762,10 +1906,10 @@ async def handle_root(request):
     if validate_session(token):
         if needs_onboarding():
             return web.HTTPFound("/onboarding")
-        return web.Response(
-            text=render_template("dashboard.html", BOT_NAME=BOT_NAME),
-            content_type="text/html",
-        )
+        # Go through _serve_auth_page so the CSRF token is substituted and its
+        # cookie set; rendering directly left a literal "{{CSRF_TOKEN}}" in the
+        # page and broke POSTs made from the dashboard served at "/".
+        return _serve_auth_page(request, "dashboard.html")
 
     # Not logged in -> login page
     cleanup_csrf()
@@ -873,9 +2017,7 @@ async def handle_api_onboarding_telegram(request):
     env_vars["TELEGRAM_BOT_TOKEN"] = token
     env_vars["BOT_NAME"] = bot_name
 
-    with open(ENV_FILE, "w") as f:
-        for k, v in env_vars.items():
-            f.write(f"{k}={v}\n")
+    _write_env_file(env_vars)
 
     load_dotenv(dotenv_path=ENV_FILE, override=True)
     BOT_NAME = bot_name
@@ -895,10 +2037,17 @@ async def handle_api_onboarding_telegram(request):
 
 @require_auth
 async def handle_api_onboarding_tailscale(request):
-    """Check Tailscale status for onboarding."""
+    """Check Tailscale status and, once connected, turn HTTPS on automatically.
+
+    This step used to only report status, which is why every install stayed on
+    plain HTTP: nothing ever ran `tailscale serve`.
+    """
     installed = bool(_resolve_tailscale_bin())
     connected = False
     hostname = ""
+    https_ok = False
+    https_detail = ""
+    https_mode = "none"
 
     if installed:
         ts_ok, _ = check_tailscale()
@@ -906,10 +2055,23 @@ async def handle_api_onboarding_tailscale(request):
         if connected:
             hostname = get_tailscale_hostname() or ""
 
+            state = await asyncio.to_thread(tailscale_https_state)
+            https_ok, https_detail, https_mode = state["ok"], state["detail"], state["mode"]
+
+            if not state["ok"] and not state["configured"] and TAILSCALE_HTTPS_MODE != "off":
+                enabled, message = await asyncio.to_thread(enable_tailscale_https)
+                state = await asyncio.to_thread(tailscale_https_state)
+                https_ok, https_mode = state["ok"], state["mode"]
+                https_detail = state["detail"] if state["ok"] else message
+
     return web.json_response({
         "installed": installed,
         "connected": connected,
         "hostname": hostname,
+        "https": https_ok,
+        "https_mode": https_mode,
+        "https_detail": https_detail,
+        "url": f"https://{hostname}" if (https_ok and hostname) else "",
     })
 
 
@@ -931,15 +2093,7 @@ async def handle_api_onboarding_model(request):
     if not provider or not api_key:
         return web.json_response({"error": "Provider and API key are required."}, status=400)
 
-    env_key_map = {
-        "openai": "OPENAI_API_KEY",
-        "anthropic": "ANTHROPIC_API_KEY",
-        "gemini": "GEMINI_API_KEY",
-        "zhipu": "ZHIPUAI_API_KEY",
-        "nvidia": "NVIDIA_API_KEY",
-        "cerebras": "CEREBRAS_API_KEY",
-        "openrouter": "OPENROUTER_API_KEY",
-    }
+    env_key_map = PROVIDER_ENV_KEYS
 
     env_key = env_key_map.get(provider)
     if not env_key:
@@ -957,11 +2111,12 @@ async def handle_api_onboarding_model(request):
         if vision_env_key:
             env_vars[vision_env_key] = vision_api_key
 
-    with open(ENV_FILE, "w") as f:
-        for k, v in env_vars.items():
-            f.write(f"{k}={v}\n")
-
-    load_dotenv(dotenv_path=ENV_FILE, override=True)
+    _write_env_vars(env_vars)
+    if main_model:
+        try:
+            db.set_model_for_all(main_model)
+        except Exception:
+            logger.exception("Could not sync main model to user settings")
     AI.reload_clients()
 
     return web.json_response({"ok": True})
@@ -982,15 +2137,38 @@ async def handle_api_onboarding_gemini(request):
     env_vars = _read_env_file()
     env_vars["GEMINI_API_KEY"] = api_key
 
-    with open(ENV_FILE, "w") as f:
-        for k, v in env_vars.items():
-            f.write(f"{k}={v}\n")
+    _write_env_file(env_vars)
 
     load_dotenv(dotenv_path=ENV_FILE, override=True)
     return web.json_response({"ok": True})
 
 
-async def _download_himalaya() -> str | None:
+async def _himalaya_binary_is_usable(bin_path: str) -> bool:
+    """True only if this binary reports a version email_tools can actually drive.
+
+    A binary that merely runs is not good enough: the 1.3+ CLI rework renamed
+    the flags and subcommands email_tools builds, so an unpinned `latest`
+    install runs fine and fails on every real command.
+    """
+    if not os.path.isfile(bin_path):
+        return False
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            bin_path, "--version",
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout_b, stderr_b = await asyncio.wait_for(proc.communicate(), timeout=10)
+    except Exception:
+        return False
+    if proc.returncode != 0:
+        return False
+    text = (stdout_b or b"").decode(errors="replace") + (stderr_b or b"").decode(errors="replace")
+    return email_tools._version_supported(email_tools._parse_version(text))
+
+
+async def _download_himalaya(force: bool = False) -> str | None:
     import platform as _platform
     import tarfile
     import urllib.request
@@ -1017,24 +2195,25 @@ async def _download_himalaya() -> str | None:
         return None
 
     asset_name = f"himalaya.{arch}-{os_name}.tgz"
-    download_url = f"https://github.com/pimalaya/himalaya/releases/latest/download/{asset_name}"
+    # PINNED. This used to be `releases/latest`, which installed whichever CLI
+    # generation upstream had published that day — email_tools targets 1.2.x and
+    # broke silently the moment 1.3 shipped.
+    version_tag = f"v{email_tools.HIMALAYA_TARGET_VERSION}"
+    download_url = f"https://github.com/pimalaya/himalaya/releases/download/{version_tag}/{asset_name}"
 
     bin_dir = app_paths.bin_dir()
     os.makedirs(bin_dir, exist_ok=True)
     bin_path = os.path.join(bin_dir, "himalaya" if os_name != "windows" else "himalaya.exe")
     tgz_path = bin_path + ".tgz"
 
-    if os.path.isfile(bin_path):
+    if os.path.isfile(bin_path) and not force:
+        if await _himalaya_binary_is_usable(bin_path):
+            return bin_path
+        # Present but the wrong generation — drop it so the pinned build installs
+        # over the top rather than being skipped by the "already there" check.
         try:
-            proc = await asyncio.create_subprocess_exec(
-                bin_path, "--version",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await asyncio.wait_for(proc.communicate(), timeout=10)
-            if proc.returncode == 0:
-                return bin_path
-        except Exception:
+            os.remove(bin_path)
+        except OSError:
             pass
 
     downloaded = False
@@ -1095,7 +2274,11 @@ async def _download_himalaya() -> str | None:
             os.remove(tgz_path)
 
     if os.path.isfile(bin_path):
-        return bin_path
+        # Never hand back a binary of the wrong generation — callers treat a
+        # non-None return as "email can work now".
+        if await _himalaya_binary_is_usable(bin_path):
+            return bin_path
+        return None
 
     return None
 
@@ -1117,13 +2300,21 @@ async def handle_api_onboarding_email(request):
     if not email_addr.endswith("@gmail.com"):
         return web.json_response({"error": "Only Gmail accounts are supported for automatic setup."}, status=400)
 
+    # A himalaya already on PATH is only acceptable if it is the generation
+    # email_tools drives; otherwise fall through to the pinned download.
     himalaya_bin = shutil.which("himalaya")
+    if himalaya_bin and not await _himalaya_binary_is_usable(himalaya_bin):
+        himalaya_bin = None
 
     if not himalaya_bin:
         himalaya_bin = await _download_himalaya()
         if not himalaya_bin:
             return web.json_response({
-                "error": "Failed to download Himalaya. Install manually from github.com/pimalaya/himalaya and set HIMALAYA_BIN in Settings."
+                "error": (
+                    f"Failed to install Himalaya {email_tools.HIMALAYA_TARGET_VERSION}. Install it manually "
+                    f"from github.com/pimalaya/himalaya/releases/tag/v{email_tools.HIMALAYA_TARGET_VERSION} "
+                    "and set HIMALAYA_BIN in Settings."
+                )
             }, status=500)
 
     config_dir = app_paths.himalaya_dir()
@@ -1175,28 +2366,103 @@ auth.raw = "{safe_password}"
     env_vars["HIMALAYA_CONFIG"] = config_cli_path
     env_vars["HIMALAYA_DEFAULT_ACCOUNT"] = account_alias
 
-    with open(ENV_FILE, "w") as f:
-        for k, v in env_vars.items():
-            f.write(f"{k}={v}\n")
+    _write_env_file(env_vars)
 
     load_dotenv(dotenv_path=ENV_FILE, override=True)
 
+    # Verify through email_tools itself, not a hand-rolled subprocess. The old
+    # check ran a bare `account list` with no `--output` flag — the one Himalaya
+    # invocation in the codebase that does not exercise the arguments every real
+    # call builds, so it passed happily while all email was broken.
     try:
-        proc = await asyncio.create_subprocess_exec(
-            himalaya_bin, "--config", config_cli_path, "account", "list",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=app_paths.data_root(),
-        )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
-        if proc.returncode != 0:
+        email_tools.reset_version_cache()
+        verify = await email_tools.execute("list_folders")
+        if not verify.get("ok"):
             return web.json_response({
-                "error": f"Himalaya config verification failed: {(stderr or stdout or b'').decode(errors='replace')[:300]}"
+                "error": f"Email verification failed: {str(verify.get('error') or 'unknown error')[:300]}"
             }, status=500)
     except Exception as e:
-        return web.json_response({"error": f"Himalaya verification error: {e}"}, status=500)
+        return web.json_response({"error": f"Email verification error: {e}"}, status=500)
 
     return web.json_response({"ok": True, "email": email_addr, "config": config_path})
+
+
+# ---------------------------------------------------------------------------
+# System Check — deterministic diagnostics and repair. No model involved.
+# ---------------------------------------------------------------------------
+
+@require_auth
+async def handle_api_diagnostics_run(request):
+    """Run every check. Read-only: changes nothing."""
+    try:
+        report = await asyncio.wait_for(diagnostics.run_all(), timeout=180)
+    except asyncio.TimeoutError:
+        return web.json_response({"error": "Diagnostics timed out after 180s."}, status=504)
+    except Exception as e:
+        logger.exception("Diagnostics run failed")
+        return web.json_response({"error": f"Diagnostics failed: {e}"}, status=500)
+    return web.json_response(report)
+
+
+@require_auth
+async def handle_api_diagnostics_repairs(request):
+    return web.json_response({"ok": True, "repairs": diagnostics.list_repairs()})
+
+
+@require_auth_csrf
+async def handle_api_diagnostics_repair(request):
+    """Apply one repair by id. Destructive repairs require confirm=true."""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid request."}, status=400)
+
+    repair_id = str(body.get("repair", "")).strip()
+    confirm = bool(body.get("confirm", False))
+    if not repair_id:
+        return web.json_response({"error": "repair id is required"}, status=400)
+
+    try:
+        result = await asyncio.wait_for(
+            diagnostics.run_repair(repair_id, confirm_destructive=confirm), timeout=300
+        )
+    except asyncio.TimeoutError:
+        return web.json_response({"error": f"Repair '{repair_id}' timed out."}, status=504)
+    except Exception as e:
+        logger.exception("Repair failed")
+        return web.json_response({"error": f"Repair failed: {e}"}, status=500)
+
+    if result.get("needs_confirmation"):
+        return web.json_response(result, status=409)
+    if not result.get("ok"):
+        return web.json_response(result, status=400)
+
+    load_dotenv(dotenv_path=ENV_FILE, override=True)
+    return web.json_response(result)
+
+
+@require_auth_csrf
+async def handle_api_diagnostics_autorepair(request):
+    """Apply every safe repair for a failing check, then re-run the checks."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    confirm = bool(body.get("confirm_destructive", False))
+
+    try:
+        result = await asyncio.wait_for(
+            diagnostics.run_auto_repair(confirm_destructive=confirm), timeout=600
+        )
+    except asyncio.TimeoutError:
+        return web.json_response({"error": "Auto-repair timed out."}, status=504)
+    except Exception as e:
+        logger.exception("Auto-repair failed")
+        return web.json_response({"error": f"Auto-repair failed: {e}"}, status=500)
+
+    load_dotenv(dotenv_path=ENV_FILE, override=True)
+    return web.json_response(result)
 
 
 @require_auth
@@ -1225,9 +2491,7 @@ async def handle_api_onboarding_google(request):
     if apps_script_url:
         env_vars["GOOGLE_APPS_SCRIPT_URL"] = apps_script_url
 
-    with open(ENV_FILE, "w") as f:
-        for k, v in env_vars.items():
-            f.write(f"{k}={v}\n")
+    _write_env_file(env_vars)
 
     load_dotenv(dotenv_path=ENV_FILE, override=True)
     return web.json_response({"ok": True})
@@ -1354,9 +2618,7 @@ async def handle_api_keys_post(request):
                 continue
             env_vars[ek] = val
 
-    with open(ENV_FILE, "w") as f:
-        for k, v in env_vars.items():
-            f.write(f"{k}={v}\n")
+    _write_env_file(env_vars)
 
     load_dotenv(dotenv_path=ENV_FILE, override=True)
     AI.reload_clients()
@@ -1486,15 +2748,30 @@ async def handle_tools(request):
 
 
 @require_auth
+async def handle_community_page(request):
+    return _serve_auth_page(request, "community.html")
+
+
+@require_auth
+async def handle_docs_page(request):
+    return _serve_auth_page(request, "docs.html")
+
+
+@require_auth
 async def handle_projects_page(request):
     return _serve_auth_page(request, "projects.html")
 
 
 _SECRET_KEYS = frozenset({
     "TELEGRAM_BOT_TOKEN", "ZHIPUAI_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY",
-    "ANTHROPIC_API_KEY", "NVIDIA_API_KEY", "CEREBRAS_API_KEY", "OPENROUTER_API_KEY",
-    "GOOGLE_API_KEY", "GOOGLE_OAUTH_CLIENT_SECRET",
+    "ANTHROPIC_API_KEY", "NVIDIA_API_KEY", "CEREBRAS_API_KEY", "GROQ_API_KEY", "QWEN_API_KEY", "OPENROUTER_API_KEY",
+    "MISTRAL_API_KEY", "GOOGLE_API_KEY", "GOOGLE_OAUTH_CLIENT_SECRET",
+    "CLAISTORE_GITHUB_TOKEN",
 })
+
+
+def _is_masked_secret(value: str) -> bool:
+    return "****" in value and len(value) < 20
 
 
 def _mask_secret(value: str) -> str:
@@ -1514,6 +2791,8 @@ async def handle_api_settings_get(request):
         "MAIN_MODEL": env_vars.get("MAIN_MODEL", ""),
         "IMAGE_MODEL": env_vars.get("IMAGE_MODEL", ""),
         "FAST_MODEL": env_vars.get("FAST_MODEL", ""),
+        "FALLBACK_MODEL": env_vars.get("FALLBACK_MODEL", ""),
+        "USER_FALLBACK_MODEL": "",
         "GOOGLE_OAUTH_CLIENT_ID": env_vars.get("GOOGLE_OAUTH_CLIENT_ID", ""),
         "GOOGLE_OAUTH_REDIRECT_URI": env_vars.get("GOOGLE_OAUTH_REDIRECT_URI", ""),
         "GOOGLE_APPS_SCRIPT_URL": env_vars.get("GOOGLE_APPS_SCRIPT_URL", ""),
@@ -1525,9 +2804,18 @@ async def handle_api_settings_get(request):
         "CLIENT_BASE_URL": env_vars.get("CLIENT_BASE_URL", "https://api.z.ai/api/coding/paas/v4"),
         "NVIDIA_BASE_URL": env_vars.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
         "CEREBRAS_BASE_URL": env_vars.get("CEREBRAS_BASE_URL", "https://api.cerebras.ai/v1"),
+        "GROQ_BASE_URL": env_vars.get("GROQ_BASE_URL", "https://api.groq.com/openai/v1"),
+        "QWEN_BASE_URL": env_vars.get("QWEN_BASE_URL", "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"),
         "OPENROUTER_BASE_URL": env_vars.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
+        "MISTRAL_BASE_URL": env_vars.get("MISTRAL_BASE_URL", "https://api.mistral.ai/v1"),
         "OLLAMA_BASE_URL": env_vars.get("OLLAMA_BASE_URL", "http://localhost:11434/v1"),
         "OLLAMA_MODEL": env_vars.get("OLLAMA_MODEL", ""),
+        "OLLAMA_NUM_CTX": env_vars.get("OLLAMA_NUM_CTX", ""),
+        "OLLAMA_TEMPERATURE": env_vars.get("OLLAMA_TEMPERATURE", ""),
+        "OLLAMA_MAX_TOKENS": env_vars.get("OLLAMA_MAX_TOKENS", ""),
+        "OLLAMA_KEEP_ALIVE": env_vars.get("OLLAMA_KEEP_ALIVE", ""),
+        "OLLAMA_TIMEOUT_S": env_vars.get("OLLAMA_TIMEOUT_S", ""),
+        "OTA_CHANNEL": env_vars.get("OTA_CHANNEL", "stable"),
         "MAX_TOOL_ROUNDS": env_vars.get("MAX_TOOL_ROUNDS", "5"),
         "MAX_TOOL_CALLS_PER_ROUND": env_vars.get("MAX_TOOL_CALLS_PER_ROUND", "20"),
         "MAX_COMMAND_TIMEOUT": env_vars.get("MAX_COMMAND_TIMEOUT", "120"),
@@ -1535,7 +2823,18 @@ async def handle_api_settings_get(request):
         "MAX_SUBAGENT_TOOL_ROUNDS": env_vars.get("MAX_SUBAGENT_TOOL_ROUNDS", "5"),
         "MAX_SUBAGENT_TOOL_CALLS_PER_ROUND": env_vars.get("MAX_SUBAGENT_TOOL_CALLS_PER_ROUND", "15"),
         "MAX_CONTEXT_CHARS": env_vars.get("MAX_CONTEXT_CHARS", "120000"),
+        "CLAISTORE_GITHUB_REPO": env_vars.get("CLAISTORE_GITHUB_REPO", ""),
+        "CLAISTORE_GITHUB_TOKEN": env_vars.get("CLAISTORE_GITHUB_TOKEN", ""),
+        "CLAISTORE_GITHUB_BRANCH": env_vars.get("CLAISTORE_GITHUB_BRANCH", "main"),
     }
+    # Per-user fallback model from DB
+    try:
+        web_user_id = _get_web_user_id(request)
+        user_fallback = db.get_fallback_model(web_user_id)
+        if user_fallback:
+            result["USER_FALLBACK_MODEL"] = user_fallback
+    except Exception:
+        logger.exception("Could not load per-user fallback model")
     for key in _SECRET_KEYS:
         result[key] = _mask_secret(env_vars.get(key, ""))
     return web.json_response(result)
@@ -1583,6 +2882,86 @@ async def handle_api_context_usage(request):
     })
 
 
+@require_auth
+async def handle_api_updates_check(request):
+    channel = str(request.query.get("channel", "")).strip()
+    try:
+        status = ota_update.check_for_updates()
+    except Exception as exc:
+        status = {
+            "ok": False,
+            "enabled": True,
+            "channel": channel or "stable",
+            "install_mode": "unknown",
+            "current_version": ota_update.current_version(),
+            "update_available": False,
+            "can_apply": False,
+            "apply_message": "",
+            "rollback_available": False,
+            "error": f"Could not load OTA status: {exc}",
+        }
+
+    # Add rollback info (check_for_updates() does not return it).
+    # Enforce OTA_ENABLED kill switch: if OTA is disabled, never advertise
+    # a rollback even when metadata exists on disk.
+    if not status.get("enabled", True):
+        status["rollback_available"] = False
+    else:
+        try:
+            rollback_meta = ota_update._load_rollback_metadata()
+        except Exception:
+            rollback_meta = None
+
+        if rollback_meta:
+            status["rollback_available"] = True
+            status["rollback_tag"] = rollback_meta.get("tag", "")
+            status["rollback_timestamp"] = rollback_meta.get("timestamp", "")
+        else:
+            status["rollback_available"] = False
+
+    http_status = 200 if status.get("ok") else 502
+    return web.json_response(status, status=http_status)
+
+
+@require_auth_csrf
+async def handle_api_updates_apply(request):
+    body = request._json_body if isinstance(request._json_body, dict) else {}
+    channel = str(body.get("channel", "")).strip()
+    result = ota_update.apply_update()
+    http_status = 200 if result.get("ok") else 400
+
+    if result.get("ok") and result.get("restarting_now"):
+        async def _exit_after_response() -> None:
+            await asyncio.sleep(1.0)
+            os._exit(0)
+
+        asyncio.create_task(_exit_after_response())
+
+    return web.json_response(result, status=http_status)
+
+
+@require_auth_csrf
+async def handle_api_updates_rollback(request):
+    from aiohttp import web
+    import ota_update
+
+    # Enforce OTA_ENABLED kill switch on the rollback path.
+    if os.getenv("OTA_ENABLED", "1") == "0":
+        return web.json_response({"ok": False, "error": "OTA updates are disabled"})
+
+    result = ota_update.rollback_update()
+
+    if result.get("restarting_now"):
+        # Schedule exit after response
+        import asyncio
+        async def delayed_exit():
+            await asyncio.sleep(1)
+            os._exit(0)
+        asyncio.create_task(delayed_exit())
+
+    return web.json_response(result)
+
+
 @require_auth_csrf
 async def handle_api_settings_post(request):
     global BOT_NAME
@@ -1593,17 +2972,19 @@ async def handle_api_settings_post(request):
 
     _TEXT_KEYS = [
         "BOT_NAME", "TELEGRAM_BOT_TOKEN", "WEB_PORT",
-        "ZHIPUAI_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "NVIDIA_API_KEY", "CEREBRAS_API_KEY", "OPENROUTER_API_KEY",
+        "ZHIPUAI_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "NVIDIA_API_KEY", "CEREBRAS_API_KEY", "GROQ_API_KEY", "QWEN_API_KEY", "OPENROUTER_API_KEY", "MISTRAL_API_KEY",
         "GOOGLE_API_KEY", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET",
         "GOOGLE_OAUTH_REDIRECT_URI", "GOOGLE_APPS_SCRIPT_URL", "GOOGLE_OAUTH_SCOPES",
         "HIMALAYA_BIN", "HIMALAYA_CONFIG", "HIMALAYA_DEFAULT_ACCOUNT",
-        "PIPER_VOICE", "CLIENT_BASE_URL", "NVIDIA_BASE_URL", "CEREBRAS_BASE_URL", "OPENROUTER_BASE_URL", "OLLAMA_BASE_URL", "OLLAMA_MODEL",
+        "PIPER_VOICE", "CLIENT_BASE_URL", "NVIDIA_BASE_URL", "CEREBRAS_BASE_URL", "GROQ_BASE_URL", "QWEN_BASE_URL", "OPENROUTER_BASE_URL", "MISTRAL_BASE_URL", "OLLAMA_BASE_URL", "OLLAMA_MODEL",
+        "OLLAMA_NUM_CTX", "OLLAMA_TEMPERATURE", "OLLAMA_MAX_TOKENS", "OLLAMA_KEEP_ALIVE", "OLLAMA_KEEP_WARM", "OLLAMA_TIMEOUT_S",
+        "OTA_CHANNEL", "TALOS_LAZY_TOOLS",
+        "CLAISTORE_GITHUB_REPO", "CLAISTORE_GITHUB_TOKEN", "CLAISTORE_GITHUB_BRANCH",
     ]
 
-    def _is_masked(val: str) -> bool:
-        return "****" in val and len(val) < 20
+    _is_masked = _is_masked_secret
 
-    _MODEL_KEYS = ["MAIN_MODEL", "IMAGE_MODEL", "FAST_MODEL"]
+    _MODEL_KEYS = ["MAIN_MODEL", "IMAGE_MODEL", "FAST_MODEL", "FALLBACK_MODEL"]
 
     for key in _MODEL_KEYS:
         if key in body:
@@ -1618,6 +2999,15 @@ async def handle_api_settings_post(request):
             if key in _SECRET_KEYS and _is_masked(body[key].strip()):
                 continue
             env_vars[key] = body[key].strip()
+
+    if "OTA_CHANNEL" in env_vars:
+        ota_channel = str(env_vars.get("OTA_CHANNEL", "")).strip().lower()
+        if ota_channel not in {"stable", "prerelease"}:
+            return web.json_response(
+                {"error": "OTA_CHANNEL must be either stable or prerelease."},
+                status=400,
+            )
+        env_vars["OTA_CHANNEL"] = ota_channel
 
     _INT_KEYS = [
         ("MAX_TOOL_ROUNDS", 1, 50),
@@ -1647,11 +3037,26 @@ async def handle_api_settings_post(request):
                         status=400,
                     )
 
-    with open(ENV_FILE, "w") as f:
-        for k, v in env_vars.items():
-            f.write(f"{k}={v}\n")
+    _write_env_vars(env_vars)
+    saved_main_model = str(env_vars.get("MAIN_MODEL", "")).strip()
+    if saved_main_model:
+        try:
+            db.set_model_for_all(saved_main_model)
+        except Exception:
+            logger.exception("Could not sync main model to user settings")
 
-    load_dotenv(dotenv_path=ENV_FILE, override=True)
+    # Per-user fallback model (stored in DB)
+    if "FALLBACK_MODEL" in body:
+        try:
+            web_user_id = _get_web_user_id(request)
+            fallback = str(body.get("FALLBACK_MODEL", "")).strip()
+            if fallback:
+                db.set_fallback_model(web_user_id, fallback)
+            else:
+                db.set_fallback_model(web_user_id, None)
+        except Exception:
+            logger.exception("Could not save per-user fallback model")
+
     AI.reload_clients()
 
     new_bot_name = str(env_vars.get("BOT_NAME", "")).strip()
@@ -1695,14 +3100,100 @@ async def handle_api_models_fetch(request):
     api_key = str(body.get("api_key", "")).strip()
     if not provider:
         return web.json_response({"error": "Provider is required."}, status=400)
-    if provider != "ollama" and not api_key:
-        return web.json_response({"error": "Provider and API key are required."}, status=400)
+    # The settings page only ever holds masked keys, so a masked (or missing)
+    # key means "use the one already saved" rather than "no key".
+    if provider != "ollama" and (not api_key or _is_masked_secret(api_key)):
+        stored = _read_env_file().get(PROVIDER_ENV_KEYS.get(provider, ""), "").strip()
+        if not stored:
+            return web.json_response({"error": "Provider and API key are required."}, status=400)
+        api_key = stored
     result = model_router.fetch_provider_models(provider, api_key or "ollama")
     return web.json_response(result)
 
 
+def _write_env_vars(env_vars: dict) -> None:
+    _write_env_file(env_vars)
+    load_dotenv(dotenv_path=ENV_FILE, override=True)
+
+
+@require_auth
+async def handle_api_ollama_status(request):
+    base_url = request.query.get("base_url", "") or None
+    status = await ollama_setup.get_status(base_url)
+    env_vars = _read_env_file()
+    status["config"] = {
+        "OLLAMA_BASE_URL": env_vars.get("OLLAMA_BASE_URL", ollama_setup.DEFAULT_BASE_URL),
+        "OLLAMA_MODEL": env_vars.get("OLLAMA_MODEL", ""),
+        "OLLAMA_NUM_CTX": env_vars.get("OLLAMA_NUM_CTX", ""),
+        "OLLAMA_TEMPERATURE": env_vars.get("OLLAMA_TEMPERATURE", ""),
+        "OLLAMA_MAX_TOKENS": env_vars.get("OLLAMA_MAX_TOKENS", ""),
+        "OLLAMA_KEEP_ALIVE": env_vars.get("OLLAMA_KEEP_ALIVE", ""),
+        "OLLAMA_TIMEOUT_S": env_vars.get("OLLAMA_TIMEOUT_S", ""),
+    }
+    return web.json_response(status)
+
+
+@require_auth
+async def handle_api_ollama_model_info(request):
+    model_name = request.query.get("model", "").strip()
+    if not model_name:
+        return web.json_response({"error": "Model name is required."}, status=400)
+    return web.json_response(await ollama_setup.show_model(model_name, request.query.get("base_url") or None))
+
+
+_OLLAMA_ADVANCED_KEYS = {
+    "OLLAMA_NUM_CTX": (256, 1048576),
+    "OLLAMA_MAX_TOKENS": (16, 1048576),
+    "OLLAMA_TIMEOUT_S": (30, 3600),
+}
+
+
+def _collect_ollama_settings(body: dict) -> tuple[dict, str]:
+    """Validate the optional Ollama tuning fields. Returns (env updates, error)."""
+    updates: dict[str, str] = {}
+
+    base_url = str(body.get("base_url", "")).strip()
+    if base_url:
+        updates["OLLAMA_BASE_URL"] = base_url
+
+    keep_alive = str(body.get("keep_alive", "")).strip()
+    if keep_alive:
+        updates["OLLAMA_KEEP_ALIVE"] = keep_alive
+
+    temperature = str(body.get("temperature", "")).strip()
+    if temperature:
+        try:
+            value = float(temperature)
+        except ValueError:
+            return {}, "Temperature must be a number."
+        if not 0.0 <= value <= 2.0:
+            return {}, "Temperature must be between 0 and 2."
+        updates["OLLAMA_TEMPERATURE"] = str(value)
+
+    key_by_field = {
+        "num_ctx": "OLLAMA_NUM_CTX",
+        "max_tokens": "OLLAMA_MAX_TOKENS",
+        "timeout_s": "OLLAMA_TIMEOUT_S",
+    }
+    for field, env_key in key_by_field.items():
+        raw = str(body.get(field, "")).strip()
+        if not raw:
+            continue
+        try:
+            value = int(raw)
+        except ValueError:
+            return {}, f"{field} must be a whole number."
+        lo, hi = _OLLAMA_ADVANCED_KEYS[env_key]
+        if not lo <= value <= hi:
+            return {}, f"{field} must be between {lo} and {hi}."
+        updates[env_key] = str(value)
+
+    return updates, ""
+
+
 @require_auth_csrf
 async def handle_api_ollama_setup(request):
+    """Pull an Ollama model, streaming progress to the browser as NDJSON."""
     try:
         body = await request.json()
     except Exception:
@@ -1712,52 +3203,86 @@ async def handle_api_ollama_setup(request):
     if not model_name:
         return web.json_response({"error": "Model name is required."}, status=400)
 
-    import shutil
-    import subprocess
+    advanced, error = _collect_ollama_settings(body)
+    if error:
+        return web.json_response({"error": error}, status=400)
 
-    ollama_bin = shutil.which("ollama")
-
-    if not ollama_bin:
-        return web.json_response({"error": "Ollama is not installed. Install it from https://ollama.com then restart."}, status=400)
-
-    try:
-        check = subprocess.run(
-            [ollama_bin, "list"],
-            capture_output=True, text=True, timeout=10,
-        )
-        if check.returncode != 0:
-            return web.json_response({"error": "Ollama does not appear to be running. Start it first."}, status=400)
-    except Exception:
-        return web.json_response({"error": "Could not check Ollama status. Is it running?"}, status=400)
+    set_as_main = bool(body.get("set_as_main", True))
 
     env_vars = _read_env_file()
-    env_vars["OLLAMA_MODEL"] = model_name
+    env_vars.update(advanced)
+    base_url = env_vars.get("OLLAMA_BASE_URL", ollama_setup.DEFAULT_BASE_URL)
 
-    with open(ENV_FILE, "w") as f:
-        for k, v in env_vars.items():
-            f.write(f"{k}={v}\n")
+    status = await ollama_setup.get_status(base_url)
+    if not status["reachable"]:
+        return web.json_response({"error": status["error"] or "Could not reach the Ollama server."}, status=400)
 
-    load_dotenv(dotenv_path=ENV_FILE, override=True)
-    model_router.reload_clients()
-
-    pull_result = subprocess.run(
-        [ollama_bin, "pull", model_name],
-        capture_output=True, text=True, timeout=300,
+    resp = web.StreamResponse(
+        status=200,
+        headers={
+            "Content-Type": "application/x-ndjson",
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
     )
+    await resp.prepare(request)
 
-    if pull_result.returncode != 0:
-        return web.json_response({
-            "ok": False,
-            "error": f"Model saved but pull failed: {pull_result.stderr.strip()}",
-            "stdout": pull_result.stdout,
-            "stderr": pull_result.stderr,
-        })
+    async def send(event: dict) -> None:
+        await resp.write((json.dumps(event, separators=(",", ":")) + "\n").encode())
 
-    return web.json_response({
+    already_installed = any(m["name"] == model_name for m in status["models"])
+    await send({
+        "stage": "start",
+        "model": model_name,
+        "server_version": status["version"],
+        "already_installed": already_installed,
+        "message": (
+            f"Model {model_name} is already downloaded — verifying."
+            if already_installed
+            else f"Downloading {model_name} from the Ollama library."
+        ),
+    })
+
+    failed = ""
+    try:
+        async for event in ollama_setup.pull_model(model_name, base_url):
+            if event.get("stage") == "error":
+                failed = str(event.get("error", "Pull failed."))
+                await send(event)
+                break
+            await send(event)
+    except (asyncio.CancelledError, ConnectionResetError):
+        return resp
+
+    if failed:
+        await send({"stage": "finished", "ok": False, "error": failed})
+        return resp
+
+    await send({"stage": "configuring", "message": "Saving configuration."})
+
+    env_vars["OLLAMA_MODEL"] = model_name
+    if set_as_main:
+        env_vars["MAIN_MODEL"] = "ollama/" + model_name
+    _write_env_vars(env_vars)
+
+    if set_as_main:
+        try:
+            db.set_model_for_all("ollama/" + model_name)
+        except Exception:
+            logger.exception("Could not sync main model to user settings")
+    AI.reload_clients()
+
+    info = await ollama_setup.show_model(model_name, base_url)
+    await send({
+        "stage": "finished",
         "ok": True,
         "model": model_name,
-        "output": pull_result.stdout.strip(),
+        "main_model": "ollama/" + model_name if set_as_main else "",
+        "info": info,
+        "message": f"{model_name} is ready and set as your main model." if set_as_main
+                   else f"{model_name} is ready.",
     })
+    return resp
 
 
 @require_auth
@@ -1955,6 +3480,7 @@ async def handle_api_tools_get(request):
         "scrape_url": True,
         "google_execute": True,
         "email_execute": True,
+        "pa_system": True,
         "browser_start_chrome_debug": True,
         "browser_connect": True,
         "browser_run": True,
@@ -1981,6 +3507,16 @@ async def handle_api_tools_get(request):
         if tool_id not in enabled_tools:
             enabled_tools[tool_id] = True
 
+    # Add dynamic tools from registry (including Claistore-installed skills)
+    try:
+        dynamic_tools_list = dynamic_tools.list_tools()
+        for tool in dynamic_tools_list:
+            tool_id = tool.get("name")
+            if tool_id and tool_id not in enabled_tools:
+                enabled_tools[tool_id] = True
+    except Exception:
+        pass
+
     return web.json_response(enabled_tools)
 
 
@@ -1994,6 +3530,373 @@ async def handle_api_tools_post(request):
         json.dump(body, f, indent=2)
 
     return web.json_response({"ok": True})
+
+
+@require_auth
+async def handle_api_tools_dynamic(request):
+    """Return metadata for all dynamic tools (including Claistore-installed skills)."""
+    try:
+        dynamic_tools_list = dynamic_tools.list_tools()
+        result = {}
+        for tool in dynamic_tools_list:
+            name = tool.get("name")
+            if name:
+                result[name] = {
+                    "name": tool.get("name", name),
+                    "desc": tool.get("description", ""),
+                    "category": "dynamic",
+                    "dangerous": tool.get("dangerous", False),
+                }
+        return web.json_response(result)
+    except Exception as e:
+        logger.exception("Failed to list dynamic tools")
+        return web.json_response({"error": str(e)}, status=500)
+
+
+@require_auth
+async def handle_api_community_get(request):
+    # Fetch from Claistore (GitHub) if configured, otherwise fall back to local
+    if claistore_is_configured():
+        try:
+            claistore_items = await claistore_fetch_index()
+            builtin_entries = _community_builtin_public_entries()
+            return web.json_response({
+                "ok": True,
+                "items": builtin_entries + [_community_public_entry(item) for item in claistore_items],
+                "source": "claistore",
+            })
+        except Exception as e:
+            logger.exception("Failed to fetch from Claistore, falling back to local")
+            # Fall through to local
+
+    items = _read_community_index()
+    builtin_entries = _community_builtin_public_entries()
+    return web.json_response({
+        "ok": True,
+        "items": builtin_entries + [_community_public_entry(item) for item in items],
+        "source": "local",
+    })
+
+
+@require_auth_csrf
+async def handle_api_community_upload(request):
+    body = request._json_body if isinstance(request._json_body, dict) else {}
+    attachment = body.get("attachment")
+
+    if not isinstance(attachment, dict):
+        return web.json_response({"error": "attachment is required."}, status=400)
+
+    file_name = _sanitize_upload_filename(str(attachment.get("name", "community-tool.zip")))
+    ext = os.path.splitext(file_name)[1].lower()
+    if ext not in COMMUNITY_HUB_ALLOWED_EXTENSIONS:
+        allowed = ", ".join(sorted(COMMUNITY_HUB_ALLOWED_EXTENSIONS))
+        return web.json_response({"error": f"Unsupported file type. Allowed: {allowed}"}, status=400)
+
+    try:
+        mime, content = _decode_data_url(str(attachment.get("data_url", "")))
+    except ValueError as exc:
+        return web.json_response({"error": str(exc)}, status=400)
+
+    openclaw_import = _import_openclaw_compatibility(file_name, content)
+
+    size = len(content)
+    if size <= 0:
+        return web.json_response({"error": "Uploaded file is empty."}, status=400)
+    if size > COMMUNITY_HUB_MAX_UPLOAD_BYTES:
+        return web.json_response(
+            {
+                "error": (
+                    f"File too large ({size} bytes). "
+                    f"Limit is {COMMUNITY_HUB_MAX_UPLOAD_BYTES} bytes."
+                )
+            },
+            status=400,
+        )
+
+    session = sessions.get(request.cookies.get(SESSION_COOKIE, ""), {})
+    uploader = _sanitize_text_field(session.get("username", "community"), fallback="community", max_len=120)
+
+    now = datetime.now(timezone.utc)
+    item_id = secrets.token_hex(8)
+    stamp = now.strftime("%Y%m%d_%H%M%S")
+    stored_name = f"{stamp}_{item_id}_{file_name}"
+
+    # Build item metadata
+    item = {
+        "id": item_id,
+        "name": _sanitize_text_field(body.get("name", "Untitled Tool"), fallback="Untitled Tool", max_len=120),
+        "kind": _sanitize_text_field(body.get("kind", "tool"), fallback="tool", max_len=24).lower(),
+        "description": _sanitize_text_field(body.get("description", ""), max_len=360),
+        "author": _sanitize_text_field(body.get("author", ""), max_len=120),
+        "uploader": uploader,
+        "file_name": file_name,
+        "stored_name": stored_name,
+        "size_bytes": size,
+        "mime": _sanitize_text_field(mime, fallback="application/octet-stream", max_len=120),
+        "uploaded_at": now.isoformat(),
+        "downloads": 0,
+    }
+
+    # If Claistore is configured, publish to GitHub
+    if claistore_is_configured():
+        try:
+            # For skills, use the content as markdown/skill file
+            # For other types, we'll still store locally but also publish metadata
+            skill_content = content.decode("utf-8", errors="ignore") if isinstance(content, bytes) else str(content)
+            await claistore_publish_skill(item_id, item, skill_content)
+            return web.json_response({
+                "ok": True,
+                "item": _community_public_entry(item),
+                "source": "claistore",
+            })
+        except Exception as e:
+            logger.exception("Failed to publish to Claistore, falling back to local")
+            # Fall through to local storage
+
+    # Local storage fallback
+    os.makedirs(COMMUNITY_HUB_PACKAGES_DIR, exist_ok=True)
+    try:
+        saved_path = _community_file_path(stored_name)
+    except ValueError:
+        return web.json_response({"error": "Invalid upload name."}, status=400)
+
+    with open(saved_path, "wb") as f:
+        f.write(content)
+
+    items = _read_community_index()
+    items.insert(0, item)
+    stale_items = items[COMMUNITY_HUB_MAX_ITEMS:]
+    items = items[:COMMUNITY_HUB_MAX_ITEMS]
+
+    try:
+        _write_community_index(items)
+    except Exception:
+        try:
+            os.remove(saved_path)
+        except Exception:
+            pass
+        return web.json_response({"error": "Failed to save upload metadata."}, status=500)
+
+    for stale in stale_items:
+        stale_name = _sanitize_upload_filename(stale.get("stored_name", ""))
+        if not stale_name:
+            continue
+        try:
+            stale_path = _community_file_path(stale_name)
+            if os.path.isfile(stale_path):
+                os.remove(stale_path)
+        except Exception:
+            continue
+
+    response_payload = {
+        "ok": True,
+        "item": _community_public_entry(item),
+    }
+    if openclaw_import.get("detected"):
+        response_payload["openclaw_import"] = openclaw_import
+    return web.json_response(response_payload)
+
+
+@require_auth
+async def handle_api_claistore_test(request):
+    """Test Claistore GitHub configuration."""
+    try:
+        body = request._json_body if isinstance(request._json_body, dict) else {}
+        repo = body.get("repo", "").strip()
+        token = body.get("token", "").strip()
+        branch = body.get("branch", "main").strip()
+
+        if not repo or not token:
+            return web.json_response({"ok": False, "error": "Repository and token are required"}, status=400)
+
+        # Test using the claistore module
+        result = await claistore_test_connection()
+        return web.json_response(result)
+    except Exception as e:
+        logger.exception("Claistore test failed")
+        return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+
+@require_auth
+async def handle_api_community_download(request):
+    item_id = _sanitize_text_field(request.match_info.get("item_id", ""), max_len=64)
+    if not item_id:
+        return web.json_response({"error": "Not found."}, status=404)
+
+    builtin = _resolve_builtin_community_item(item_id)
+    if builtin is not None:
+        builtin_item, payload = builtin
+        response = web.Response(body=payload)
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Content-Disposition"] = (
+            f'attachment; filename="{_sanitize_upload_filename(builtin_item.get("file_name", "download.bin"))}"'
+        )
+        mime = _sanitize_text_field(builtin_item.get("mime", ""), max_len=120)
+        if mime:
+            response.headers["Content-Type"] = mime
+        return response
+
+    # Try local community index first
+    items = _read_community_index()
+    found_idx = None
+    found_item = None
+    for idx, item in enumerate(items):
+        if item.get("id") == item_id:
+            found_idx = idx
+            found_item = item
+            break
+
+    if found_item is not None and found_idx is not None:
+        try:
+            file_path = _community_file_path(found_item.get("stored_name", ""))
+        except ValueError:
+            return web.json_response({"error": "Not found."}, status=404)
+
+        if not os.path.isfile(file_path):
+            return web.json_response({"error": "File not found."}, status=404)
+
+        items[found_idx]["downloads"] = max(0, int(items[found_idx].get("downloads", 0) or 0)) + 1
+        try:
+            _write_community_index(items)
+        except Exception:
+            pass
+
+        response = web.FileResponse(file_path)
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Content-Disposition"] = f'attachment; filename="{_sanitize_upload_filename(found_item.get("file_name", "download.bin"))}"'
+        mime = _sanitize_text_field(found_item.get("mime", ""), max_len=120)
+        if mime:
+            response.content_type = mime
+        return response
+
+    # Try Claistore (GitHub) if configured
+    if claistore_is_configured():
+        try:
+            content, metadata = await claistore_read_skill_file(item_id)
+            if content is not None:
+                # Serve the skill content from GitHub
+                response = web.Response(body=content.encode("utf-8"))
+                response.headers["Cache-Control"] = "no-store"
+                file_name = metadata.get("file_name", f"{item_id}.md") if metadata else f"{item_id}.md"
+                response.headers["Content-Disposition"] = f'attachment; filename="{_sanitize_upload_filename(file_name)}"'
+                mime = metadata.get("mime", "text/markdown") if metadata else "text/markdown"
+                response.headers["Content-Type"] = mime
+                return response
+        except Exception as e:
+            logger.exception("Failed to download from Claistore")
+            return web.json_response({"error": f"Claistore download failed: {e}"}, status=500)
+
+    return web.json_response({"error": "Not found."}, status=404)
+
+
+@require_auth_csrf
+async def handle_api_community_install(request):
+    item_id = _sanitize_text_field(request.match_info.get("item_id", ""), max_len=64)
+    if not item_id:
+        return web.json_response({"error": "Not found."}, status=404)
+
+    item: dict | None = None
+    payload: bytes | None = None
+
+    builtin = _resolve_builtin_community_item(item_id)
+    if builtin is not None:
+        item, payload = builtin
+    else:
+        # Try local community index first
+        items = _read_community_index()
+        found_item = None
+        for entry in items:
+            if entry.get("id") == item_id:
+                found_item = entry
+                break
+
+        if found_item is not None:
+            try:
+                source_path = _community_file_path(found_item.get("stored_name", ""))
+            except ValueError:
+                return web.json_response({"error": "Not found."}, status=404)
+
+            if not os.path.isfile(source_path):
+                return web.json_response({"error": "File not found."}, status=404)
+
+            try:
+                with open(source_path, "rb") as f:
+                    payload = f.read()
+            except Exception:
+                return web.json_response({"error": "Failed to read package."}, status=500)
+
+            item = found_item
+        else:
+            # Try Claistore (GitHub) if configured
+            if claistore_is_configured():
+                try:
+                    content, metadata = await claistore_read_skill_file(item_id)
+                    if content is not None:
+                        # Get the file name from metadata or default
+                        file_name = metadata.get("file_name", f"{item_id}.md") if metadata else f"{item_id}.md"
+                        payload = content.encode("utf-8")
+                        # Create item from metadata or minimal info
+                        item = metadata if metadata else {
+                            "id": item_id,
+                            "name": item_id,
+                            "file_name": file_name,
+                            "mime": "text/markdown"
+                        }
+                except Exception as e:
+                    logger.exception("Failed to read from Claistore for install")
+                    return web.json_response({"error": f"Claistore read failed: {e}"}, status=500)
+
+    if not item or payload is None:
+        return web.json_response({"error": "Not found."}, status=404)
+
+    safe_file_name = _sanitize_upload_filename(item.get("file_name", "community-package.bin"))
+    now = datetime.now(timezone.utc)
+    stamp = now.strftime("%Y%m%d_%H%M%S")
+    stored_name = f"{stamp}_{item_id}_{safe_file_name}"
+
+    os.makedirs(COMMUNITY_HUB_INSTALLED_DIR, exist_ok=True)
+    install_path = os.path.join(COMMUNITY_HUB_INSTALLED_DIR, stored_name)
+    try:
+        with open(install_path, "wb") as f:
+            f.write(payload)
+    except Exception as exc:
+        return web.json_response({"error": f"Failed to install package on server: {exc}"}, status=500)
+
+    openclaw_import = _import_openclaw_compatibility(safe_file_name, payload)
+
+    installed_skill_doc = ""
+    tool_registration = None
+    lower_name = safe_file_name.lower()
+    if not openclaw_import.get("detected") and lower_name.endswith((".md", ".txt")):
+        docs_dir = app_paths.dynamic_tools_docs_dir()
+        os.makedirs(docs_dir, exist_ok=True)
+        stem = os.path.splitext(safe_file_name)[0]
+        doc_name = _normalize_openclaw_identifier(stem, prefix="community_skill")
+        doc_path = os.path.join(docs_dir, f"{doc_name}.md")
+        try:
+            decoded = payload.decode("utf-8", errors="replace")
+            with open(doc_path, "w", encoding="utf-8") as f:
+                f.write(decoded.rstrip() + "\n")
+            installed_skill_doc = doc_name
+
+            # Try to register as a dynamic tool if frontmatter is present
+            tool_registration = _install_skill_as_tool(safe_file_name, decoded)
+        except Exception:
+            installed_skill_doc = ""
+
+    rel_install_path = os.path.relpath(install_path, app_paths.data_root()).replace("\\", "/")
+    response_payload = {
+        "ok": True,
+        "message": "Installed on server.",
+        "installed_path": rel_install_path,
+        "item": _community_public_entry(item),
+        "openclaw_import": openclaw_import,
+    }
+    if installed_skill_doc:
+        response_payload["skill_doc"] = installed_skill_doc
+    if tool_registration:
+        response_payload["tool_registration"] = tool_registration
+    return web.json_response(response_payload)
 
 
 @require_auth_csrf
@@ -2025,11 +3928,39 @@ async def handle_api_restart(request):
         return web.json_response({"error": "Restart failed."}, status=500)
 
 
+def _ollama_models_to_keep_warm() -> list[str]:
+    """The Ollama models TALOS is actually configured to use, if any."""
+    main_model = os.getenv("MAIN_MODEL", "").strip()
+    candidates = [main_model]
+    try:
+        candidates.extend(db.list_active_models())
+    except Exception:
+        logger.debug("Could not read per-user models for Ollama warm-up", exc_info=True)
+
+    names: list[str] = []
+    for model in candidates:
+        model = (model or "").strip()
+        if not model:
+            continue
+        provider, model_id = model_router.resolve_model(model)
+        if provider == "ollama" and model_id and model_id not in names:
+            names.append(model_id)
+
+    # Nothing configured yet (fresh install mid-onboarding): fall back to the
+    # model the Ollama setup step picked, so it is warm when the user first asks.
+    if not names and not main_model:
+        fallback = os.getenv("OLLAMA_MODEL", "").strip()
+        if fallback:
+            names.append(fallback)
+    return names
+
+
 async def main():
     global start_time
     start_time = time.time()
 
     cron_stop = asyncio.Event()
+    warm_stop = asyncio.Event()
 
     db.init()
     memory.init()
@@ -2068,6 +3999,9 @@ async def main():
     web_app.router.add_get("/keys", handle_keys)
     web_app.router.add_get("/settings", handle_settings)
     web_app.router.add_get("/tools", handle_tools)
+    web_app.router.add_get("/claistore", handle_community_page)
+    web_app.router.add_get("/community", handle_community_page)
+    web_app.router.add_get("/docs", handle_docs_page)
     web_app.router.add_get("/projects", handle_projects_page)
     web_app.router.add_post("/login", handle_login)
     web_app.router.add_post("/logout", handle_logout)
@@ -2077,6 +4011,9 @@ async def main():
     web_app.router.add_post("/api/keys", handle_api_keys_post)
     web_app.router.add_get("/api/settings", handle_api_settings_get)
     web_app.router.add_post("/api/settings", handle_api_settings_post)
+    web_app.router.add_get("/api/updates/check", handle_api_updates_check)
+    web_app.router.add_post("/api/updates/apply", handle_api_updates_apply)
+    web_app.router.add_post("/api/updates/rollback", handle_api_updates_rollback)
     web_app.router.add_get("/api/context-usage", handle_api_context_usage)
     web_app.router.add_get("/api/google/status", handle_api_google_status)
     web_app.router.add_post("/api/google/connect", handle_api_google_connect)
@@ -2085,12 +4022,24 @@ async def main():
     web_app.router.add_post("/api/google/test", handle_api_google_test)
     web_app.router.add_get("/api/tools", handle_api_tools_get)
     web_app.router.add_post("/api/tools", handle_api_tools_post)
+    web_app.router.add_get("/api/tools/dynamic", handle_api_tools_dynamic)
+    web_app.router.add_get("/api/community", handle_api_community_get)
+    web_app.router.add_post("/api/community/upload", handle_api_community_upload)
+    web_app.router.add_post("/api/claistore/test", handle_api_claistore_test)
+    web_app.router.add_get("/api/community/download/{item_id}", handle_api_community_download)
+    web_app.router.add_post("/api/community/install/{item_id}", handle_api_community_install)
     web_app.router.add_get("/api/models", handle_api_models)
     web_app.router.add_post("/api/models/fetch", handle_api_models_fetch)
     web_app.router.add_post("/api/ollama/setup", handle_api_ollama_setup)
+    web_app.router.add_get("/api/ollama/status", handle_api_ollama_status)
+    web_app.router.add_get("/api/ollama/model-info", handle_api_ollama_model_info)
     web_app.router.add_post("/api/chat", handle_api_chat)
     web_app.router.add_get("/api/activity/history", handle_api_activity_history)
     web_app.router.add_get("/api/activity/stream", handle_api_activity_stream)
+    web_app.router.add_get("/api/diagnostics/run", handle_api_diagnostics_run)
+    web_app.router.add_get("/api/diagnostics/repairs", handle_api_diagnostics_repairs)
+    web_app.router.add_post("/api/diagnostics/repair", handle_api_diagnostics_repair)
+    web_app.router.add_post("/api/diagnostics/autorepair", handle_api_diagnostics_autorepair)
     web_app.router.add_post("/api/reload", handle_api_reload)
     web_app.router.add_post("/api/restart", handle_api_restart)
     web_app.router.add_static("/static", STATIC_DIR)
@@ -2114,9 +4063,31 @@ async def main():
 
     ts_ip = get_tailscale_ip()
     ts_hostname = get_tailscale_hostname()
+
+    # Re-assert HTTPS on every start. Tailscale's serve config is per-node state
+    # that a reinstall, a `serve reset`, or a fresh machine will not have, and
+    # silently falling back to plain HTTP is exactly the failure we are fixing.
+    https_ok, https_mode = False, "off"
+    if TAILSCALE_HTTPS_MODE != "off":
+        state = tailscale_https_state()
+        https_ok, https_mode = state["ok"], state["mode"]
+        if state["ok"]:
+            print(f"[ok] Tailscale HTTPS: {state['detail']}")
+        elif not state["configured"] and check_tailscale()[0]:
+            enabled, message = enable_tailscale_https()
+            print(f"[{'ok' if enabled else 'warn'}] Tailscale HTTPS: {message}")
+            state = tailscale_https_state()
+            https_ok, https_mode = state["ok"], state["mode"]
+        elif state["detail"]:
+            # Configured but broken: say so rather than silently serving HTTP.
+            print(f"[warn] Tailscale HTTPS: {state['detail']}")
+
     fn_ok, _ = check_funnel()
     print(f"Web dashboard: http://localhost:{WEB_PORT}")
-    if ts_hostname and fn_ok:
+    if ts_hostname and https_ok:
+        scope = "Public URL" if https_mode == "funnel" else "Tailnet URL"
+        print(f"{scope}:    https://{ts_hostname}")
+    elif ts_hostname and fn_ok:
         print(f"Public URL:    https://{ts_hostname}")
     elif ts_hostname:
         print(f"Tailscale:     http://{ts_hostname}:{WEB_PORT}")
@@ -2137,6 +4108,9 @@ async def main():
         print("Complete onboarding at the dashboard to connect Telegram.")
 
     cron_task = asyncio.create_task(cron_jobs.cron_loop(cron_stop))
+    warm_task = asyncio.create_task(
+        ollama_setup.keep_warm_loop(warm_stop, _ollama_models_to_keep_warm)
+    )
 
     try:
         await asyncio.Event().wait()
@@ -2145,6 +4119,8 @@ async def main():
     finally:
         cron_stop.set()
         cron_task.cancel()
+        warm_stop.set()
+        warm_task.cancel()
         await _stop_telegram_runtime()
         await runner.cleanup()
 

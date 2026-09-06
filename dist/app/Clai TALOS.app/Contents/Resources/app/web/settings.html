@@ -31,6 +31,76 @@
   .form-group input:focus { border-color: rgba(99,179,237,0.5); }
   .form-group input::placeholder { color: #444; }
   .form-hint { font-size: 0.72rem; color: #555; margin-top: 0.25rem; }
+  /* --- Ollama setup --- */
+  .ol-server {
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.02);
+    border-radius: 10px;
+    padding: 0.8rem 1rem;
+    margin-bottom: 1rem;
+  }
+  .ol-server-head { display: flex; align-items: center; gap: 0.55rem; font-size: 0.85rem; color: #ddd; }
+  .ol-server-sub { font-size: 0.76rem; color: #7d8590; margin-top: 0.35rem; line-height: 1.5; }
+  .ol-dot { width: 8px; height: 8px; border-radius: 50%; background: #a0aec0; flex: 0 0 auto; }
+  .ol-dot.ok { background: #48bb78; box-shadow: 0 0 0 3px rgba(72,187,120,0.15); }
+  .ol-dot.bad { background: #f56565; box-shadow: 0 0 0 3px rgba(245,101,101,0.15); }
+  .ol-dot.busy { background: #63b3ed; animation: ol-pulse 1.2s ease-in-out infinite; }
+  @keyframes ol-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+  .ol-refresh {
+    margin-left: auto; background: none; border: 1px solid rgba(255,255,255,0.14);
+    color: #9aa4b2; font-size: 0.72rem; padding: 0.2rem 0.6rem; border-radius: 6px;
+    cursor: pointer; font-family: inherit;
+  }
+  .ol-refresh:hover { color: #e6e6e6; border-color: rgba(255,255,255,0.3); }
+
+  .ol-suggestions { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1rem; }
+  .ol-chip {
+    border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.03);
+    border-radius: 999px; padding: 0.3rem 0.7rem; font-size: 0.74rem; color: #b9c2cf;
+    cursor: pointer; font-family: inherit; transition: all 0.15s;
+  }
+  .ol-chip:hover { border-color: rgba(99,179,237,0.45); color: #fff; background: rgba(99,179,237,0.1); }
+  .ol-chip .ol-chip-meta { color: #6b7280; margin-left: 0.35rem; }
+  .ol-chip.installed { border-color: rgba(72,187,120,0.35); }
+
+  .ol-advanced { margin-bottom: 1rem; }
+  .ol-advanced summary {
+    cursor: pointer; font-size: 0.8rem; color: #9aa4b2; padding: 0.4rem 0;
+    list-style: none; user-select: none;
+  }
+  .ol-advanced summary::before { content: '\25B8'; display: inline-block; margin-right: 0.45rem; transition: transform 0.15s; }
+  .ol-advanced[open] summary::before { transform: rotate(90deg); }
+  .ol-advanced summary:hover { color: #cbd5e1; }
+  .ol-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 1rem; padding-top: 0.5rem; }
+
+  .ol-progress {
+    border: 1px solid rgba(99,179,237,0.2); background: rgba(99,179,237,0.05);
+    border-radius: 10px; padding: 0.9rem 1rem; margin-bottom: 1rem;
+  }
+  .ol-progress-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 0.82rem; color: #dbe3ec; }
+  .ol-progress-pct { font-variant-numeric: tabular-nums; }
+  .ol-bar { height: 7px; border-radius: 4px; background: rgba(255,255,255,0.08); overflow: hidden; margin: 0.55rem 0 0.4rem; }
+  .ol-bar-fill {
+    height: 100%; width: 0%; border-radius: 4px;
+    background: linear-gradient(90deg, #4299e1, #63b3ed);
+    transition: width 0.25s ease;
+  }
+  .ol-bar-fill.indeterminate {
+    width: 35%; background: linear-gradient(90deg, rgba(99,179,237,0.15), #63b3ed, rgba(99,179,237,0.15));
+    animation: ol-slide 1.1s linear infinite;
+  }
+  @keyframes ol-slide { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
+  .ol-bar-fill.ok { background: linear-gradient(90deg, #38a169, #48bb78); }
+  .ol-bar-fill.err { background: linear-gradient(90deg, #c53030, #f56565); }
+  .ol-progress-sub { font-size: 0.74rem; color: #8b949e; font-variant-numeric: tabular-nums; }
+  .ol-log {
+    margin-top: 0.6rem; max-height: 120px; overflow-y: auto;
+    font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.7rem;
+    color: #7d8590; line-height: 1.7;
+  }
+  .ol-log div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  @media (max-width: 640px) { .ol-grid { grid-template-columns: 1fr; } }
+
 
   .badge-set { font-size: 0.65rem; padding: 0.1rem 0.45rem; border-radius: 20px; background: rgba(72,187,120,0.15); color: #48bb78; border: 1px solid rgba(72,187,120,0.3); text-transform: uppercase; margin-left: 0.4rem; }
   .badge-unset { font-size: 0.65rem; padding: 0.1rem 0.45rem; border-radius: 20px; background: rgba(245,101,101,0.15); color: #f56565; border: 1px solid rgba(245,101,101,0.3); text-transform: uppercase; margin-left: 0.4rem; }
@@ -52,6 +122,7 @@
   .model-override-btn:hover { color: #63b3ed; border-color: rgba(99,179,237,0.3); background: rgba(99,179,237,0.06); }
   .model-override-btn.active { color: #63b3ed; border-color: rgba(99,179,237,0.4); background: rgba(99,179,237,0.1); }
   .model-override-input { display: none; flex: 1; padding: 0.6rem 0.85rem; background: rgba(255,255,255,0.04); border: 1px solid rgba(99,179,237,0.3); border-radius: 8px; color: #e0e0e0; font-size: 0.85rem; font-family: monospace; outline: none; }
+  .model-override-input.active { display: block; }
   .model-override-input:focus { border-color: rgba(99,179,237,0.5); }
   .model-override-input::placeholder { color: #444; }
   .vision-section { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid rgba(255,255,255,0.06); }
@@ -64,6 +135,8 @@
   .btn:disabled { opacity: 0.4; cursor: not-allowed; }
   .btn-danger { background: rgba(245,101,101,0.15); border-color: rgba(245,101,101,0.3); color: #f56565; }
   .btn-danger:hover { background: rgba(245,101,101,0.25); }
+  .btn-warning { background: rgba(214,158,46,0.15); border-color: rgba(214,158,46,0.3); color: #d69e2e; }
+  .btn-warning:hover { background: rgba(214,158,46,0.25); }
   .msg { font-size: 0.82rem; margin-top: 1rem; min-height: 1.2em; }
   .msg-ok { color: #48bb78; } .msg-err { color: #f56565; }
   .status-line { font-size: 0.8rem; color: #888; margin-top: 0.5rem; }
@@ -97,6 +170,7 @@
     <a href="/dashboard" class="nav-item"><span class="icon">&#9632;</span> Dashboard</a>
     <a href="/keys" class="nav-item"><span class="icon">&#9919;</span> API Keys</a>
     <a href="/tools" class="nav-item"><span class="icon">&#9881;</span> Tools</a>
+    <a href="/claistore" class="nav-item"><span class="icon">&#11088;</span> ClaiStore</a>
     <a href="/settings" class="nav-item active"><span class="icon">&#9881;</span> Settings</a>
     <a href="/projects" class="nav-item"><span class="icon">&#9830;</span> Projects</a>
     <a href="/static/chat.html" class="nav-item"><span class="icon">&#9993;</span> Chat</a>
@@ -156,6 +230,16 @@
         </div>
       </div>
     </div>
+
+    <div class="vision-section">
+      <div class="form-group">
+        <label>Fallback Model <span class="form-hint" style="display:inline;margin-left:0.3rem;">(used automatically if the main model fails)</span></label>
+        <div class="model-select-wrap">
+          <select id="fallback-model"></select>
+          <button class="model-override-btn" onclick="toggleModelOverride('fallback-model')" title="Type model name manually">&#9998;</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="section">
@@ -195,6 +279,61 @@
       <div class="status-line" id="reconfig-email-status"></div>
       <button class="btn" id="reconfig-email-submit-btn" onclick="reconfigureEmail()">Install and Connect</button>
     </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Over-the-Air Updates</div>
+    <div class="form-group">
+      <label>Update Channel</label>
+      <select id="ota-channel" onchange="checkOtaUpdates(false)">
+        <option value="stable">Stable</option>
+        <option value="prerelease">Pre-release</option>
+      </select>
+      <div class="form-hint">Stable uses latest production release. Pre-release includes preview/beta builds.</div>
+    </div>
+    <div class="status-line" id="ota-current-version">Current version: checking...</div>
+    <div class="status-line" id="ota-latest-version">Latest release: checking...</div>
+    <div class="status-line" id="ota-release-channel">Channel: stable</div>
+    <div class="form-hint" id="ota-mode-hint">Checking update support for this install type...</div>
+    <div class="google-actions">
+      <button class="btn" id="ota-check-btn" onclick="checkOtaUpdates(true)">Check for Updates</button>
+      <button class="btn" id="ota-apply-btn" onclick="applyOtaUpdate()" disabled>Download and Apply</button>
+    </div>
+    <div class="status-line" id="ota-status-line"></div>
+    <div class="form-group" id="ota-rollback-group" style="display:none; margin-top:1rem;">
+      <button type="button" class="btn btn-warning" id="ota-rollback-btn">Rollback to Previous Version</button>
+      <div id="ota-rollback-info" style="margin-top:0.5rem; font-size:0.9em; color:#888;"></div>
+    </div>
+    <div class="form-group" style="margin-top:0.8rem;">
+      <label>Release Notes Preview</label>
+      <textarea id="ota-release-notes" readonly style="min-height:120px; background:rgba(255,255,255,0.02);" placeholder="Release notes will appear after checking for updates."></textarea>
+      <div class="form-hint" id="ota-release-meta">No release metadata loaded yet.</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Claistore (Skill Marketplace)</div>
+    <div class="form-hint">Configure GitHub-backed skill marketplace. Skills uploaded in Community tab will be saved to this repo.</div>
+    <div class="form-group">
+      <label>GitHub Repository</label>
+      <input type="text" id="claistore-repo" placeholder="owner/repo (e.g. yourname/claistore-skills)">
+      <div class="form-hint">Public or private repo. Skills stored as markdown + JSON in skills/ folder.</div>
+    </div>
+    <div class="form-group">
+      <label>GitHub Token (PAT)</label>
+      <input type="password" id="claistore-token" placeholder="ghp_xxxxxxxxxxxx" autocomplete="off">
+      <div class="form-hint">Personal Access Token with <code>repo</code> scope. Never shared with clients.</div>
+    </div>
+    <div class="form-group">
+      <label>Branch</label>
+      <input type="text" id="claistore-branch" value="main" placeholder="main">
+      <div class="form-hint">Branch to publish skills to.</div>
+    </div>
+    <div class="google-actions">
+      <button class="btn" id="claistore-test-btn" onclick="testClaistoreConfig()">Test Connection</button>
+      <button class="btn" id="claistore-save-btn" onclick="saveClaistoreConfig()">Save Configuration</button>
+    </div>
+    <div class="status-line" id="claistore-status"></div>
   </div>
 
   <div class="section">
@@ -243,7 +382,10 @@ var PROVIDERS = [
   { id: 'gemini', name: 'Gemini', env_key: 'GEMINI_API_KEY', url: 'https://aistudio.google.com/app/apikey', desc: 'Gemini models and optional web search' },
   { id: 'nvidia', name: 'NVIDIA', env_key: 'NVIDIA_API_KEY', url: 'https://build.nvidia.com/', desc: 'NVIDIA hosted AI models' },
   { id: 'cerebras', name: 'Cerebras', env_key: 'CEREBRAS_API_KEY', url: 'https://cloud.cerebras.ai/', desc: 'High-speed Llama inference' },
+  { id: 'groq', name: 'Groq', env_key: 'GROQ_API_KEY', url: 'https://console.groq.com/keys', desc: 'Fast Llama, GPT-OSS and Kimi inference' },
+  { id: 'qwen', name: 'Qwen', env_key: 'QWEN_API_KEY', url: 'https://www.alibabacloud.com/', desc: 'Alibaba Qwen models (Max, Plus, Turbo, Coder)' },
   { id: 'openrouter', name: 'OpenRouter', env_key: 'OPENROUTER_API_KEY', url: 'https://openrouter.ai/keys', desc: 'Access 200+ models through one API' },
+  { id: 'mistral', name: 'Mistral', env_key: 'MISTRAL_API_KEY', url: 'https://console.mistral.ai/api-keys', desc: 'Mistral, Ministral, Codestral and Pixtral models' },
   { id: 'ollama', name: 'Ollama', env_key: '', url: 'https://ollama.com', desc: 'Local models, no API key needed' },
 ];
 
@@ -251,7 +393,8 @@ var _providerModels = {};
 var _providerKeys = {};
 var _activeProvider = '';
 var _fetchTimer = null;
-var _baseUrlValues = { zhipu: '', nvidia: '', cerebras: '', openrouter: '', ollama: '' };
+var _baseUrlValues = { zhipu: '', nvidia: '', cerebras: '', groq: '', qwen: '', openrouter: '', mistral: '', ollama: '' };
+var _otaStatus = null;
 
 function _saveBaseUrls() {
   var el;
@@ -261,10 +404,28 @@ function _saveBaseUrls() {
   if (el) _baseUrlValues.nvidia = el.value;
   el = document.getElementById('cerebras-base-url');
   if (el) _baseUrlValues.cerebras = el.value;
+  el = document.getElementById('groq-base-url');
+  if (el) _baseUrlValues.groq = el.value;
+  el = document.getElementById('qwen-base-url');
+  if (el) _baseUrlValues.qwen = el.value;
   el = document.getElementById('openrouter-base-url');
   if (el) _baseUrlValues.openrouter = el.value;
+  el = document.getElementById('mistral-base-url');
+  if (el) _baseUrlValues.mistral = el.value;
   el = document.getElementById('ollama-base-url');
   if (el) _baseUrlValues.ollama = el.value;
+
+  var advanced = {
+    'ollama-num-ctx': 'OLLAMA_NUM_CTX',
+    'ollama-temperature': 'OLLAMA_TEMPERATURE',
+    'ollama-max-tokens': 'OLLAMA_MAX_TOKENS',
+    'ollama-keep-alive': 'OLLAMA_KEEP_ALIVE',
+    'ollama-timeout': 'OLLAMA_TIMEOUT_S'
+  };
+  Object.keys(advanced).forEach(function(id) {
+    var input = document.getElementById(id);
+    if (input) _ollamaAdvanced[advanced[id]] = input.value;
+  });
 }
 
 function _prov(id) { return PROVIDERS.find(function(p) { return p.id === id; }); }
@@ -303,19 +464,60 @@ function renderProviderPanels() {
 
     if (p.id === 'ollama') {
       html += '<div class="provider-panel' + (isActive ? ' active' : '') + '" id="panel-ollama">'
-        + '<div class="provider-desc">' + p.desc + '. <a href="' + p.url + '" target="_blank">Install Ollama</a> first, then type a model name.</div>'
-        + '<div class="form-group">'
-        + '<label>Model Name <span id="key-badge-ollama">' + (_ollamaModel ? '<span class="badge-set">Set</span>' : '<span class="badge-unset">Not set</span>') + '</span></label>'
-        + '<input type="text" id="key-ollama" placeholder="e.g. llama3, mistral, deepseek-r1" value="' + (_ollamaModel || '') + '" autocomplete="off">'
-        + '<div class="form-hint">Type the model name. It will be pulled automatically if not already downloaded. Browse at <a href="https://ollama.com/library" target="_blank">ollama.com/library</a>.</div>'
+        + '<div class="provider-desc">' + p.desc + '. Models run entirely on this machine — nothing is sent to a provider. '
+        + '<a href="' + p.url + '" target="_blank">Install Ollama</a> and make sure it is running, then pick a model.</div>'
+
+        + '<div class="ol-server" id="ollama-server-box">'
+        + '<div class="ol-server-head">'
+        + '<span class="ol-dot" id="ollama-dot"></span>'
+        + '<span id="ollama-server-text">Checking for Ollama...</span>'
+        + '<button type="button" class="ol-refresh" onclick="refreshOllamaStatus()">Recheck</button>'
         + '</div>'
-        + '<div class="form-group">'
-        + '<label>Base URL</label>'
-        + '<input type="text" id="ollama-base-url" placeholder="http://localhost:11434/v1" value="' + (_baseUrlValues.ollama || '') + '">'
-        + '<div class="form-hint">Default is http://localhost:11434/v1. Change only if Ollama runs on a different port/host.</div>'
+        + '<div class="ol-server-sub" id="ollama-server-sub"></div>'
         + '</div>'
-        + '<div id="ollama-status" class="status-line">' + (_ollamaModel ? 'Active model: ' + _ollamaModel : '') + '</div>'
-        + '<button class="btn" onclick="setupOllama()">Install & Pull Model</button>'
+
+        + '<div class="form-group">'
+        + '<label>Model <span id="key-badge-ollama">' + (_ollamaModel ? '<span class="badge-set">Set</span>' : '<span class="badge-unset">Not set</span>') + '</span></label>'
+        + '<input type="text" id="ollama-model-name" placeholder="llama3.1:8b" value="' + _olAttr(_ollamaModel || '') + '" autocomplete="off" list="ollama-model-list" oninput="onOllamaModelInput()">'
+        + '<datalist id="ollama-model-list"></datalist>'
+        + '<div class="form-hint" id="ollama-model-hint">Already-downloaded models appear as suggestions. Anything else is downloaded for you. Browse at <a href="https://ollama.com/library" target="_blank">ollama.com/library</a>.</div>'
+        + '</div>'
+
+        + '<div id="ollama-suggestions" class="ol-suggestions"></div>'
+
+        + '<details class="ol-advanced">'
+        + '<summary>Advanced settings</summary>'
+        + '<div class="ol-grid">'
+        + '<div class="form-group"><label>Server URL</label>'
+        + '<input type="text" id="ollama-base-url" placeholder="http://localhost:11434/v1" value="' + _olAttr(_baseUrlValues.ollama || '') + '">'
+        + '<div class="form-hint">Change only if Ollama runs on another host or port.</div></div>'
+        + '<div class="form-group"><label>Context window (tokens)</label>'
+        + '<input type="text" id="ollama-num-ctx" placeholder="Auto (16384)" value="' + _olAttr(_ollamaAdvanced.OLLAMA_NUM_CTX || '') + '">'
+        + '<div class="form-hint">Blank auto-sizes to 16384 (or the model max). TALOS needs ~9k tokens for its prompt and tools, so smaller windows drop conversation history. Higher uses more RAM.</div></div>'
+        + '<div class="form-group"><label>Temperature</label>'
+        + '<input type="text" id="ollama-temperature" placeholder="Model default (0 - 2)" value="' + _olAttr(_ollamaAdvanced.OLLAMA_TEMPERATURE || '') + '">'
+        + '<div class="form-hint">Lower is more literal. 0.2 - 0.4 suits tool use.</div></div>'
+        + '<div class="form-group"><label>Keep model loaded</label>'
+        + '<input type="text" id="ollama-keep-alive" placeholder="30m" value="' + _olAttr(_ollamaAdvanced.OLLAMA_KEEP_ALIVE || '') + '">'
+        + '<div class="form-hint">TALOS keeps the model loaded (default 30m) so replies start instantly. Use -1 to never unload, or a shorter time to free RAM sooner.</div></div>'
+        + '<div class="form-group"><label>Max response tokens</label>'
+        + '<input type="text" id="ollama-max-tokens" placeholder="Model default" value="' + _olAttr(_ollamaAdvanced.OLLAMA_MAX_TOKENS || '') + '">'
+        + '<div class="form-hint">Caps the length of a single reply.</div></div>'
+        + '<div class="form-group"><label>Request timeout (seconds)</label>'
+        + '<input type="text" id="ollama-timeout" placeholder="600" value="' + _olAttr(_ollamaAdvanced.OLLAMA_TIMEOUT_S || '') + '">'
+        + '<div class="form-hint">Local models are slower than cloud APIs. Raise this on modest hardware.</div></div>'
+        + '</div>'
+        + '</details>'
+
+        + '<div id="ollama-progress" class="ol-progress" style="display:none;">'
+        + '<div class="ol-progress-head"><span id="ollama-progress-stage">Preparing...</span><span id="ollama-progress-pct">0%</span></div>'
+        + '<div class="ol-bar"><div class="ol-bar-fill" id="ollama-bar-fill"></div></div>'
+        + '<div class="ol-progress-sub" id="ollama-progress-sub"></div>'
+        + '<div class="ol-log" id="ollama-log"></div>'
+        + '</div>'
+
+        + '<div id="ollama-status" class="status-line">' + (_ollamaModel ? 'Active model: ' + _olAttr(_ollamaModel) : '') + '</div>'
+        + '<button class="btn" id="ollama-setup-btn" onclick="setupOllama()">Download &amp; use this model</button>'
         + '</div>';
       return;
     }
@@ -356,10 +558,28 @@ function renderProviderPanels() {
         + '<input type="text" id="cerebras-base-url" placeholder="https://api.cerebras.ai/v1" value="' + (_baseUrlValues.cerebras || '') + '">'
         + '</div>';
     }
+    if (p.id === 'groq') {
+      html += '<div class="form-group" style="margin-top:0.5rem;">'
+        + '<label>Base URL</label>'
+        + '<input type="text" id="groq-base-url" placeholder="https://api.groq.com/openai/v1" value="' + (_baseUrlValues.groq || '') + '">'
+        + '</div>';
+    }
+    if (p.id === 'qwen') {
+      html += '<div class="form-group" style="margin-top:0.5rem;">'
+        + '<label>Base URL</label>'
+        + '<input type="text" id="qwen-base-url" placeholder="https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1" value="' + (_baseUrlValues.qwen || '') + '">'
+        + '</div>';
+    }
     if (p.id === 'openrouter') {
       html += '<div class="form-group" style="margin-top:0.5rem;">'
         + '<label>Base URL</label>'
         + '<input type="text" id="openrouter-base-url" placeholder="https://openrouter.ai/api/v1" value="' + (_baseUrlValues.openrouter || '') + '">'
+        + '</div>';
+    }
+    if (p.id === 'mistral') {
+      html += '<div class="form-group" style="margin-top:0.5rem;">'
+        + '<label>Base URL</label>'
+        + '<input type="text" id="mistral-base-url" placeholder="https://api.mistral.ai/v1" value="' + (_baseUrlValues.mistral || '') + '">'
         + '</div>';
     }
     html += '</div>';
@@ -378,10 +598,317 @@ function updateActiveModelDisplay() {
   }
 }
 
+/* --- Ollama setup: live server status, model picker, streaming pull progress --- */
+var _ollamaStatus = null;
+var _ollamaPulling = false;
+
+function _ol(id) { return document.getElementById(id); }
+
+function _olEscape(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+function _olSetDot(state) {
+  var dot = _ol('ollama-dot');
+  if (dot) dot.className = 'ol-dot' + (state ? ' ' + state : '');
+}
+
+async function refreshOllamaStatus() {
+  var text = _ol('ollama-server-text');
+  var sub = _ol('ollama-server-sub');
+  if (!text) return null;
+
+  _olSetDot('busy');
+  text.textContent = 'Checking for Ollama...';
+  if (sub) sub.textContent = '';
+
+  var baseInput = _ol('ollama-base-url');
+  var qs = baseInput && baseInput.value.trim() ? '?base_url=' + encodeURIComponent(baseInput.value.trim()) : '';
+
+  try {
+    var res = await fetch('/api/ollama/status' + qs);
+    var data = await res.json();
+    _ollamaStatus = data;
+
+    if (data.reachable) {
+      _olSetDot('ok');
+      text.textContent = 'Ollama is running' + (data.version ? ' (v' + data.version + ')' : '');
+      var bits = [];
+      bits.push(data.models.length
+        ? data.models.length + ' model' + (data.models.length === 1 ? '' : 's') + ' downloaded'
+        : 'No models downloaded yet — pick one below and it will be fetched for you');
+      if (data.running && data.running.length) {
+        bits.push('Loaded in memory: ' + data.running.map(function(m) { return m.name; }).join(', '));
+      }
+      bits.push(data.base_url);
+      if (sub) sub.textContent = bits.join(' · ');
+    } else {
+      _olSetDot('bad');
+      text.textContent = data.cli_installed ? 'Ollama is installed but not responding' : 'Ollama not found';
+      if (sub) sub.textContent = data.error || 'Start Ollama and click Recheck.';
+    }
+
+    _olApplyConfig(data.config || {});
+    _olRenderModelOptions(data);
+    return data;
+  } catch (e) {
+    _olSetDot('bad');
+    text.textContent = 'Could not check Ollama';
+    if (sub) sub.textContent = 'The dashboard could not reach its own API. Try reloading the page.';
+    return null;
+  }
+}
+
+function _olApplyConfig(config) {
+  // Only fill fields the user has not typed into, so a recheck never clobbers edits.
+  var map = {
+    'ollama-base-url': 'OLLAMA_BASE_URL',
+    'ollama-num-ctx': 'OLLAMA_NUM_CTX',
+    'ollama-temperature': 'OLLAMA_TEMPERATURE',
+    'ollama-max-tokens': 'OLLAMA_MAX_TOKENS',
+    'ollama-keep-alive': 'OLLAMA_KEEP_ALIVE',
+    'ollama-timeout': 'OLLAMA_TIMEOUT_S'
+  };
+  Object.keys(map).forEach(function(id) {
+    var el = _ol(id);
+    if (el && !el.value && config[map[id]]) el.value = config[map[id]];
+  });
+  var nameEl = _ol('ollama-model-name');
+  if (nameEl && !nameEl.value && config.OLLAMA_MODEL) nameEl.value = config.OLLAMA_MODEL;
+}
+
+function _olRenderModelOptions(data) {
+  var list = _ol('ollama-model-list');
+  if (list) {
+    list.innerHTML = (data.models || []).map(function(m) {
+      return '<option value="' + _olEscape(m.name) + '">' +
+        _olEscape([m.parameter_size, m.quantization, m.size].filter(Boolean).join(' · ')) + '</option>';
+    }).join('');
+  }
+
+  var box = _ol('ollama-suggestions');
+  if (!box) return;
+
+  var installed = (data.models || []).slice(0, 8).map(function(m) {
+    return { name: m.name, meta: m.size || m.parameter_size || '', installed: true };
+  });
+  var suggested = (data.suggested || []).filter(function(sug) {
+    return !(data.models || []).some(function(m) { return m.name === sug.name; });
+  }).map(function(sug) {
+    return { name: sug.name, meta: sug.size, title: sug.note, installed: false };
+  });
+
+  var chips = installed.concat(suggested).slice(0, 12);
+  if (!chips.length) { box.innerHTML = ''; return; }
+
+  var label = installed.length ? 'Downloaded models and suggestions:' : 'Suggested models for a first run:';
+  box.innerHTML = '<div style="width:100%;font-size:0.74rem;color:#6b7280;margin-bottom:0.1rem;">' + label + '</div>' +
+    chips.map(function(c) {
+      return '<button type="button" class="ol-chip' + (c.installed ? ' installed' : '') + '"' +
+        (c.title ? ' title="' + _olEscape(c.title) + '"' : '') +
+        ' onclick="pickOllamaModel(\'' + _olEscape(c.name).replace(/'/g, "\\'") + '\')">' +
+        _olEscape(c.name) +
+        (c.meta ? '<span class="ol-chip-meta">' + _olEscape(c.meta) + '</span>' : '') +
+        '</button>';
+    }).join('');
+}
+
+function pickOllamaModel(name) {
+  var el = _ol('ollama-model-name');
+  if (!el) return;
+  el.value = name;
+  onOllamaModelInput();
+}
+
+function onOllamaModelInput() {
+  var hint = _ol('ollama-model-hint');
+  var el = _ol('ollama-model-name');
+  if (!hint || !el) return;
+  var name = el.value.trim();
+  if (!name) {
+    hint.textContent = "Already-downloaded models appear as suggestions. Anything else is downloaded for you.";
+    return;
+  }
+  var installed = _ollamaStatus && (_ollamaStatus.models || []).some(function(m) { return m.name === name; });
+  if (installed) {
+    hint.textContent = name + ' is already downloaded — setup will just verify and select it.';
+    return;
+  }
+  var suggestion = _ollamaStatus && (_ollamaStatus.suggested || []).filter(function(s) { return s.name === name; })[0];
+  hint.textContent = suggestion
+    ? suggestion.note + ' Download size about ' + suggestion.size + '.'
+    : name + ' will be downloaded from the Ollama library.';
+}
+
+function _olCollectSettings() {
+  var pick = function(id) { var el = _ol(id); return el ? el.value.trim() : ''; };
+  return {
+    base_url: pick('ollama-base-url'),
+    num_ctx: pick('ollama-num-ctx'),
+    temperature: pick('ollama-temperature'),
+    max_tokens: pick('ollama-max-tokens'),
+    keep_alive: pick('ollama-keep-alive'),
+    timeout_s: pick('ollama-timeout')
+  };
+}
+
+function _olLog(line) {
+  var log = _ol('ollama-log');
+  if (!log) return;
+  var row = document.createElement('div');
+  row.textContent = line;
+  log.appendChild(row);
+  while (log.childNodes.length > 60) log.removeChild(log.firstChild);
+  log.scrollTop = log.scrollHeight;
+}
+
+function _olProgress(opts) {
+  var box = _ol('ollama-progress');
+  if (!box) return;
+  box.style.display = 'block';
+
+  if (opts.stage !== undefined) _ol('ollama-progress-stage').textContent = opts.stage;
+  if (opts.sub !== undefined) _ol('ollama-progress-sub').textContent = opts.sub;
+
+  var fill = _ol('ollama-bar-fill');
+  var pctEl = _ol('ollama-progress-pct');
+  if (opts.indeterminate) {
+    fill.className = 'ol-bar-fill indeterminate';
+    pctEl.textContent = '';
+    return;
+  }
+  if (opts.percent !== undefined) {
+    fill.className = 'ol-bar-fill' + (opts.tone ? ' ' + opts.tone : '');
+    fill.style.width = Math.max(0, Math.min(100, opts.percent)) + '%';
+    pctEl.textContent = opts.percent.toFixed(0) + '%';
+  } else if (opts.tone) {
+    fill.className = 'ol-bar-fill ' + opts.tone;
+  }
+}
+
+/* Streams NDJSON pull progress from /api/ollama/setup.
+   Resolves { ok, error, model, main_model }. */
+async function runOllamaSetup(options) {
+  options = options || {};
+  var nameEl = _ol('ollama-model-name');
+  var modelName = nameEl ? nameEl.value.trim() : '';
+  if (!modelName) return { ok: false, error: 'Please choose or type an Ollama model name.' };
+  if (_ollamaPulling) return { ok: false, error: 'A model download is already running.' };
+
+  _ollamaPulling = true;
+  var log = _ol('ollama-log');
+  if (log) log.innerHTML = '';
+  _olSetDot('busy');
+  _olProgress({ stage: 'Contacting Ollama...', sub: '', indeterminate: true });
+
+  var payload = _olCollectSettings();
+  payload.model_name = modelName;
+  payload.set_as_main = options.setAsMain !== false;
+  payload.csrf_token = _csrfToken;
+
+  var finished = null;
+  var lastStatus = '';
+
+  try {
+    var res = await fetch('/api/ollama/setup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (!res.ok) {
+      var errBody = await res.json().catch(function() { return {}; });
+      throw new Error(errBody.error || ('Setup failed with status ' + res.status));
+    }
+
+    var reader = res.body.getReader();
+    var decoder = new TextDecoder();
+    var buffer = '';
+
+    while (true) {
+      var chunk = await reader.read();
+      if (chunk.done) break;
+      buffer += decoder.decode(chunk.value, { stream: true });
+
+      var lines = buffer.split('\n');
+      buffer = lines.pop();
+
+      for (var i = 0; i < lines.length; i++) {
+        var line = lines[i].trim();
+        if (!line) continue;
+        var evt;
+        try { evt = JSON.parse(line); } catch (e) { continue; }
+
+        if (evt.stage === 'start') {
+          _olProgress({ stage: evt.message, sub: '', indeterminate: true });
+          _olLog(evt.message);
+        } else if (evt.stage === 'progress') {
+          if (evt.status && evt.status !== lastStatus) {
+            lastStatus = evt.status;
+            _olLog(evt.status + (evt.digest ? '  ' + evt.digest : ''));
+          }
+          var sub = evt.total
+            ? evt.completed_label + ' of ' + evt.total_label
+            : 'Working...';
+          if (evt.total) {
+            _olProgress({ stage: evt.status || 'Downloading', percent: evt.percent, sub: sub });
+          } else {
+            _olProgress({ stage: evt.status || 'Working', sub: sub, indeterminate: true });
+          }
+        } else if (evt.stage === 'configuring') {
+          _olProgress({ stage: evt.message, percent: 100, sub: '' });
+          _olLog(evt.message);
+        } else if (evt.stage === 'error') {
+          _olLog('Error: ' + evt.error);
+        } else if (evt.stage === 'done') {
+          _olProgress({ stage: 'Download complete', percent: 100, sub: '' });
+        } else if (evt.stage === 'finished') {
+          finished = evt;
+        }
+      }
+    }
+  } catch (e) {
+    _ollamaPulling = false;
+    _olSetDot('bad');
+    _olProgress({ stage: 'Setup failed', tone: 'err', percent: 100, sub: String(e.message || e) });
+    return { ok: false, error: String(e.message || e) };
+  }
+
+  _ollamaPulling = false;
+
+  if (!finished) {
+    _olSetDot('bad');
+    _olProgress({ stage: 'Setup did not complete', tone: 'err', percent: 100, sub: 'The connection ended early. Please try again.' });
+    return { ok: false, error: 'Setup did not complete. Please try again.' };
+  }
+
+  if (!finished.ok) {
+    _olSetDot('bad');
+    _olProgress({ stage: 'Setup failed', tone: 'err', percent: 100, sub: finished.error || '' });
+    return { ok: false, error: finished.error || 'Could not set up the Ollama model.' };
+  }
+
+  _olSetDot('ok');
+  var info = finished.info || {};
+  var detail = [];
+  if (info.parameter_size) detail.push(info.parameter_size + ' parameters');
+  if (info.quantization) detail.push(info.quantization);
+  if (info.context_length) detail.push(info.context_length.toLocaleString() + ' token context');
+  _olProgress({ stage: finished.message, tone: 'ok', percent: 100, sub: detail.join(' · ') });
+  _olLog(finished.message);
+
+  refreshOllamaStatus();
+  return { ok: true, model: finished.model, main_model: finished.main_model, info: info };
+}
+
+
 function switchProvider(id) {
   _activeProvider = id;
   renderProviderTabs();
   renderProviderPanels();
+  if (id === 'ollama') refreshOllamaStatus();
 }
 
 function onKeyInput(providerId) {
@@ -415,11 +942,22 @@ async function fetchModelsForProvider(providerId, apiKey) {
   sel.innerHTML = models.map(function(m) { return '<option value="' + m + '"' + (m === prevVal ? ' selected' : '') + '>' + m + '</option>'; }).join('');
 }
 
+// Only the per-provider main-model pickers ("model-<provider>") own
+// _currentMainModel; the photo and quick-reply pickers must not touch it.
+function _overrideProviderId(selectId) {
+  if (selectId.indexOf('model-') !== 0) return null;
+  return selectId.slice('model-'.length);
+}
+
+function _isOverrideOn(wrap) {
+  var inp = wrap.querySelector('.model-override-input');
+  return !!inp && inp.classList.contains('active');
+}
+
 function onModelChange(providerId) {
   var sel = document.getElementById('model-' + providerId);
   var wrap = sel.closest('.model-select-wrap');
-  var inp = wrap.querySelector('.model-override-input');
-  if (inp && inp.style.display !== 'none' && inp.style.display !== '') return;
+  if (_isOverrideOn(wrap)) return;
   _currentMainModel = providerId + '/' + sel.value;
 }
 
@@ -428,56 +966,56 @@ function toggleModelOverride(selectId) {
   var wrap = sel.closest('.model-select-wrap');
   var btn = wrap.querySelector('.model-override-btn');
   var inp = wrap.querySelector('.model-override-input');
+  var providerId = _overrideProviderId(selectId);
   if (!inp) {
     inp = document.createElement('input');
     inp.type = 'text';
     inp.className = 'model-override-input';
     inp.placeholder = 'Type model name manually';
+    inp.autocomplete = 'off';
+    inp.spellcheck = false;
     inp.value = sel.value;
     inp.addEventListener('input', function() {
-      var baseId = selectId.replace(/^model-/, '');
-      if (baseId === selectId) baseId = null;
-      if (baseId && baseId !== 'image' && baseId !== 'fast') {
-        _currentMainModel = baseId + '/' + inp.value;
-      }
+      if (providerId) _currentMainModel = providerId + '/' + inp.value.trim();
     });
     wrap.insertBefore(inp, btn);
   }
-  var isOverride = inp.style.display !== 'none' && inp.style.display !== '';
-  if (isOverride) {
-    inp.style.display = 'none';
+
+  if (_isOverrideOn(wrap)) {
+    inp.classList.remove('active');
     sel.style.display = '';
     btn.classList.remove('active');
     btn.innerHTML = '&#9998;';
-    var baseId = selectId.replace(/^model-/, '');
-    if (baseId && baseId !== 'image' && baseId !== 'fast') {
-      _currentMainModel = baseId + '/' + sel.value;
-    }
+    btn.title = 'Type model name manually';
+    if (providerId) _currentMainModel = providerId + '/' + sel.value;
   } else {
     inp.value = sel.value;
-    inp.style.display = '';
+    inp.classList.add('active');
     sel.style.display = 'none';
     btn.classList.add('active');
     btn.innerHTML = '&#10005;';
-    var baseId2 = selectId.replace(/^model-/, '');
-    if (baseId2 && baseId2 !== 'image' && baseId2 !== 'fast') {
-      _currentMainModel = baseId2 + '/' + inp.value;
-    }
+    btn.title = 'Back to the model list';
+    inp.focus();
+    if (providerId) _currentMainModel = providerId + '/' + inp.value.trim();
   }
 }
 
 function getModelValue(selectId) {
   var sel = document.getElementById(selectId);
   var wrap = sel.closest('.model-select-wrap');
-  var inp = wrap.querySelector('.model-override-input');
-  if (inp && inp.style.display !== 'none' && inp.style.display !== '') {
-    return inp.value.trim();
+  if (_isOverrideOn(wrap)) {
+    return wrap.querySelector('.model-override-input').value.trim();
   }
   return sel.value;
 }
 
 var _currentMainModel = '';
 var _ollamaModel = '';
+var _ollamaAdvanced = {};
+
+function _olAttr(v) {
+  return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+}
 
 async function loadSettings() {
   try {
@@ -503,6 +1041,9 @@ async function loadSettings() {
     document.getElementById('max-subagent-tool-rounds').value = d.MAX_SUBAGENT_TOOL_ROUNDS || '5';
     document.getElementById('max-subagent-tool-calls-per-round').value = d.MAX_SUBAGENT_TOOL_CALLS_PER_ROUND || '15';
     document.getElementById('max-context-chars').value = d.MAX_CONTEXT_CHARS || '120000';
+    var otaChannel = String(d.OTA_CHANNEL || 'stable').toLowerCase();
+    if (otaChannel !== 'stable' && otaChannel !== 'prerelease') otaChannel = 'stable';
+    document.getElementById('ota-channel').value = otaChannel;
 
     _providerKeys = {
       ZHIPUAI_API_KEY: d.ZHIPUAI_API_KEY || '',
@@ -511,11 +1052,21 @@ async function loadSettings() {
       GEMINI_API_KEY: d.GEMINI_API_KEY || '',
       NVIDIA_API_KEY: d.NVIDIA_API_KEY || '',
       CEREBRAS_API_KEY: d.CEREBRAS_API_KEY || '',
+      GROQ_API_KEY: d.GROQ_API_KEY || '',
+      QWEN_API_KEY: d.QWEN_API_KEY || '',
       OPENROUTER_API_KEY: d.OPENROUTER_API_KEY || '',
+      MISTRAL_API_KEY: d.MISTRAL_API_KEY || '',
     };
 
     _currentMainModel = d.MAIN_MODEL || '';
     _ollamaModel = d.OLLAMA_MODEL || '';
+    _ollamaAdvanced = {
+      OLLAMA_NUM_CTX: d.OLLAMA_NUM_CTX || '',
+      OLLAMA_TEMPERATURE: d.OLLAMA_TEMPERATURE || '',
+      OLLAMA_MAX_TOKENS: d.OLLAMA_MAX_TOKENS || '',
+      OLLAMA_KEEP_ALIVE: d.OLLAMA_KEEP_ALIVE || '',
+      OLLAMA_TIMEOUT_S: d.OLLAMA_TIMEOUT_S || ''
+    };
 
     var mainProvider = '';
     var mainModelId = _currentMainModel;
@@ -546,7 +1097,10 @@ async function loadSettings() {
     _baseUrlValues.zhipu = d.CLIENT_BASE_URL || '';
     _baseUrlValues.nvidia = d.NVIDIA_BASE_URL || '';
     _baseUrlValues.cerebras = d.CEREBRAS_BASE_URL || '';
+    _baseUrlValues.groq = d.GROQ_BASE_URL || '';
+    _baseUrlValues.qwen = d.QWEN_BASE_URL || '';
     _baseUrlValues.openrouter = d.OPENROUTER_BASE_URL || '';
+    _baseUrlValues.mistral = d.MISTRAL_BASE_URL || '';
     _baseUrlValues.ollama = d.OLLAMA_BASE_URL || '';
     var cbu = document.getElementById('client-base-url');
     if (cbu) cbu.value = _baseUrlValues.zhipu;
@@ -554,15 +1108,27 @@ async function loadSettings() {
     if (nbu) nbu.value = _baseUrlValues.nvidia;
     var csbu = document.getElementById('cerebras-base-url');
     if (csbu) csbu.value = _baseUrlValues.cerebras;
+    var gbu = document.getElementById('groq-base-url');
+    if (gbu) gbu.value = _baseUrlValues.groq;
+    var qbu = document.getElementById('qwen-base-url');
+    if (qbu) qbu.value = _baseUrlValues.qwen;
     var orbu = document.getElementById('openrouter-base-url');
     if (orbu) orbu.value = _baseUrlValues.openrouter;
+    var mbu = document.getElementById('mistral-base-url');
+    if (mbu) mbu.value = _baseUrlValues.mistral;
     var obu = document.getElementById('ollama-base-url');
     if (obu) obu.value = _baseUrlValues.ollama;
 
     await loadImageModels(d);
     await loadFastModels(d);
+    await loadFallbackModels(d);
     updateStatus('google-api', d.GOOGLE_API_KEY);
     await loadGoogleStatus();
+    await checkOtaUpdates(false);
+    // Load Claistore settings
+    document.getElementById('claistore-repo').value = d.CLAISTORE_GITHUB_REPO || '';
+    document.getElementById('claistore-token').value = d.CLAISTORE_GITHUB_TOKEN || '';
+    document.getElementById('claistore-branch').value = d.CLAISTORE_GITHUB_BRANCH || 'main';
     await loadContextUsage();
     startContextUsagePolling();
   } catch (e) {}
@@ -615,6 +1181,16 @@ async function loadFastModels(d) {
     fs.innerHTML = '<option value="">Not set (optional)</option>';
     allModels.forEach(function(m) { fs.innerHTML += '<option value="' + m + '">' + m + '</option>'; });
     if (d.FAST_MODEL) fs.value = d.FAST_MODEL;
+  } catch (e) {}
+}
+
+async function loadFallbackModels(d) {
+  try {
+    var allModels = window._allModels || [];
+    var fb = document.getElementById('fallback-model');
+    fb.innerHTML = '<option value="">Not set (optional)</option>';
+    allModels.forEach(function(m) { fb.innerHTML += '<option value="' + m + '">' + m + '</option>'; });
+    if (d.USER_FALLBACK_MODEL) fb.value = d.USER_FALLBACK_MODEL;
   } catch (e) {}
 }
 
@@ -675,6 +1251,280 @@ function startContextUsagePolling() {
   contextUsageTimer = setInterval(loadContextUsage, 3000);
 }
 
+function renderOtaRollback(data) {
+  var rollbackGroup = document.getElementById('ota-rollback-group');
+  var rollbackBtn = document.getElementById('ota-rollback-btn');
+  var rollbackInfo = document.getElementById('ota-rollback-info');
+  if (!rollbackGroup || !rollbackBtn || !rollbackInfo) return;
+
+  if (!data || !data.rollback_available) {
+    rollbackGroup.style.display = 'none';
+    rollbackInfo.textContent = '';
+    return;
+  }
+
+  var parts = [];
+  if (data.rollback_tag) parts.push('Rollback tag: ' + data.rollback_tag);
+  if (data.rollback_timestamp) parts.push('Saved: ' + data.rollback_timestamp);
+  rollbackInfo.textContent = parts.join(' | ') || 'Rollback available.';
+  rollbackGroup.style.display = 'block';
+}
+
+function renderOtaStatus(data) {
+  _otaStatus = data || null;
+
+  renderOtaRollback(data);
+
+  var currentEl = document.getElementById('ota-current-version');
+  var latestEl = document.getElementById('ota-latest-version');
+  var channelEl = document.getElementById('ota-release-channel');
+  var hintEl = document.getElementById('ota-mode-hint');
+  var statusEl = document.getElementById('ota-status-line');
+  var notesEl = document.getElementById('ota-release-notes');
+  var metaEl = document.getElementById('ota-release-meta');
+  var applyBtn = document.getElementById('ota-apply-btn');
+
+  if (!data) {
+    currentEl.textContent = 'Current version: unavailable';
+    latestEl.textContent = 'Latest release: unavailable';
+    channelEl.textContent = 'Channel: unknown';
+    hintEl.textContent = 'Update information is unavailable right now.';
+    statusEl.textContent = 'Could not load OTA status.';
+    notesEl.value = '';
+    metaEl.textContent = 'No release metadata loaded yet.';
+    applyBtn.disabled = true;
+    return;
+  }
+
+  var isGitMode = (data.install_mode || '') === 'source-git';
+
+  currentEl.textContent = 'Current version: ' + (data.current_version || 'unknown');
+  latestEl.textContent = (isGitMode ? 'Latest commit: ' : 'Latest release: ') + (data.latest_version || (isGitMode ? 'not found' : 'not found'));
+  channelEl.textContent = 'Channel: ' + (data.channel || 'stable');
+  notesEl.value = String(data.release_notes || '').trim() || (isGitMode ? 'No commit details available.' : 'No release notes were provided for this release.');
+
+  var meta = [];
+  if (data.release_published_at) meta.push('Published: ' + data.release_published_at);
+  if (data.repo) meta.push('Repo: ' + data.repo);
+  if (data.release_is_prerelease) meta.push('Type: prerelease');
+  if (isGitMode && data.release_url) meta.push('URL: ' + data.release_url);
+  metaEl.textContent = meta.length ? meta.join(' | ') : 'No release metadata loaded yet.';
+
+  if (data.enabled === false) {
+    hintEl.textContent = 'OTA is disabled by configuration (OTA_ENABLED=0).';
+    statusEl.textContent = data.message || 'OTA disabled.';
+    applyBtn.disabled = true;
+    return;
+  }
+
+  hintEl.textContent = (data.apply_message || '');
+  statusEl.textContent = data.message || '';
+  applyBtn.disabled = !(data.ok && data.update_available && data.can_apply);
+}
+
+async function checkOtaUpdates(showToast) {
+  var checkBtn = document.getElementById('ota-check-btn');
+  var statusEl = document.getElementById('ota-status-line');
+  var selectedChannel = (document.getElementById('ota-channel').value || 'stable').trim().toLowerCase();
+  checkBtn.disabled = true;
+  statusEl.textContent = 'Checking for updates...';
+
+  try {
+    var res = await fetch('/api/updates/check?channel=' + encodeURIComponent(selectedChannel));
+    if (res.status === 401) { window.location.href = '/'; return; }
+
+    var data = await res.json();
+    renderOtaStatus(data);
+
+    if (showToast) {
+      if (data.ok) {
+        if (data.update_available && data.can_apply) {
+          showMsg('Update available: ' + (data.latest_version || 'new release found'), true);
+        } else if (data.update_available && !data.can_apply) {
+          showMsg('Update found but automatic apply is unavailable in this mode.', false);
+        } else {
+          showMsg('You are already on the latest version.', true);
+        }
+      } else {
+        showMsg(data.error || 'Could not check for updates.', false);
+      }
+    }
+  } catch (e) {
+    renderOtaStatus(null);
+    if (showToast) showMsg('Connection problem while checking updates.', false);
+  }
+
+  checkBtn.disabled = false;
+}
+
+async function applyOtaUpdate() {
+  if (!_otaStatus || !_otaStatus.update_available) {
+    showMsg('No update is currently available.', false);
+    return;
+  }
+  if (!_otaStatus.can_apply) {
+    showMsg('Automatic update apply is not supported for this install mode.', false);
+    return;
+  }
+
+  var warning = 'Apply the latest update now?';
+  var installMode = (_otaStatus.install_mode || '');
+  if (installMode === 'frozen-windows') {
+    warning = 'Apply and restart now? TALOS will close briefly while updating files.';
+  } else if (installMode === 'source-git') {
+    warning = 'Apply update now? This will git pull, install dependencies, and restart.';
+  }
+  if (!confirm(warning)) return;
+
+  var applyBtn = document.getElementById('ota-apply-btn');
+  var statusEl = document.getElementById('ota-status-line');
+  var selectedChannel = (document.getElementById('ota-channel').value || 'stable').trim().toLowerCase();
+  applyBtn.disabled = true;
+  statusEl.textContent = 'Applying update...';
+
+  try {
+    var res = await _post('/api/updates/apply', { channel: selectedChannel });
+    if (res.status === 401) { window.location.href = '/'; return; }
+    var data = await res.json();
+
+    if (!data.ok) {
+      showMsg(data.error || 'Could not apply update.', false);
+      statusEl.textContent = data.error || 'Update failed.';
+      await checkOtaUpdates(false);
+      return;
+    }
+
+    statusEl.textContent = data.message || 'Update applied.';
+
+    if (data.restarting_now) {
+      showMsg('Update staged. Restarting now...', true);
+      setTimeout(function() { window.location.reload(); }, 15000);
+      return;
+    }
+
+    if (data.restart_required) {
+      showMsg('Update installed. Click Restart Assistant to finish.', true);
+    } else {
+      showMsg('Update applied successfully.', true);
+    }
+
+    await checkOtaUpdates(false);
+  } catch (e) {
+    showMsg('Connection problem while applying update.', false);
+    statusEl.textContent = 'Update request failed.';
+  }
+
+  applyBtn.disabled = false;
+}
+
+// Fallback: refresh rollback availability without re-rendering the whole OTA card.
+async function checkRollbackAvailable() {
+  var rollbackGroup = document.getElementById('ota-rollback-group');
+  if (!rollbackGroup) return;
+
+  try {
+    var resp = await fetch('/api/updates/check');
+    var data = await resp.json();
+    renderOtaRollback(data);
+  } catch (e) {
+    rollbackGroup.style.display = 'none';
+  }
+}
+
+async function rollbackOtaUpdate() {
+  if (!confirm('Rollback to the previous version? This will restart the bot.')) return;
+
+  var btn = document.getElementById('ota-rollback-btn');
+  var statusEl = document.getElementById('ota-status-line');
+  btn.disabled = true;
+  btn.textContent = 'Rolling back...';
+  statusEl.textContent = 'Rolling back to the previous version...';
+
+  try {
+    // CSRF token must be sent in the JSON body; _post() injects it.
+    var res = await _post('/api/updates/rollback', {});
+    if (res.status === 401) { window.location.href = '/'; return; }
+
+    var result = await res.json();
+
+    if (result.ok && result.restarting_now) {
+      btn.textContent = 'Restarting now...';
+      statusEl.textContent = result.message || 'Rolled back. Restarting now...';
+      showMsg('Rollback complete. Restarting now...', true);
+      setTimeout(function() { window.location.reload(); }, 15000);
+      return;
+    }
+
+    showMsg(result.error || 'Rollback failed.', false);
+    statusEl.textContent = result.error || 'Rollback failed.';
+    btn.disabled = false;
+    btn.textContent = 'Rollback to Previous Version';
+  } catch (e) {
+    showMsg('Rollback request failed.', false);
+    statusEl.textContent = 'Rollback request failed.';
+    btn.disabled = false;
+    btn.textContent = 'Rollback to Previous Version';
+  }
+}
+
+(function() {
+  var rollbackBtn = document.getElementById('ota-rollback-btn');
+  if (rollbackBtn) rollbackBtn.addEventListener('click', rollbackOtaUpdate);
+})();
+
+async function testClaistoreConfig() {
+  var repo = document.getElementById('claistore-repo').value.trim();
+  var token = document.getElementById('claistore-token').value.trim();
+  var branch = document.getElementById('claistore-branch').value.trim() || 'main';
+  var statusEl = document.getElementById('claistore-status');
+  var testBtn = document.getElementById('claistore-test-btn');
+
+  if (!repo || !token) {
+    statusEl.textContent = 'Please enter both repository and token.';
+    return;
+  }
+
+  testBtn.disabled = true;
+  statusEl.textContent = 'Testing connection...';
+
+  try {
+    var res = await _post('/api/claistore/test', { repo: repo, token: token, branch: branch });
+    if (res.status === 401) { window.location.href = '/'; return; }
+    var data = await res.json();
+    if (data.ok) {
+      statusEl.textContent = '✓ Connection successful!';
+      statusEl.style.color = '#2ecc71';
+    } else {
+      statusEl.textContent = '✗ ' + (data.error || 'Test failed');
+      statusEl.style.color = '#e74c3c';
+    }
+  } catch (e) {
+    statusEl.textContent = '✗ Connection error';
+    statusEl.style.color = '#e74c3c';
+  }
+
+  testBtn.disabled = false;
+}
+
+async function saveClaistoreConfig() {
+  var statusEl = document.getElementById('claistore-status');
+  var saveBtn = document.getElementById('claistore-save-btn');
+  saveBtn.disabled = true;
+  statusEl.textContent = 'Saving...';
+  statusEl.style.color = '';
+
+  try {
+    await saveSettings();
+    statusEl.textContent = '✓ Configuration saved';
+    statusEl.style.color = '#2ecc71';
+  } catch (e) {
+    statusEl.textContent = '✗ Save failed';
+    statusEl.style.color = '#e74c3c';
+  }
+
+  saveBtn.disabled = false;
+}
+
 async function saveSettings() {
   _saveBaseUrls();
   var mainModel = _currentMainModel;
@@ -683,7 +1533,7 @@ async function saveSettings() {
   var activeKeyVal = activeKeyInput ? activeKeyInput.value.trim() : '';
 
   if (_activeProvider === 'ollama') {
-    var ollamaInput = document.getElementById('key-ollama');
+    var ollamaInput = document.getElementById('ollama-model-name');
     var ollamaName = ollamaInput ? ollamaInput.value.trim() : '';
     if (ollamaName) {
       mainModel = 'ollama/' + ollamaName;
@@ -707,12 +1557,25 @@ async function saveSettings() {
     CLIENT_BASE_URL: (document.getElementById('client-base-url') || {}).value || _baseUrlValues.zhipu || '',
     NVIDIA_BASE_URL: (document.getElementById('nvidia-base-url') || {}).value || _baseUrlValues.nvidia || '',
     CEREBRAS_BASE_URL: (document.getElementById('cerebras-base-url') || {}).value || _baseUrlValues.cerebras || '',
+    GROQ_BASE_URL: (document.getElementById('groq-base-url') || {}).value || _baseUrlValues.groq || '',
+    QWEN_BASE_URL: (document.getElementById('qwen-base-url') || {}).value || _baseUrlValues.qwen || '',
     OPENROUTER_BASE_URL: (document.getElementById('openrouter-base-url') || {}).value || _baseUrlValues.openrouter || '',
+    MISTRAL_BASE_URL: (document.getElementById('mistral-base-url') || {}).value || _baseUrlValues.mistral || '',
     OLLAMA_BASE_URL: (document.getElementById('ollama-base-url') || {}).value || _baseUrlValues.ollama || '',
-    OLLAMA_MODEL: (document.getElementById('key-ollama') || {}).value || _ollamaModel || '',
+    OLLAMA_MODEL: (document.getElementById('ollama-model-name') || {}).value || _ollamaModel || '',
+    OLLAMA_NUM_CTX: (document.getElementById('ollama-num-ctx') || {}).value || _ollamaAdvanced.OLLAMA_NUM_CTX || '',
+    OLLAMA_TEMPERATURE: (document.getElementById('ollama-temperature') || {}).value || _ollamaAdvanced.OLLAMA_TEMPERATURE || '',
+    OLLAMA_MAX_TOKENS: (document.getElementById('ollama-max-tokens') || {}).value || _ollamaAdvanced.OLLAMA_MAX_TOKENS || '',
+    OLLAMA_KEEP_ALIVE: (document.getElementById('ollama-keep-alive') || {}).value || _ollamaAdvanced.OLLAMA_KEEP_ALIVE || '',
+    OLLAMA_TIMEOUT_S: (document.getElementById('ollama-timeout') || {}).value || _ollamaAdvanced.OLLAMA_TIMEOUT_S || '',
+    OTA_CHANNEL: (document.getElementById('ota-channel').value || 'stable').trim().toLowerCase(),
     MAIN_MODEL: mainModel,
     IMAGE_MODEL: getModelValue('image-model'),
     FAST_MODEL: getModelValue('fast-model'),
+    FALLBACK_MODEL: getModelValue('fallback-model'),
+    CLAISTORE_GITHUB_REPO: document.getElementById('claistore-repo').value.trim(),
+    CLAISTORE_GITHUB_TOKEN: document.getElementById('claistore-token').value.trim(),
+    CLAISTORE_GITHUB_BRANCH: document.getElementById('claistore-branch').value.trim() || 'main',
     MAX_TOOL_ROUNDS: document.getElementById('max-tool-rounds').value.trim(),
     MAX_TOOL_CALLS_PER_ROUND: document.getElementById('max-tool-calls-per-round').value.trim(),
     MAX_COMMAND_TIMEOUT: document.getElementById('max-command-timeout').value.trim(),
@@ -850,28 +1713,28 @@ async function reconfigureEmail() {
 }
 
 async function setupOllama() {
-  var modelName = (document.getElementById('key-ollama') || {}).value || '';
   var statusEl = document.getElementById('ollama-status');
-  if (!modelName.trim()) { statusEl.textContent = 'Please enter a model name.'; statusEl.style.color = '#f56565'; return; }
-  statusEl.textContent = 'Pulling model ' + modelName.trim() + '... This may take a few minutes on first download.';
-  statusEl.style.color = '#63b3ed';
-  try {
-    var res = await _post('/api/ollama/setup', { model_name: modelName.trim() });
-    var d = await res.json();
-    if (d.ok) {
-      _ollamaModel = modelName.trim();
-      _currentMainModel = 'ollama/' + _ollamaModel;
-      statusEl.textContent = 'Model ' + d.model + ' is ready.';
-      statusEl.style.color = '#48bb78';
-      renderProviderTabs();
-      updateActiveModelDisplay();
-      showMsg('Ollama model set: ' + d.model, true);
-    } else {
-      statusEl.textContent = d.error || 'Could not set up Ollama model.';
-      statusEl.style.color = '#f56565';
-    }
-  } catch (e) {
-    statusEl.textContent = 'Connection problem. Please try again.';
+  var btn = document.getElementById('ollama-setup-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Setting up...'; }
+  if (statusEl) { statusEl.textContent = ''; statusEl.style.color = '#888'; }
+
+  var result = await runOllamaSetup();
+
+  if (btn) { btn.disabled = false; btn.textContent = 'Download & use this model'; }
+  if (!statusEl) return;
+
+  if (result.ok) {
+    _ollamaModel = result.model;
+    _currentMainModel = result.main_model || ('ollama/' + result.model);
+    statusEl.textContent = 'Active model: ' + result.model;
+    statusEl.style.color = '#48bb78';
+    var badge = document.getElementById('key-badge-ollama');
+    if (badge) badge.innerHTML = '<span class="badge-set">Set</span>';
+    renderProviderTabs();
+    updateActiveModelDisplay();
+    showMsg('Ollama model set: ' + result.model, true);
+  } else {
+    statusEl.textContent = result.error || 'Could not set up Ollama model.';
     statusEl.style.color = '#f56565';
   }
 }

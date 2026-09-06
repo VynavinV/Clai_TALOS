@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="csrf-token" content="{{CSRF_TOKEN}}">
 <title>{{BOT_NAME}} — Tools</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -62,6 +63,7 @@
     <a href="/dashboard" class="nav-item"><span class="icon">&#9632;</span> Dashboard</a>
     <a href="/keys" class="nav-item"><span class="icon">&#9919;</span> API Keys</a>
     <a href="/tools" class="nav-item active"><span class="icon">&#9881;</span> Tools</a>
+    <a href="/claistore" class="nav-item"><span class="icon">&#11088;</span> ClaiStore</a>
     <a href="/settings" class="nav-item"><span class="icon">&#9881;</span> Settings</a>
     <a href="/projects" class="nav-item"><span class="icon">&#9830;</span> Projects</a>
     <a href="/static/chat.html" class="nav-item"><span class="icon">&#9993;</span> Chat</a>
@@ -79,6 +81,13 @@
 </main>
 
 <script>
+var _csrfToken = document.querySelector('meta[name="csrf-token"]') ? document.querySelector('meta[name="csrf-token"]').getAttribute('content') : '';
+
+function _post(url, body) {
+  body.csrf_token = _csrfToken;
+  return fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+}
+
 var tools = [
   { id: 'execute_command', name: 'Terminal', desc: 'Execute shell commands', category: 'system', dangerous: true },
   { id: 'execute_workflow', name: 'Workflow', desc: 'Multi-step command sequences', category: 'system', dangerous: true },
@@ -95,6 +104,7 @@ var tools = [
   { id: 'scrape_url', name: 'Web Scrape', desc: 'Extract web page content', category: 'web' },
   { id: 'google_execute', name: 'Google', desc: 'Google Apps Script bridge', category: 'web' },
   { id: 'email_execute', name: 'Email', desc: 'Send/read email via Himalaya', category: 'communication' },
+  { id: 'pa_system', name: 'PA System', desc: 'Speak messages through the host machine speakers', category: 'communication' },
   { id: 'spawn_subagent', name: 'Subagent', desc: 'Spawn parallel subagents', category: 'advanced' },
   { id: 'send_telegram_message', name: 'Telegram Msg', desc: 'Send Telegram messages', category: 'communication' },
   { id: 'send_voice_message', name: 'Voice', desc: 'Send voice responses', category: 'communication' },
@@ -106,6 +116,9 @@ var tools = [
   { id: 'create_project', name: 'Create Project', desc: 'Create live websites/apps', category: 'projects' },
   { id: 'list_projects', name: 'List Projects', desc: 'List all projects', category: 'projects' }
 ];
+
+// Dynamic tools will be added here after loading
+var dynamicTools = {};
 var enabledTools = {};
 
 async function loadTools() {
@@ -113,12 +126,23 @@ async function loadTools() {
     var res = await fetch('/api/tools');
     if (res.status === 401) { window.location.href = '/'; return; }
     enabledTools = await res.json();
+
+    // Fetch dynamic tools to get metadata (description, category, etc.)
+    try {
+      var dynRes = await fetch('/api/tools/dynamic');
+      if (dynRes.status !== 401) {
+        dynamicTools = await dynRes.json();
+      }
+    } catch (e) {
+      dynamicTools = {};
+    }
+
     render();
   } catch (e) {}
 }
 
 function render() {
-  document.getElementById('tool-grid').innerHTML = tools.map(function(t) {
+  var html = tools.map(function(t) {
     var on = enabledTools[t.id] !== false;
     return '<div class="tool-card' + (on ? '' : ' disabled') + '" id="tool-' + t.id + '">'
       + '<div class="tool-header"><span class="tool-name">' + t.name + '</span>'
@@ -127,6 +151,22 @@ function render() {
       + '<div class="tool-meta">' + t.category + (t.dangerous ? ' &middot; <span style="color:#f56565;">dangerous</span>' : '') + '</div>'
       + '</div>';
   }).join('');
+
+  // Add dynamic tools (including Claistore-installed skills)
+  for (var id in dynamicTools) {
+    if (enabledTools[id] === false) continue; // Skip disabled dynamic tools
+    var dt = dynamicTools[id];
+    var cat = dt.category || 'dynamic';
+    var danger = dt.dangerous ? ' &middot; <span style="color:#f56565;">dangerous</span>' : '';
+    html += '<div class="tool-card" id="tool-' + id + '">'
+      + '<div class="tool-header"><span class="tool-name">' + dt.name + '</span>'
+      + '<div class="toggle on" onclick="toggleTool(\'' + id + '\')"></div></div>'
+      + '<div class="tool-desc">' + (dt.desc || '') + '</div>'
+      + '<div class="tool-meta">' + cat + danger + '</div>'
+      + '</div>';
+  }
+
+  document.getElementById('tool-grid').innerHTML = html;
 }
 
 function toggleTool(id) { enabledTools[id] = enabledTools[id] === false; render(); }
@@ -135,7 +175,7 @@ function showMsg(t, ok) { var el = document.getElementById('msg'); el.textConten
 
 async function saveTools() {
   try {
-    var res = await fetch('/api/tools', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(enabledTools) });
+    var res = await _post('/api/tools', enabledTools);
     if (res.status === 401) { window.location.href = '/'; return; }
     var data = await res.json();
     if (data.ok) showMsg('Saved', true); else showMsg(data.error || 'Failed', false);
