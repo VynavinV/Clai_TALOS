@@ -116,6 +116,9 @@ var tools = [
   { id: 'create_project', name: 'Create Project', desc: 'Create live websites/apps', category: 'projects' },
   { id: 'list_projects', name: 'List Projects', desc: 'List all projects', category: 'projects' }
 ];
+
+// Dynamic tools will be added here after loading
+var dynamicTools = {};
 var enabledTools = {};
 
 async function loadTools() {
@@ -123,12 +126,23 @@ async function loadTools() {
     var res = await fetch('/api/tools');
     if (res.status === 401) { window.location.href = '/'; return; }
     enabledTools = await res.json();
+
+    // Fetch dynamic tools to get metadata (description, category, etc.)
+    try {
+      var dynRes = await fetch('/api/tools/dynamic');
+      if (dynRes.status !== 401) {
+        dynamicTools = await dynRes.json();
+      }
+    } catch (e) {
+      dynamicTools = {};
+    }
+
     render();
   } catch (e) {}
 }
 
 function render() {
-  document.getElementById('tool-grid').innerHTML = tools.map(function(t) {
+  var html = tools.map(function(t) {
     var on = enabledTools[t.id] !== false;
     return '<div class="tool-card' + (on ? '' : ' disabled') + '" id="tool-' + t.id + '">'
       + '<div class="tool-header"><span class="tool-name">' + t.name + '</span>'
@@ -137,6 +151,22 @@ function render() {
       + '<div class="tool-meta">' + t.category + (t.dangerous ? ' &middot; <span style="color:#f56565;">dangerous</span>' : '') + '</div>'
       + '</div>';
   }).join('');
+
+  // Add dynamic tools (including Claistore-installed skills)
+  for (var id in dynamicTools) {
+    if (enabledTools[id] === false) continue; // Skip disabled dynamic tools
+    var dt = dynamicTools[id];
+    var cat = dt.category || 'dynamic';
+    var danger = dt.dangerous ? ' &middot; <span style="color:#f56565;">dangerous</span>' : '';
+    html += '<div class="tool-card" id="tool-' + id + '">'
+      + '<div class="tool-header"><span class="tool-name">' + dt.name + '</span>'
+      + '<div class="toggle on" onclick="toggleTool(\'' + id + '\')"></div></div>'
+      + '<div class="tool-desc">' + (dt.desc || '') + '</div>'
+      + '<div class="tool-meta">' + cat + danger + '</div>'
+      + '</div>';
+  }
+
+  document.getElementById('tool-grid').innerHTML = html;
 }
 
 function toggleTool(id) { enabledTools[id] = enabledTools[id] === false; render(); }

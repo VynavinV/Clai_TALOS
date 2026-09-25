@@ -87,6 +87,18 @@ _PROVIDERS = {
         "patterns": ["groq"],
         "env_key": "GROQ_API_KEY",
     },
+    "qwen": {
+        "models": {
+            "qwen3max": "qwen3-max",
+            "qwenmax": "qwen-max",
+            "qwenplus": "qwen-plus",
+            "qwenturbo": "qwen-turbo",
+            "qwencoder": "qwen3-coder-plus",
+            "qwenvl": "qwen-vl-max",
+        },
+        "patterns": ["qwen"],
+        "env_key": "QWEN_API_KEY",
+    },
     "openrouter": {
         "models": {
             "claude4sonnet": "anthropic/claude-sonnet-4-20250514",
@@ -137,6 +149,7 @@ _zhipu_client = None
 _nvidia_client = None
 _cerebras_client = None
 _groq_client = None
+_qwen_client = None
 _openrouter_client = None
 _mistral_client = None
 _ollama_client = None
@@ -189,6 +202,7 @@ def _nvidia_endpoint(path: str) -> str:
 _NVIDIA_BASE_URL = _normalize_nvidia_base_url(os.getenv("NVIDIA_BASE_URL", _NVIDIA_DEFAULT_BASE_URL))
 _CEREBRAS_BASE_URL = os.getenv("CEREBRAS_BASE_URL", "https://api.cerebras.ai/v1")
 _GROQ_BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
+_QWEN_BASE_URL = os.getenv("QWEN_BASE_URL", "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1")
 _OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 _MISTRAL_BASE_URL = os.getenv("MISTRAL_BASE_URL", "https://api.mistral.ai/v1")
 _OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
@@ -251,8 +265,8 @@ def get_all_model_aliases() -> dict[str, str]:
 
 
 def reload_clients():
-    global _openai_client, _anthropic_client, _gemini_client, _zhipu_client, _nvidia_client, _cerebras_client, _groq_client, _openrouter_client, _mistral_client, _ollama_client, _other_client
-    global _CLIENT_BASE_URL, _NVIDIA_BASE_URL, _CEREBRAS_BASE_URL, _GROQ_BASE_URL, _OPENROUTER_BASE_URL, _MISTRAL_BASE_URL, _OLLAMA_BASE_URL, _OTHER_BASE_URL
+    global _openai_client, _anthropic_client, _gemini_client, _zhipu_client, _nvidia_client, _cerebras_client, _groq_client, _qwen_client, _openrouter_client, _mistral_client, _ollama_client, _other_client
+    global _CLIENT_BASE_URL, _NVIDIA_BASE_URL, _CEREBRAS_BASE_URL, _GROQ_BASE_URL, _QWEN_BASE_URL, _OPENROUTER_BASE_URL, _MISTRAL_BASE_URL, _OLLAMA_BASE_URL, _OTHER_BASE_URL
     _openai_client = None
     _anthropic_client = None
     _gemini_client = None
@@ -260,6 +274,7 @@ def reload_clients():
     _nvidia_client = None
     _cerebras_client = None
     _groq_client = None
+    _qwen_client = None
     _openrouter_client = None
     _mistral_client = None
     _ollama_client = None
@@ -269,6 +284,7 @@ def reload_clients():
     _NVIDIA_BASE_URL = _normalize_nvidia_base_url(os.getenv("NVIDIA_BASE_URL", _NVIDIA_DEFAULT_BASE_URL))
     _CEREBRAS_BASE_URL = os.getenv("CEREBRAS_BASE_URL", "https://api.cerebras.ai/v1")
     _GROQ_BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
+    _QWEN_BASE_URL = os.getenv("QWEN_BASE_URL", "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1")
     _OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
     _MISTRAL_BASE_URL = os.getenv("MISTRAL_BASE_URL", "https://api.mistral.ai/v1")
     _OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
@@ -364,6 +380,17 @@ def _get_groq_client():
             raise RuntimeError("GROQ_API_KEY not set")
         _groq_client = AsyncOpenAI(api_key=api_key, base_url=_GROQ_BASE_URL)
     return _groq_client
+
+
+def _get_qwen_client():
+    global _qwen_client
+    if _qwen_client is None:
+        from openai import AsyncOpenAI
+        api_key = os.getenv("QWEN_API_KEY")
+        if not api_key:
+            raise RuntimeError("QWEN_API_KEY not set")
+        _qwen_client = AsyncOpenAI(api_key=api_key, base_url=_QWEN_BASE_URL)
+    return _qwen_client
 
 
 def _get_openrouter_client():
@@ -1061,6 +1088,24 @@ async def call_groq(
     return await _openai_chat(client, kwargs)
 
 
+async def call_qwen(
+    model_id: str,
+    messages: list[dict],
+    tools: list[dict] | None,
+    runtime_profile: dict[str, Any] | None = None,
+) -> dict:
+    client = _get_qwen_client()
+    kwargs: dict[str, Any] = {
+        "model": model_id,
+        "messages": messages,
+    }
+    if tools:
+        kwargs["tools"] = _tools_to_openai(tools)
+        kwargs["tool_choice"] = "auto"
+
+    return await _openai_chat(client, kwargs)
+
+
 async def call_openrouter(
     model_id: str,
     messages: list[dict],
@@ -1366,6 +1411,7 @@ _CALLERS = {
     "nvidia": call_nvidia,
     "cerebras": call_cerebras,
     "groq": call_groq,
+    "qwen": call_qwen,
     "openrouter": call_openrouter,
     "mistral": call_mistral,
     "ollama": call_ollama,
@@ -1499,11 +1545,16 @@ async def call_model(
     speed_mode: str | None = None,
     reasoning_enabled: bool | None = None,
     on_delta: Any = None,
+    user_id: int | None = None,
+    _fallback_attempted: bool = False,
 ) -> dict:
     """Call a model, optionally streaming fragments to `on_delta`.
 
     `on_delta` is an async callable `(kind, text)` where kind is one of
     "content", "reasoning", "tool", or "tool_args".
+
+    If `user_id` is provided and the call fails, attempts to fall back to
+    the user's configured fallback model (unless `_fallback_attempted` is True).
     """
     provider, model_id = resolve_model(model)
     caller = _CALLERS.get(provider)
@@ -1526,6 +1577,9 @@ async def call_model(
             f"{provider} call timed out after {timeout}s for model {model_id} "
             f"(speed={runtime_profile['speed_mode']}, reasoning={runtime_profile['reasoning_enabled']})"
         )
+        # Try fallback on timeout
+        if user_id is not None and not _fallback_attempted:
+            return await _try_fallback(user_id, messages, tools, speed_mode, reasoning_enabled, on_delta, f"Model call to {provider}/{model_id} timed out after {timeout}s.")
         return {"content": f"Model call to {provider}/{model_id} timed out after {timeout}s. The API may be overloaded.", "tool_calls": [], "message": None}
     except Exception as e:
         logger.exception(f"{provider} call failed for model {model_id}")
@@ -1540,9 +1594,47 @@ async def call_model(
                     "tool_calls": [],
                     "message": None,
                 }
+        # Try fallback on error
+        if user_id is not None and not _fallback_attempted:
+            return await _try_fallback(user_id, messages, tools, speed_mode, reasoning_enabled, on_delta, f"Error communicating with {provider}: {e}")
         return {"content": f"Error communicating with {provider}: {e}", "tool_calls": [], "message": None}
     finally:
         _STREAM_SINK.reset(sink_token)
+
+
+async def _try_fallback(
+    user_id: int,
+    messages: list[dict],
+    tools: list[dict] | None,
+    speed_mode: str | None,
+    reasoning_enabled: bool | None,
+    on_delta: Any,
+    original_error: str,
+) -> dict:
+    """Attempt to call the fallback model for a user."""
+    import db
+    fallback = db.get_fallback_model(user_id)
+    if not fallback:
+        return {"content": f"{original_error} No fallback model configured.", "tool_calls": [], "message": None}
+
+    logger.warning(f"Primary model failed ({original_error}). Trying fallback model: {fallback}")
+
+    # Call recursively with _fallback_attempted=True to prevent infinite fallback loop
+    result = await call_model(
+        fallback,
+        messages,
+        tools,
+        speed_mode=speed_mode,
+        reasoning_enabled=reasoning_enabled,
+        on_delta=on_delta,
+        user_id=user_id,
+        _fallback_attempted=True,
+    )
+
+    # Prepend fallback notice to the response
+    if "content" in result and result["content"]:
+        result["content"] = f"⚠️ Primary model failed, using fallback ({fallback}):\n\n{result['content']}"
+    return result
 
 
 async def call_model_simple(
@@ -1551,6 +1643,7 @@ async def call_model_simple(
     prompt: str,
     speed_mode: str | None = None,
     reasoning_enabled: bool | None = None,
+    user_id: int | None = None,
 ) -> str:
     messages = []
     if system:
@@ -1562,6 +1655,7 @@ async def call_model_simple(
         None,
         speed_mode=speed_mode,
         reasoning_enabled=reasoning_enabled,
+        user_id=user_id,
     )
     return result.get("content", "")
 
@@ -1732,6 +1826,24 @@ def _fetch_groq_models(api_key: str) -> list[str]:
     return models if models else list(_PROVIDERS["groq"]["models"].values())
 
 
+def _fetch_qwen_models(api_key: str) -> list[str]:
+    import httpx
+    models = []
+    try:
+        r = httpx.get(
+            f"{_QWEN_BASE_URL}/models",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=10,
+        )
+        r.raise_for_status()
+        for m in r.json().get("data", []):
+            mid = m["id"]
+            models.append(mid)
+    except Exception:
+        pass
+    return models if models else list(_PROVIDERS["qwen"]["models"].values())
+
+
 def _fetch_openrouter_models(api_key: str) -> list[str]:
     import httpx
     models = []
@@ -1837,6 +1949,7 @@ def fetch_provider_models(provider: str, api_key: str, base_url: str = "") -> di
         "nvidia": _fetch_nvidia_models,
         "cerebras": _fetch_cerebras_models,
         "groq": _fetch_groq_models,
+        "qwen": _fetch_qwen_models,
         "openrouter": _fetch_openrouter_models,
         "mistral": _fetch_mistral_models,
         "ollama": _fetch_ollama_models,
@@ -2079,6 +2192,20 @@ def list_models_with_provider() -> list[str]:
             for m in r.json().get("data", []):
                 mid = m["id"]
                 tagged = "groq/" + mid
+                if tagged not in seen:
+                    seen.add(tagged)
+                    result.append(tagged)
+        except Exception:
+            pass
+
+    if os.getenv("QWEN_API_KEY"):
+        try:
+            import httpx
+            r = httpx.get(f"{_QWEN_BASE_URL}/models", headers={"Authorization": f"Bearer {os.getenv('QWEN_API_KEY')}"}, timeout=10)
+            r.raise_for_status()
+            for m in r.json().get("data", []):
+                mid = m["id"]
+                tagged = "qwen/" + mid
                 if tagged not in seen:
                     seen.add(tagged)
                     result.append(tagged)

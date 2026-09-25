@@ -135,6 +135,8 @@
   .btn:disabled { opacity: 0.4; cursor: not-allowed; }
   .btn-danger { background: rgba(245,101,101,0.15); border-color: rgba(245,101,101,0.3); color: #f56565; }
   .btn-danger:hover { background: rgba(245,101,101,0.25); }
+  .btn-warning { background: rgba(214,158,46,0.15); border-color: rgba(214,158,46,0.3); color: #d69e2e; }
+  .btn-warning:hover { background: rgba(214,158,46,0.25); }
   .msg { font-size: 0.82rem; margin-top: 1rem; min-height: 1.2em; }
   .msg-ok { color: #48bb78; } .msg-err { color: #f56565; }
   .status-line { font-size: 0.8rem; color: #888; margin-top: 0.5rem; }
@@ -228,6 +230,16 @@
         </div>
       </div>
     </div>
+
+    <div class="vision-section">
+      <div class="form-group">
+        <label>Fallback Model <span class="form-hint" style="display:inline;margin-left:0.3rem;">(used automatically if the main model fails)</span></label>
+        <div class="model-select-wrap">
+          <select id="fallback-model"></select>
+          <button class="model-override-btn" onclick="toggleModelOverride('fallback-model')" title="Type model name manually">&#9998;</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="section">
@@ -288,11 +300,40 @@
       <button class="btn" id="ota-apply-btn" onclick="applyOtaUpdate()" disabled>Download and Apply</button>
     </div>
     <div class="status-line" id="ota-status-line"></div>
+    <div class="form-group" id="ota-rollback-group" style="display:none; margin-top:1rem;">
+      <button type="button" class="btn btn-warning" id="ota-rollback-btn">Rollback to Previous Version</button>
+      <div id="ota-rollback-info" style="margin-top:0.5rem; font-size:0.9em; color:#888;"></div>
+    </div>
     <div class="form-group" style="margin-top:0.8rem;">
       <label>Release Notes Preview</label>
       <textarea id="ota-release-notes" readonly style="min-height:120px; background:rgba(255,255,255,0.02);" placeholder="Release notes will appear after checking for updates."></textarea>
       <div class="form-hint" id="ota-release-meta">No release metadata loaded yet.</div>
     </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Claistore (Skill Marketplace)</div>
+    <div class="form-hint">Configure GitHub-backed skill marketplace. Skills uploaded in Community tab will be saved to this repo.</div>
+    <div class="form-group">
+      <label>GitHub Repository</label>
+      <input type="text" id="claistore-repo" placeholder="owner/repo (e.g. yourname/claistore-skills)">
+      <div class="form-hint">Public or private repo. Skills stored as markdown + JSON in skills/ folder.</div>
+    </div>
+    <div class="form-group">
+      <label>GitHub Token (PAT)</label>
+      <input type="password" id="claistore-token" placeholder="ghp_xxxxxxxxxxxx" autocomplete="off">
+      <div class="form-hint">Personal Access Token with <code>repo</code> scope. Never shared with clients.</div>
+    </div>
+    <div class="form-group">
+      <label>Branch</label>
+      <input type="text" id="claistore-branch" value="main" placeholder="main">
+      <div class="form-hint">Branch to publish skills to.</div>
+    </div>
+    <div class="google-actions">
+      <button class="btn" id="claistore-test-btn" onclick="testClaistoreConfig()">Test Connection</button>
+      <button class="btn" id="claistore-save-btn" onclick="saveClaistoreConfig()">Save Configuration</button>
+    </div>
+    <div class="status-line" id="claistore-status"></div>
   </div>
 
   <div class="section">
@@ -342,6 +383,7 @@ var PROVIDERS = [
   { id: 'nvidia', name: 'NVIDIA', env_key: 'NVIDIA_API_KEY', url: 'https://build.nvidia.com/', desc: 'NVIDIA hosted AI models' },
   { id: 'cerebras', name: 'Cerebras', env_key: 'CEREBRAS_API_KEY', url: 'https://cloud.cerebras.ai/', desc: 'High-speed Llama inference' },
   { id: 'groq', name: 'Groq', env_key: 'GROQ_API_KEY', url: 'https://console.groq.com/keys', desc: 'Fast Llama, GPT-OSS and Kimi inference' },
+  { id: 'qwen', name: 'Qwen', env_key: 'QWEN_API_KEY', url: 'https://www.alibabacloud.com/', desc: 'Alibaba Qwen models (Max, Plus, Turbo, Coder)' },
   { id: 'openrouter', name: 'OpenRouter', env_key: 'OPENROUTER_API_KEY', url: 'https://openrouter.ai/keys', desc: 'Access 200+ models through one API' },
   { id: 'mistral', name: 'Mistral', env_key: 'MISTRAL_API_KEY', url: 'https://console.mistral.ai/api-keys', desc: 'Mistral, Ministral, Codestral and Pixtral models' },
   { id: 'ollama', name: 'Ollama', env_key: '', url: 'https://ollama.com', desc: 'Local models, no API key needed' },
@@ -352,7 +394,7 @@ var _providerModels = {};
 var _providerKeys = {};
 var _activeProvider = '';
 var _fetchTimer = null;
-var _baseUrlValues = { zhipu: '', nvidia: '', cerebras: '', groq: '', openrouter: '', mistral: '', ollama: '', other: '' };
+var _baseUrlValues = { zhipu: '', nvidia: '', cerebras: '', groq: '', qwen: '', openrouter: '', mistral: '', ollama: '', other: '' };
 var _otaStatus = null;
 
 function _saveBaseUrls() {
@@ -365,6 +407,8 @@ function _saveBaseUrls() {
   if (el) _baseUrlValues.cerebras = el.value;
   el = document.getElementById('groq-base-url');
   if (el) _baseUrlValues.groq = el.value;
+  el = document.getElementById('qwen-base-url');
+  if (el) _baseUrlValues.qwen = el.value;
   el = document.getElementById('openrouter-base-url');
   if (el) _baseUrlValues.openrouter = el.value;
   el = document.getElementById('mistral-base-url');
@@ -556,6 +600,12 @@ function renderProviderPanels() {
       html += '<div class="form-group" style="margin-top:0.5rem;">'
         + '<label>Base URL</label>'
         + '<input type="text" id="groq-base-url" placeholder="https://api.groq.com/openai/v1" value="' + (_baseUrlValues.groq || '') + '">'
+        + '</div>';
+    }
+    if (p.id === 'qwen') {
+      html += '<div class="form-group" style="margin-top:0.5rem;">'
+        + '<label>Base URL</label>'
+        + '<input type="text" id="qwen-base-url" placeholder="https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1" value="' + (_baseUrlValues.qwen || '') + '">'
         + '</div>';
     }
     if (p.id === 'openrouter') {
@@ -1067,6 +1117,7 @@ async function loadSettings() {
       NVIDIA_API_KEY: d.NVIDIA_API_KEY || '',
       CEREBRAS_API_KEY: d.CEREBRAS_API_KEY || '',
       GROQ_API_KEY: d.GROQ_API_KEY || '',
+      QWEN_API_KEY: d.QWEN_API_KEY || '',
       OPENROUTER_API_KEY: d.OPENROUTER_API_KEY || '',
       MISTRAL_API_KEY: d.MISTRAL_API_KEY || '',
       OTHER_API_KEY: d.OTHER_API_KEY || '',
@@ -1117,6 +1168,7 @@ async function loadSettings() {
     _baseUrlValues.nvidia = d.NVIDIA_BASE_URL || '';
     _baseUrlValues.cerebras = d.CEREBRAS_BASE_URL || '';
     _baseUrlValues.groq = d.GROQ_BASE_URL || '';
+    _baseUrlValues.qwen = d.QWEN_BASE_URL || '';
     _baseUrlValues.openrouter = d.OPENROUTER_BASE_URL || '';
     _baseUrlValues.mistral = d.MISTRAL_BASE_URL || '';
     _baseUrlValues.ollama = d.OLLAMA_BASE_URL || '';
@@ -1128,6 +1180,8 @@ async function loadSettings() {
     if (csbu) csbu.value = _baseUrlValues.cerebras;
     var gbu = document.getElementById('groq-base-url');
     if (gbu) gbu.value = _baseUrlValues.groq;
+    var qbu = document.getElementById('qwen-base-url');
+    if (qbu) qbu.value = _baseUrlValues.qwen;
     var orbu = document.getElementById('openrouter-base-url');
     if (orbu) orbu.value = _baseUrlValues.openrouter;
     var mbu = document.getElementById('mistral-base-url');
@@ -1139,9 +1193,14 @@ async function loadSettings() {
 
     await loadImageModels(d);
     await loadFastModels(d);
+    await loadFallbackModels(d);
     updateStatus('google-api', d.GOOGLE_API_KEY);
     await loadGoogleStatus();
     await checkOtaUpdates(false);
+    // Load Claistore settings
+    document.getElementById('claistore-repo').value = d.CLAISTORE_GITHUB_REPO || '';
+    document.getElementById('claistore-token').value = d.CLAISTORE_GITHUB_TOKEN || '';
+    document.getElementById('claistore-branch').value = d.CLAISTORE_GITHUB_BRANCH || 'main';
     await loadContextUsage();
     startContextUsagePolling();
   } catch (e) {}
@@ -1210,6 +1269,16 @@ async function loadFastModels(d) {
   } catch (e) {}
 }
 
+async function loadFallbackModels(d) {
+  try {
+    var allModels = window._allModels || [];
+    var fb = document.getElementById('fallback-model');
+    fb.innerHTML = '<option value="">Not set (optional)</option>';
+    allModels.forEach(function(m) { fb.innerHTML += '<option value="' + m + '">' + m + '</option>'; });
+    if (d.USER_FALLBACK_MODEL) fb.value = d.USER_FALLBACK_MODEL;
+  } catch (e) {}
+}
+
 function updateStatus(key, val) {
   var el = document.getElementById(key + '-status');
   if (el) el.innerHTML = val ? '<span class="badge-set">Added</span>' : '<span class="badge-unset">Not added</span>';
@@ -1267,8 +1336,29 @@ function startContextUsagePolling() {
   contextUsageTimer = setInterval(loadContextUsage, 3000);
 }
 
+function renderOtaRollback(data) {
+  var rollbackGroup = document.getElementById('ota-rollback-group');
+  var rollbackBtn = document.getElementById('ota-rollback-btn');
+  var rollbackInfo = document.getElementById('ota-rollback-info');
+  if (!rollbackGroup || !rollbackBtn || !rollbackInfo) return;
+
+  if (!data || !data.rollback_available) {
+    rollbackGroup.style.display = 'none';
+    rollbackInfo.textContent = '';
+    return;
+  }
+
+  var parts = [];
+  if (data.rollback_tag) parts.push('Rollback tag: ' + data.rollback_tag);
+  if (data.rollback_timestamp) parts.push('Saved: ' + data.rollback_timestamp);
+  rollbackInfo.textContent = parts.join(' | ') || 'Rollback available.';
+  rollbackGroup.style.display = 'block';
+}
+
 function renderOtaStatus(data) {
   _otaStatus = data || null;
+
+  renderOtaRollback(data);
 
   var currentEl = document.getElementById('ota-current-version');
   var latestEl = document.getElementById('ota-latest-version');
@@ -1291,15 +1381,18 @@ function renderOtaStatus(data) {
     return;
   }
 
+  var isGitMode = (data.install_mode || '') === 'source-git';
+
   currentEl.textContent = 'Current version: ' + (data.current_version || 'unknown');
-  latestEl.textContent = 'Latest release: ' + (data.latest_version || 'not found');
+  latestEl.textContent = (isGitMode ? 'Latest commit: ' : 'Latest release: ') + (data.latest_version || (isGitMode ? 'not found' : 'not found'));
   channelEl.textContent = 'Channel: ' + (data.channel || 'stable');
-  notesEl.value = String(data.release_notes || '').trim() || 'No release notes were provided for this release.';
+  notesEl.value = String(data.release_notes || '').trim() || (isGitMode ? 'No commit details available.' : 'No release notes were provided for this release.');
 
   var meta = [];
   if (data.release_published_at) meta.push('Published: ' + data.release_published_at);
-  if (data.release_url) meta.push('URL: ' + data.release_url);
+  if (data.repo) meta.push('Repo: ' + data.repo);
   if (data.release_is_prerelease) meta.push('Type: prerelease');
+  if (isGitMode && data.release_url) meta.push('URL: ' + data.release_url);
   metaEl.textContent = meta.length ? meta.join(' | ') : 'No release metadata loaded yet.';
 
   if (data.enabled === false) {
@@ -1360,8 +1453,11 @@ async function applyOtaUpdate() {
   }
 
   var warning = 'Apply the latest update now?';
-  if ((_otaStatus.install_mode || '') === 'frozen-windows') {
+  var installMode = (_otaStatus.install_mode || '');
+  if (installMode === 'frozen-windows') {
     warning = 'Apply and restart now? TALOS will close briefly while updating files.';
+  } else if (installMode === 'source-git') {
+    warning = 'Apply update now? This will git pull, install dependencies, and restart.';
   }
   if (!confirm(warning)) return;
 
@@ -1406,6 +1502,114 @@ async function applyOtaUpdate() {
   applyBtn.disabled = false;
 }
 
+// Fallback: refresh rollback availability without re-rendering the whole OTA card.
+async function checkRollbackAvailable() {
+  var rollbackGroup = document.getElementById('ota-rollback-group');
+  if (!rollbackGroup) return;
+
+  try {
+    var resp = await fetch('/api/updates/check');
+    var data = await resp.json();
+    renderOtaRollback(data);
+  } catch (e) {
+    rollbackGroup.style.display = 'none';
+  }
+}
+
+async function rollbackOtaUpdate() {
+  if (!confirm('Rollback to the previous version? This will restart the bot.')) return;
+
+  var btn = document.getElementById('ota-rollback-btn');
+  var statusEl = document.getElementById('ota-status-line');
+  btn.disabled = true;
+  btn.textContent = 'Rolling back...';
+  statusEl.textContent = 'Rolling back to the previous version...';
+
+  try {
+    // CSRF token must be sent in the JSON body; _post() injects it.
+    var res = await _post('/api/updates/rollback', {});
+    if (res.status === 401) { window.location.href = '/'; return; }
+
+    var result = await res.json();
+
+    if (result.ok && result.restarting_now) {
+      btn.textContent = 'Restarting now...';
+      statusEl.textContent = result.message || 'Rolled back. Restarting now...';
+      showMsg('Rollback complete. Restarting now...', true);
+      setTimeout(function() { window.location.reload(); }, 15000);
+      return;
+    }
+
+    showMsg(result.error || 'Rollback failed.', false);
+    statusEl.textContent = result.error || 'Rollback failed.';
+    btn.disabled = false;
+    btn.textContent = 'Rollback to Previous Version';
+  } catch (e) {
+    showMsg('Rollback request failed.', false);
+    statusEl.textContent = 'Rollback request failed.';
+    btn.disabled = false;
+    btn.textContent = 'Rollback to Previous Version';
+  }
+}
+
+(function() {
+  var rollbackBtn = document.getElementById('ota-rollback-btn');
+  if (rollbackBtn) rollbackBtn.addEventListener('click', rollbackOtaUpdate);
+})();
+
+async function testClaistoreConfig() {
+  var repo = document.getElementById('claistore-repo').value.trim();
+  var token = document.getElementById('claistore-token').value.trim();
+  var branch = document.getElementById('claistore-branch').value.trim() || 'main';
+  var statusEl = document.getElementById('claistore-status');
+  var testBtn = document.getElementById('claistore-test-btn');
+
+  if (!repo || !token) {
+    statusEl.textContent = 'Please enter both repository and token.';
+    return;
+  }
+
+  testBtn.disabled = true;
+  statusEl.textContent = 'Testing connection...';
+
+  try {
+    var res = await _post('/api/claistore/test', { repo: repo, token: token, branch: branch });
+    if (res.status === 401) { window.location.href = '/'; return; }
+    var data = await res.json();
+    if (data.ok) {
+      statusEl.textContent = '✓ Connection successful!';
+      statusEl.style.color = '#2ecc71';
+    } else {
+      statusEl.textContent = '✗ ' + (data.error || 'Test failed');
+      statusEl.style.color = '#e74c3c';
+    }
+  } catch (e) {
+    statusEl.textContent = '✗ Connection error';
+    statusEl.style.color = '#e74c3c';
+  }
+
+  testBtn.disabled = false;
+}
+
+async function saveClaistoreConfig() {
+  var statusEl = document.getElementById('claistore-status');
+  var saveBtn = document.getElementById('claistore-save-btn');
+  saveBtn.disabled = true;
+  statusEl.textContent = 'Saving...';
+  statusEl.style.color = '';
+
+  try {
+    await saveSettings();
+    statusEl.textContent = '✓ Configuration saved';
+    statusEl.style.color = '#2ecc71';
+  } catch (e) {
+    statusEl.textContent = '✗ Save failed';
+    statusEl.style.color = '#e74c3c';
+  }
+
+  saveBtn.disabled = false;
+}
+
 async function saveSettings() {
   _saveBaseUrls();
   var mainModel = _currentMainModel;
@@ -1439,6 +1643,7 @@ async function saveSettings() {
     NVIDIA_BASE_URL: (document.getElementById('nvidia-base-url') || {}).value || _baseUrlValues.nvidia || '',
     CEREBRAS_BASE_URL: (document.getElementById('cerebras-base-url') || {}).value || _baseUrlValues.cerebras || '',
     GROQ_BASE_URL: (document.getElementById('groq-base-url') || {}).value || _baseUrlValues.groq || '',
+    QWEN_BASE_URL: (document.getElementById('qwen-base-url') || {}).value || _baseUrlValues.qwen || '',
     OPENROUTER_BASE_URL: (document.getElementById('openrouter-base-url') || {}).value || _baseUrlValues.openrouter || '',
     MISTRAL_BASE_URL: (document.getElementById('mistral-base-url') || {}).value || _baseUrlValues.mistral || '',
     OLLAMA_BASE_URL: (document.getElementById('ollama-base-url') || {}).value || _baseUrlValues.ollama || '',
@@ -1453,6 +1658,10 @@ async function saveSettings() {
     MAIN_MODEL: mainModel,
     IMAGE_MODEL: getModelValue('image-model'),
     FAST_MODEL: getModelValue('fast-model'),
+    FALLBACK_MODEL: getModelValue('fallback-model'),
+    CLAISTORE_GITHUB_REPO: document.getElementById('claistore-repo').value.trim(),
+    CLAISTORE_GITHUB_TOKEN: document.getElementById('claistore-token').value.trim(),
+    CLAISTORE_GITHUB_BRANCH: document.getElementById('claistore-branch').value.trim() || 'main',
     MAX_TOOL_ROUNDS: document.getElementById('max-tool-rounds').value.trim(),
     MAX_TOOL_CALLS_PER_ROUND: document.getElementById('max-tool-calls-per-round').value.trim(),
     MAX_COMMAND_TIMEOUT: document.getElementById('max-command-timeout').value.trim(),

@@ -1,0 +1,94 @@
+name: macOS Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r src/requirements.txt
+
+      - name: Build .app
+        run: |
+          bash src/scripts/build_app.sh "${GITHUB_REF_NAME#v}"
+
+      - name: Build .dmg
+        run: |
+          bash src/scripts/build_dmg.sh "${GITHUB_REF_NAME#v}"
+
+      - name: Build .pkg
+        run: |
+          bash src/scripts/build_pkg.sh "${GITHUB_REF_NAME#v}"
+
+      - name: Package artifacts
+        id: package
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          ARCH="$(uname -m)"
+          case "$ARCH" in
+            x86_64)  ARCH_TAG="x64" ;;
+            arm64)   ARCH_TAG="arm64" ;;
+            *)       ARCH_TAG="$ARCH" ;;
+          esac
+
+          mkdir -p dist/macos-ci
+
+          # Tar the .app bundle
+          if [[ -d "dist/app/Clai TALOS.app" ]]; then
+            tar -C dist/app -czf "dist/macos-ci/ClaiTALOS-${VERSION}-macos-${ARCH_TAG}.tar.gz" "Clai TALOS.app"
+          fi
+
+          # Copy .dmg
+          cp dist/dmg/*.dmg dist/macos-ci/ 2>/dev/null || true
+
+          # Copy .pkg
+          cp dist/pkg/*.pkg dist/macos-ci/ 2>/dev/null || true
+
+          # Generate checksums
+          cd dist/macos-ci
+          shasum -a 256 * > SHA256SUMS.txt
+          cd -
+
+          echo "artifacts_dir=dist/macos-ci" >> "$GITHUB_OUTPUT"
+
+      - name: Upload workflow artifact
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: clai-talos-macos
+          path: |
+            dist/macos-ci/*.tar.gz
+            dist/macos-ci/*.dmg
+            dist/macos-ci/*.pkg
+            dist/macos-ci/SHA256SUMS.txt
+
+      - name: Publish GitHub Release assets
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/macos-ci/*.tar.gz
+            dist/macos-ci/*.dmg
+            dist/macos-ci/*.pkg
+            dist/macos-ci/SHA256SUMS.txt
+          generate_release_notes: true

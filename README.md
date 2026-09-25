@@ -10,6 +10,75 @@ It is intentionally a single-process Python system: easy to run, easy to debug, 
 
 If you are searching for an easier OpenClaw alternative, a free Claude Cowork alternative for personal use, or a simple AI assistant that does not require platform-level setup, Clai TALOS is built for that use case.
 
+## Quick Install
+
+One-command install for all platforms:
+
+**Linux / macOS:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/VynavinV/Clai_TALOS/master/scripts/install.sh | bash
+```
+
+**Windows (PowerShell):**
+
+```powershell
+irm https://raw.githubusercontent.com/VynavinV/Clai_TALOS/master/scripts/install.ps1 | iex
+```
+
+The installer auto-detects your OS and architecture, downloads the correct binary, and sets up PATH.
+
+### Pre-built binaries (v0.1.0)
+
+| Platform | Asset | Install method |
+|----------|-------|----------------|
+| **Linux x64** | `clai-talos-0.1.0-linux-x64.tar.gz` (120 MB) | `curl -fsSL .../install.sh \| bash` or extract manually |
+| **Windows x64** | `ClaiTALOS-windows-x64.zip` (94 MB) | `irm .../install.ps1 \| iex` or extract and run `ClaiTALOS.exe` |
+| **macOS (universal)** | `clai-talos_0.1.0.dmg` | `curl -fsSL .../install.sh \| bash` or open `.dmg` and drag to Applications |
+| **macOS arm64** | `ClaiTALOS-0.1.0-macos-arm64.tar.gz` | `curl -fsSL .../install.sh \| bash` or extract manually |
+| **macOS .pkg** | `clai-talos_0.1.0.pkg` | `sudo installer -pkg clai-talos_0.1.0.pkg -target /` |
+
+Download from: [GitHub Releases](https://github.com/VynavinV/Clai_TALOS/releases/tag/v0.1.0)
+
+### Manual install from releases
+
+**Linux:**
+
+```bash
+# Download and extract
+curl -fsSL -o clai-talos.tar.gz https://github.com/VynavinV/Clai_TALOS/releases/download/v0.1.0/clai-talos-0.1.0-linux-x64.tar.gz
+mkdir -p ~/.local/lib/clai-talos && tar -xzf clai-talos.tar.gz -C ~/.local/lib/clai-talos --strip-components=1
+ln -sf ~/.local/lib/clai-talos/clai-talos ~/.local/bin/clai-talos
+# Ensure ~/.local/bin is in PATH, then:
+clai-talos
+```
+
+**Windows:**
+
+```powershell
+# Download and extract
+Invoke-WebRequest -Uri "https://github.com/VynavinV/Clai_TALOS/releases/download/v0.1.0/ClaiTALOS-windows-x64.zip" -OutFile "$env:TEMP\clai-talos.zip"
+Expand-Archive "$env:TEMP\clai-talos.zip" "$env:LOCALAPPDATA\Clai_TALOS"
+# Run
+& "$env:LOCALAPPDATA\Clai_TALOS\ClaiTALOS.exe"
+```
+
+**macOS:**
+
+```bash
+# Option A: DMG (drag to Applications)
+curl -fsSL -o clai-talos.dmg https://github.com/VynavinV/Clai_TALOS/releases/download/v0.1.0/clai-talos_0.1.0.dmg
+hdiutil attach clai-talos.dmg
+cp -R "/Volumes/Clai TALOS"*/Clai\ TALOS.app /Applications/
+hdiutil detach "/Volumes/Clai TALOS"*
+open "/Applications/Clai TALOS.app"
+
+# Option B: .pkg (system-wide with launchd service)
+curl -fsSL -o clai-talos.pkg https://github.com/VynavinV/Clai_TALOS/releases/download/v0.1.0/clai-talos_0.1.0.pkg
+sudo installer -pkg clai-talos.pkg -target /
+sudo launchctl kickstart -k system/com.claitalos.service
+```
+
 ## Installation (Fast Start)
 
 ### Manual (Clone and Run)
@@ -198,7 +267,81 @@ Use `--channel prerelease` if you want preview builds.
 
 This updater preserves runtime/user data in the target copy (for example `.env`, credentials, API keys, Telegram token, logs, database, projects, and local service configs) while overlaying updated code.
 
-### What startup does automatically
+## OTA Updates
+
+Clai TALOS includes an over-the-air (OTA) update system that pulls the latest code from the git remote and restarts the bot. Updates are source-git-only using `git pull --ff-only` and `clai restart`.
+
+### Checking for Updates
+
+**Telegram:** `/checkupdate`
+**Web Dashboard:** Settings → Over-the-Air Updates → "Check for Updates"
+**AI Agent:** Ask "Can you check for updates?"
+
+### Applying Updates
+
+**Telegram:** `/update`
+**Web Dashboard:** Settings → Over-the-Air Updates → "Download and Apply"
+**AI Agent:** Ask "Can you apply the update?"
+
+The update process:
+1. Creates a rollback tag at the current HEAD (e.g., `talos-rollback-20260905-143022`)
+2. Pulls latest code from git (`git pull --ff-only`)
+3. Installs Python dependencies (`pip install -r requirements.txt`)
+4. Restarts the bot via `clai restart`
+5. Best-effort health check with auto-rollback if it fails
+
+The bot will be unavailable for ~15 seconds during restart.
+
+### Rolling Back
+
+If an update causes issues, you can rollback to the previous version:
+
+**Telegram:** `/rollback`
+**Web Dashboard:** Settings → Over-the-Air Updates → "Rollback to Previous Version"
+**AI Agent:** Ask "Can you rollback the update?"
+
+The rollback process:
+1. Verifies the rollback tag exists (created by last `apply_update`)
+2. Resets git HEAD to the rollback tag (hard reset)
+3. Reinstalls Python dependencies
+4. Restarts the bot via `clai restart`
+5. Deletes the rollback tag and metadata
+
+### Configuration
+
+Environment variables:
+- `OTA_ENABLED=1` — Set to `0` to disable all OTA operations
+- `TALOS_VERSION` — Override the reported version string
+- `OTA_HEALTH_CHECK_URL` — URL to check after restart (default: `http://localhost:{PORT}/`)
+- `OTA_HEALTH_CHECK_TIMEOUT_S` — Health check timeout in seconds (default: 30)
+
+### Safety
+
+- Updates use `git pull --ff-only` to avoid merge conflicts
+- A rollback tag is created before every update
+- All API endpoints require authentication and CSRF protection
+- The AI agent will always confirm with the user before applying or rolling back updates
+- Health check runs after restart with automatic rollback if it fails
+
+### API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/updates/check` | Check for updates (returns update status + rollback availability) |
+| POST | `/api/updates/apply` | Apply update (requires auth + CSRF) |
+| POST | `/api/updates/rollback` | Rollback to previous version (requires auth + CSRF) |
+
+### Automatic Update Checks
+
+To set up automatic OTA notifications, create a cron job via the `/cron` Telegram command with a self-prompt:
+
+```
+self:check for OTA updates and notify me if one is available
+```
+
+The `ota_auto_check()` function in `src/cron_jobs.py` can also be called programmatically.
+
+## What startup does automatically
 
 The startup scripts (`start.sh`, `start.bat`) automatically:
 
@@ -237,6 +380,7 @@ This behavior is Linux-specific.
 
 ## Table of Contents
 
+- [Quick Install](#quick-install)
 - [Who This Is For](#who-this-is-for)
 - [Why TALOS Instead of Heavy Platforms](#why-talos-instead-of-heavy-platforms)
 - [The Evolution of CLAI (2020-2026)](#the-evolution-of-clai-2020-2026)
@@ -246,6 +390,8 @@ This behavior is Linux-specific.
 - [Sudoers Behavior (Linux)](#sudoers-behavior-linux)
 - [First Boot and Onboarding](#first-boot-and-onboarding)
 - [Upgrade Older Copied Installs (Pre-OTA)](#upgrade-older-copied-installs-pre-ota)
+- [OTA Updates](#ota-updates)
+- [What startup does automatically](#what-startup-does-automatically)
 - [Dashboard Guide](#dashboard-guide)
 - [HTTP Routes and API Reference](#http-routes-and-api-reference)
 - [Configuration Reference (.env)](#configuration-reference-env)
@@ -510,12 +656,16 @@ TALOS reads `.env` and supports hot reload for most runtime settings.
 | `ANTHROPIC_API_KEY` | empty | Anthropic provider key |
 | `NVIDIA_API_KEY` | empty | NVIDIA provider key |
 | `CEREBRAS_API_KEY` | empty | Cerebras provider key |
+| `GROQ_API_KEY` | empty | Groq provider key |
+| `QWEN_API_KEY` | empty | Qwen provider key |
 | `OPENROUTER_API_KEY` | empty | OpenRouter provider key |
 | `MAIN_MODEL` | auto best | Preferred text model |
 | `IMAGE_MODEL` | auto best | Preferred vision/image model |
 | `CLIENT_BASE_URL` | `https://api.z.ai/api/coding/paas/v4` | Zhipu API base URL |
 | `NVIDIA_BASE_URL` | `https://integrate.api.nvidia.com/v1` | NVIDIA API base URL |
 | `CEREBRAS_BASE_URL` | `https://api.cerebras.ai/v1` | Cerebras API base URL |
+| `GROQ_BASE_URL` | `https://api.groq.com/openai/v1` | Groq API base URL |
+| `QWEN_BASE_URL` | `https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1` | Qwen API base URL (international) |
 | `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | OpenRouter API base URL |
 
 ### Ollama (local models)
@@ -947,6 +1097,33 @@ Current core packages include:
 - scrapy
 - pandas
 - openpyxl
+
+### Building distributable packages
+
+Use the unified build orchestrator to create packages for any platform:
+
+```bash
+# Build for current platform (auto-detect)
+./scripts/build.sh
+
+# Build specific targets
+./scripts/build.sh -p linux -t deb          # Linux .deb
+./scripts/build.sh -p linux -t tarball      # Linux portable tarball
+./scripts/build.sh -p mac -t dmg            # macOS .dmg (requires macOS)
+./scripts/build.sh -p mac -t pkg            # macOS .pkg (requires macOS)
+./scripts/build.sh -p windows -t exe        # Windows .exe (requires Windows)
+./scripts/build.sh -p all --clean           # Build everything possible
+
+# With custom version
+./scripts/build.sh -p linux -t tarball -v 1.2.0
+```
+
+Output goes to `dist/` by default. Use `-o <dir>` to change the output directory.
+
+CI workflows automatically build and publish release assets on `v*` tags:
+- `.github/workflows/windows-exe-release.yml` - Windows EXE zip
+- `.github/workflows/macos-release.yml` - macOS .app, .dmg, .pkg
+- `.github/workflows/docker-image-release.yml` - Docker image
 
 ### Build Windows EXE (preview)
 

@@ -2887,6 +2887,7 @@ async def _run_agent(
                 speed_mode=speed_mode,
                 reasoning_enabled=reasoning_enabled,
                 on_delta=sink,
+                user_id=user_id,
             )
         finally:
             await sink.finish()
@@ -3158,6 +3159,7 @@ async def _run_agent(
                 speed_mode=speed_mode,
                 reasoning_enabled=reasoning_enabled,
                 on_delta=sink,
+                user_id=user_id,
             )
         finally:
             await sink.finish()
@@ -3258,6 +3260,7 @@ async def _maybe_summarize(
             f"Summarize this conversation:\n\n{conversation}",
             speed_mode=speed_mode,
             reasoning_enabled=reasoning_enabled,
+            user_id=user_id,
         )
         db.set_summary(user_id, summary)
         db.compact_history(user_id, db.HISTORY_WINDOW)
@@ -3357,6 +3360,7 @@ Please re-analyze the image in light of this new question, then respond to their
                 None,
                 speed_mode=speed_mode,
                 reasoning_enabled=reasoning_enabled,
+                user_id=user_id,
             )
             image_analysis = response.get("content") or "I could not analyze the image."
         except Exception as e:
@@ -3479,6 +3483,7 @@ async def respond_with_image(user_id: int, text: str, image_b64: str, send_func:
             None,
             speed_mode=speed_mode,
             reasoning_enabled=reasoning_enabled,
+            user_id=user_id,
         )
         image_analysis = response.get("content") or "I could not analyze the image."
     except Exception as e:

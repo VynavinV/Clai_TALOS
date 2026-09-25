@@ -18,8 +18,10 @@ import io
 import zipfile
 from datetime import datetime, timezone
 from dotenv import load_dotenv
+import aiohttp
 from aiohttp import web
 from telegram.ext import Application
+from telegram import BotCommand
 import bcrypt
 from bot_handlers import register_handlers, HELP_TEXT
 import AI
@@ -37,6 +39,7 @@ import app_paths
 import ota_update
 import email_tools
 import diagnostics
+import claistore
 from auth_policy import MIN_DASHBOARD_PASSWORD_LENGTH, validate_dashboard_password
 
 SCRIPT_DIR = app_paths.resource_root()
@@ -67,6 +70,7 @@ MANAGED_KEYS = [
     {"env_key": "NVIDIA_API_KEY", "label": "NVIDIA", "icon": "&#9889;"},
     {"env_key": "CEREBRAS_API_KEY", "label": "Cerebras", "icon": "&#9889;"},
     {"env_key": "GROQ_API_KEY", "label": "Groq", "icon": "&#9889;"},
+    {"env_key": "QWEN_API_KEY", "label": "Qwen", "icon": "&#9729;"},
     {"env_key": "OPENROUTER_API_KEY", "label": "OpenRouter", "icon": "&#128279;"},
     {"env_key": "MISTRAL_API_KEY", "label": "Mistral", "icon": "&#127787;"},
     {"env_key": "OTHER_API_KEY", "label": "Other (custom endpoint)", "icon": "&#128736;"},
@@ -80,6 +84,7 @@ PROVIDER_ENV_KEYS = {
     "nvidia": "NVIDIA_API_KEY",
     "cerebras": "CEREBRAS_API_KEY",
     "groq": "GROQ_API_KEY",
+    "qwen": "QWEN_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
     "mistral": "MISTRAL_API_KEY",
     "other": "OTHER_API_KEY",
@@ -107,6 +112,9 @@ COMMUNITY_HUB_MAX_ITEMS = 500
 COMMUNITY_HUB_ALLOWED_EXTENSIONS = frozenset({
     ".zip", ".json", ".md", ".txt", ".yaml", ".yml", ".toml", ".py",
 })
+
+# Claistore config is now in claistore.py module
+
 COMMUNITY_BUILTIN_GUI_SKILL_ID = "builtin_gui_desktop_operator_skill"
 COMMUNITY_BUILTIN_GUI_SKILL_REL_PATH = os.path.join("community", "universal_gui_desktop_operator_skill.md")
 COMMUNITY_BUILTIN_GUI_SKILL_FALLBACK = """# Universal GUI Desktop Access Skill
@@ -187,6 +195,23 @@ if _migrated_runtime_items:
     print(f"[info] Migrated legacy runtime data to {app_paths.data_root()}: {', '.join(_migrated_runtime_items)}")
 
 
+async def _post_init(application: Application) -> None:
+    """Set bot commands so they appear in Telegram's / autocomplete menu."""
+    commands = [
+        BotCommand("start", "Start or restart the bot"),
+        BotCommand("model", "Change AI model"),
+        BotCommand("speed", "Set response speed (quick|fast|normal)"),
+        BotCommand("reasoning", "Toggle deep reasoning (on|off)"),
+        BotCommand("fast", "Use fast model for next message"),
+        BotCommand("clear", "Clear chat history"),
+        BotCommand("help", "Show help message"),
+        BotCommand("checkupdate", "Check for OTA updates"),
+        BotCommand("update", "Apply OTA update"),
+        BotCommand("rollback", "Rollback to previous version"),
+    ]
+    await application.bot.set_my_commands(commands)
+
+
 def _build_telegram_application(token: str) -> Application:
     app = (
         Application.builder()
@@ -195,6 +220,7 @@ def _build_telegram_application(token: str) -> Application:
         .read_timeout(30)
         .write_timeout(30)
         .pool_timeout(30)
+        .post_init(_post_init)
         .build()
     )
     register_handlers(app)
@@ -1552,6 +1578,92 @@ def _import_openclaw_compatibility(file_name: str, content: bytes) -> dict:
     return report
 
 
+def _parse_markdown_frontmatter(content: str) -> dict | None:
+    """Parse YAML frontmatter from markdown content."""
+    content = content.strip()
+    if not content.startswith("---"):
+        return None
+    end = content.find("---", 3)
+    if end == -1:
+        return None
+    frontmatter_text = content[3:end].strip()
+    if not frontmatter_text:
+        return None
+
+    result = {}
+    for line in frontmatter_text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if ":" not in line:
+            continue
+        key, _, value = line.partition(":")
+        key = key.strip()
+        value = value.strip()
+        if value.startswith(("'", '"')) and value.endswith(value[0]):
+            value = value[1:-1]
+        result[key] = value
+
+    return result if result else None
+
+
+def _install_skill_as_tool(file_name: str, content: str) -> dict:
+    """Install a markdown skill as a dynamic tool if it has valid frontmatter."""
+    result = {"registered": False, "tool_name": "", "error": ""}
+
+    frontmatter = _parse_markdown_frontmatter(content)
+    if not frontmatter:
+        result["error"] = "No valid YAML frontmatter found."
+        return result
+
+    name = frontmatter.get("name", "").strip()
+    if not name:
+        result["error"] = "Frontmatter missing 'name' field."
+        return result
+
+    tool_name = _normalize_openclaw_identifier(name, prefix="skill")
+    description = frontmatter.get("description", "").strip()
+    if not description:
+        description = f"Skill installed from Claistore: {name}"
+
+    command_template = frontmatter.get("command", "").strip()
+    if not command_template:
+        command_template = f"echo 'Skill {name} executed with args: {{args}}'"
+
+    parameters = {}
+    required = []
+    params_text = frontmatter.get("parameters", "").strip()
+    if params_text:
+        for param in params_text.split(","):
+            param = param.strip()
+            if not param:
+                continue
+            param_name = param.split(":")[0].strip() if ":" in param else param
+            if param_name:
+                parameters[param_name] = {"type": "string", "description": param_name}
+
+    try:
+        create_result = dynamic_tools.create_tool(
+            name=tool_name,
+            description=description,
+            command_template=command_template,
+            parameters=parameters if parameters else None,
+            required=required if required else None,
+            timeout=30,
+            guide=content,
+            overwrite=True,
+        )
+        if create_result.get("ok"):
+            result["registered"] = True
+            result["tool_name"] = tool_name
+        else:
+            result["error"] = create_result.get("error", "Unknown error")
+    except Exception as exc:
+        result["error"] = str(exc)
+
+    return result
+
+
 def _community_public_entry(item: dict) -> dict:
     item_id = str(item.get("id", "")).strip()
     return {
@@ -1623,6 +1735,16 @@ def _write_community_index(items: list[dict]) -> None:
     os.makedirs(COMMUNITY_HUB_DIR, exist_ok=True)
     with open(COMMUNITY_HUB_INDEX_FILE, "w") as f:
         json.dump(items, f, indent=2)
+
+
+# Claistore functions are now in claistore.py module
+from claistore import (
+    is_configured as claistore_is_configured,
+    fetch_index as claistore_fetch_index,
+    publish_skill as claistore_publish_skill,
+    read_skill_file as claistore_read_skill_file,
+    test_connection as claistore_test_connection,
+)
 
 
 def _community_file_path(stored_name: str) -> str:
@@ -2644,8 +2766,9 @@ async def handle_projects_page(request):
 
 _SECRET_KEYS = frozenset({
     "TELEGRAM_BOT_TOKEN", "ZHIPUAI_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY",
-    "ANTHROPIC_API_KEY", "NVIDIA_API_KEY", "CEREBRAS_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY",
+    "ANTHROPIC_API_KEY", "NVIDIA_API_KEY", "CEREBRAS_API_KEY", "GROQ_API_KEY", "QWEN_API_KEY", "OPENROUTER_API_KEY",
     "MISTRAL_API_KEY", "OTHER_API_KEY", "GOOGLE_API_KEY", "GOOGLE_OAUTH_CLIENT_SECRET",
+    "CLAISTORE_GITHUB_TOKEN",
 })
 
 
@@ -2670,6 +2793,8 @@ async def handle_api_settings_get(request):
         "MAIN_MODEL": env_vars.get("MAIN_MODEL", ""),
         "IMAGE_MODEL": env_vars.get("IMAGE_MODEL", ""),
         "FAST_MODEL": env_vars.get("FAST_MODEL", ""),
+        "FALLBACK_MODEL": env_vars.get("FALLBACK_MODEL", ""),
+        "USER_FALLBACK_MODEL": "",
         "GOOGLE_OAUTH_CLIENT_ID": env_vars.get("GOOGLE_OAUTH_CLIENT_ID", ""),
         "GOOGLE_OAUTH_REDIRECT_URI": env_vars.get("GOOGLE_OAUTH_REDIRECT_URI", ""),
         "GOOGLE_APPS_SCRIPT_URL": env_vars.get("GOOGLE_APPS_SCRIPT_URL", ""),
@@ -2682,6 +2807,7 @@ async def handle_api_settings_get(request):
         "NVIDIA_BASE_URL": env_vars.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
         "CEREBRAS_BASE_URL": env_vars.get("CEREBRAS_BASE_URL", "https://api.cerebras.ai/v1"),
         "GROQ_BASE_URL": env_vars.get("GROQ_BASE_URL", "https://api.groq.com/openai/v1"),
+        "QWEN_BASE_URL": env_vars.get("QWEN_BASE_URL", "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"),
         "OPENROUTER_BASE_URL": env_vars.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
         "MISTRAL_BASE_URL": env_vars.get("MISTRAL_BASE_URL", "https://api.mistral.ai/v1"),
         "OLLAMA_BASE_URL": env_vars.get("OLLAMA_BASE_URL", "http://localhost:11434/v1"),
@@ -2701,7 +2827,18 @@ async def handle_api_settings_get(request):
         "MAX_SUBAGENT_TOOL_ROUNDS": env_vars.get("MAX_SUBAGENT_TOOL_ROUNDS", "5"),
         "MAX_SUBAGENT_TOOL_CALLS_PER_ROUND": env_vars.get("MAX_SUBAGENT_TOOL_CALLS_PER_ROUND", "15"),
         "MAX_CONTEXT_CHARS": env_vars.get("MAX_CONTEXT_CHARS", "120000"),
+        "CLAISTORE_GITHUB_REPO": env_vars.get("CLAISTORE_GITHUB_REPO", ""),
+        "CLAISTORE_GITHUB_TOKEN": env_vars.get("CLAISTORE_GITHUB_TOKEN", ""),
+        "CLAISTORE_GITHUB_BRANCH": env_vars.get("CLAISTORE_GITHUB_BRANCH", "main"),
     }
+    # Per-user fallback model from DB
+    try:
+        web_user_id = _get_web_user_id(request)
+        user_fallback = db.get_fallback_model(web_user_id)
+        if user_fallback:
+            result["USER_FALLBACK_MODEL"] = user_fallback
+    except Exception:
+        logger.exception("Could not load per-user fallback model")
     for key in _SECRET_KEYS:
         result[key] = _mask_secret(env_vars.get(key, ""))
     return web.json_response(result)
@@ -2753,7 +2890,7 @@ async def handle_api_context_usage(request):
 async def handle_api_updates_check(request):
     channel = str(request.query.get("channel", "")).strip()
     try:
-        status = ota_update.check_for_updates(channel=channel)
+        status = ota_update.check_for_updates()
     except Exception as exc:
         status = {
             "ok": False,
@@ -2764,8 +2901,28 @@ async def handle_api_updates_check(request):
             "update_available": False,
             "can_apply": False,
             "apply_message": "",
+            "rollback_available": False,
             "error": f"Could not load OTA status: {exc}",
         }
+
+    # Add rollback info (check_for_updates() does not return it).
+    # Enforce OTA_ENABLED kill switch: if OTA is disabled, never advertise
+    # a rollback even when metadata exists on disk.
+    if not status.get("enabled", True):
+        status["rollback_available"] = False
+    else:
+        try:
+            rollback_meta = ota_update._load_rollback_metadata()
+        except Exception:
+            rollback_meta = None
+
+        if rollback_meta:
+            status["rollback_available"] = True
+            status["rollback_tag"] = rollback_meta.get("tag", "")
+            status["rollback_timestamp"] = rollback_meta.get("timestamp", "")
+        else:
+            status["rollback_available"] = False
+
     http_status = 200 if status.get("ok") else 502
     return web.json_response(status, status=http_status)
 
@@ -2774,7 +2931,7 @@ async def handle_api_updates_check(request):
 async def handle_api_updates_apply(request):
     body = request._json_body if isinstance(request._json_body, dict) else {}
     channel = str(body.get("channel", "")).strip()
-    result = ota_update.apply_update(channel=channel)
+    result = ota_update.apply_update()
     http_status = 200 if result.get("ok") else 400
 
     if result.get("ok") and result.get("restarting_now"):
@@ -2788,6 +2945,28 @@ async def handle_api_updates_apply(request):
 
 
 @require_auth_csrf
+async def handle_api_updates_rollback(request):
+    from aiohttp import web
+    import ota_update
+
+    # Enforce OTA_ENABLED kill switch on the rollback path.
+    if os.getenv("OTA_ENABLED", "1") == "0":
+        return web.json_response({"ok": False, "error": "OTA updates are disabled"})
+
+    result = ota_update.rollback_update()
+
+    if result.get("restarting_now"):
+        # Schedule exit after response
+        import asyncio
+        async def delayed_exit():
+            await asyncio.sleep(1)
+            os._exit(0)
+        asyncio.create_task(delayed_exit())
+
+    return web.json_response(result)
+
+
+@require_auth_csrf
 async def handle_api_settings_post(request):
     global BOT_NAME
 
@@ -2797,19 +2976,20 @@ async def handle_api_settings_post(request):
 
     _TEXT_KEYS = [
         "BOT_NAME", "TELEGRAM_BOT_TOKEN", "WEB_PORT",
-        "ZHIPUAI_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "NVIDIA_API_KEY", "CEREBRAS_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY", "MISTRAL_API_KEY", "OTHER_API_KEY",
+        "ZHIPUAI_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "NVIDIA_API_KEY", "CEREBRAS_API_KEY", "GROQ_API_KEY", "QWEN_API_KEY", "OPENROUTER_API_KEY", "MISTRAL_API_KEY", "OTHER_API_KEY",
         "GOOGLE_API_KEY", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET",
         "GOOGLE_OAUTH_REDIRECT_URI", "GOOGLE_APPS_SCRIPT_URL", "GOOGLE_OAUTH_SCOPES",
         "HIMALAYA_BIN", "HIMALAYA_CONFIG", "HIMALAYA_DEFAULT_ACCOUNT",
-        "PIPER_VOICE", "CLIENT_BASE_URL", "NVIDIA_BASE_URL", "CEREBRAS_BASE_URL", "GROQ_BASE_URL", "OPENROUTER_BASE_URL", "MISTRAL_BASE_URL", "OLLAMA_BASE_URL", "OTHER_BASE_URL", "OLLAMA_MODEL",
+        "PIPER_VOICE", "CLIENT_BASE_URL", "NVIDIA_BASE_URL", "CEREBRAS_BASE_URL", "GROQ_BASE_URL", "QWEN_BASE_URL", "OPENROUTER_BASE_URL", "MISTRAL_BASE_URL", "OLLAMA_BASE_URL", "OTHER_BASE_URL", "OLLAMA_MODEL",
         "OLLAMA_NUM_CTX", "OLLAMA_TEMPERATURE", "OLLAMA_MAX_TOKENS", "OLLAMA_KEEP_ALIVE", "OLLAMA_KEEP_WARM", "OLLAMA_TIMEOUT_S",
         "OTHER_TIMEOUT_S",
         "OTA_CHANNEL", "TALOS_LAZY_TOOLS",
+        "CLAISTORE_GITHUB_REPO", "CLAISTORE_GITHUB_TOKEN", "CLAISTORE_GITHUB_BRANCH",
     ]
 
     _is_masked = _is_masked_secret
 
-    _MODEL_KEYS = ["MAIN_MODEL", "IMAGE_MODEL", "FAST_MODEL"]
+    _MODEL_KEYS = ["MAIN_MODEL", "IMAGE_MODEL", "FAST_MODEL", "FALLBACK_MODEL"]
 
     for key in _MODEL_KEYS:
         if key in body:
@@ -2869,6 +3049,19 @@ async def handle_api_settings_post(request):
             db.set_model_for_all(saved_main_model)
         except Exception:
             logger.exception("Could not sync main model to user settings")
+
+    # Per-user fallback model (stored in DB)
+    if "FALLBACK_MODEL" in body:
+        try:
+            web_user_id = _get_web_user_id(request)
+            fallback = str(body.get("FALLBACK_MODEL", "")).strip()
+            if fallback:
+                db.set_fallback_model(web_user_id, fallback)
+            else:
+                db.set_fallback_model(web_user_id, None)
+        except Exception:
+            logger.exception("Could not save per-user fallback model")
+
     AI.reload_clients()
 
     new_bot_name = str(env_vars.get("BOT_NAME", "")).strip()
@@ -3327,6 +3520,16 @@ async def handle_api_tools_get(request):
         if tool_id not in enabled_tools:
             enabled_tools[tool_id] = True
 
+    # Add dynamic tools from registry (including Claistore-installed skills)
+    try:
+        dynamic_tools_list = dynamic_tools.list_tools()
+        for tool in dynamic_tools_list:
+            tool_id = tool.get("name")
+            if tool_id and tool_id not in enabled_tools:
+                enabled_tools[tool_id] = True
+    except Exception:
+        pass
+
     return web.json_response(enabled_tools)
 
 
@@ -3343,12 +3546,48 @@ async def handle_api_tools_post(request):
 
 
 @require_auth
+async def handle_api_tools_dynamic(request):
+    """Return metadata for all dynamic tools (including Claistore-installed skills)."""
+    try:
+        dynamic_tools_list = dynamic_tools.list_tools()
+        result = {}
+        for tool in dynamic_tools_list:
+            name = tool.get("name")
+            if name:
+                result[name] = {
+                    "name": tool.get("name", name),
+                    "desc": tool.get("description", ""),
+                    "category": "dynamic",
+                    "dangerous": tool.get("dangerous", False),
+                }
+        return web.json_response(result)
+    except Exception as e:
+        logger.exception("Failed to list dynamic tools")
+        return web.json_response({"error": str(e)}, status=500)
+
+
+@require_auth
 async def handle_api_community_get(request):
+    # Fetch from Claistore (GitHub) if configured, otherwise fall back to local
+    if claistore_is_configured():
+        try:
+            claistore_items = await claistore_fetch_index()
+            builtin_entries = _community_builtin_public_entries()
+            return web.json_response({
+                "ok": True,
+                "items": builtin_entries + [_community_public_entry(item) for item in claistore_items],
+                "source": "claistore",
+            })
+        except Exception as e:
+            logger.exception("Failed to fetch from Claistore, falling back to local")
+            # Fall through to local
+
     items = _read_community_index()
     builtin_entries = _community_builtin_public_entries()
     return web.json_response({
         "ok": True,
         "items": builtin_entries + [_community_public_entry(item) for item in items],
+        "source": "local",
     })
 
 
@@ -3395,15 +3634,7 @@ async def handle_api_community_upload(request):
     stamp = now.strftime("%Y%m%d_%H%M%S")
     stored_name = f"{stamp}_{item_id}_{file_name}"
 
-    os.makedirs(COMMUNITY_HUB_PACKAGES_DIR, exist_ok=True)
-    try:
-        saved_path = _community_file_path(stored_name)
-    except ValueError:
-        return web.json_response({"error": "Invalid upload name."}, status=400)
-
-    with open(saved_path, "wb") as f:
-        f.write(content)
-
+    # Build item metadata
     item = {
         "id": item_id,
         "name": _sanitize_text_field(body.get("name", "Untitled Tool"), fallback="Untitled Tool", max_len=120),
@@ -3418,6 +3649,32 @@ async def handle_api_community_upload(request):
         "uploaded_at": now.isoformat(),
         "downloads": 0,
     }
+
+    # If Claistore is configured, publish to GitHub
+    if claistore_is_configured():
+        try:
+            # For skills, use the content as markdown/skill file
+            # For other types, we'll still store locally but also publish metadata
+            skill_content = content.decode("utf-8", errors="ignore") if isinstance(content, bytes) else str(content)
+            await claistore_publish_skill(item_id, item, skill_content)
+            return web.json_response({
+                "ok": True,
+                "item": _community_public_entry(item),
+                "source": "claistore",
+            })
+        except Exception as e:
+            logger.exception("Failed to publish to Claistore, falling back to local")
+            # Fall through to local storage
+
+    # Local storage fallback
+    os.makedirs(COMMUNITY_HUB_PACKAGES_DIR, exist_ok=True)
+    try:
+        saved_path = _community_file_path(stored_name)
+    except ValueError:
+        return web.json_response({"error": "Invalid upload name."}, status=400)
+
+    with open(saved_path, "wb") as f:
+        f.write(content)
 
     items = _read_community_index()
     items.insert(0, item)
@@ -3454,6 +3711,26 @@ async def handle_api_community_upload(request):
 
 
 @require_auth
+async def handle_api_claistore_test(request):
+    """Test Claistore GitHub configuration."""
+    try:
+        body = request._json_body if isinstance(request._json_body, dict) else {}
+        repo = body.get("repo", "").strip()
+        token = body.get("token", "").strip()
+        branch = body.get("branch", "main").strip()
+
+        if not repo or not token:
+            return web.json_response({"ok": False, "error": "Repository and token are required"}, status=400)
+
+        # Test using the claistore module with the provided credentials
+        result = await claistore_test_connection(repo=repo, token=token, branch=branch)
+        return web.json_response(result)
+    except Exception as e:
+        logger.exception("Claistore test failed")
+        return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+
+@require_auth
 async def handle_api_community_download(request):
     item_id = _sanitize_text_field(request.match_info.get("item_id", ""), max_len=64)
     if not item_id:
@@ -3472,6 +3749,7 @@ async def handle_api_community_download(request):
             response.headers["Content-Type"] = mime
         return response
 
+    # Try local community index first
     items = _read_community_index()
     found_idx = None
     found_item = None
@@ -3481,30 +3759,47 @@ async def handle_api_community_download(request):
             found_item = item
             break
 
-    if found_item is None or found_idx is None:
-        return web.json_response({"error": "Not found."}, status=404)
+    if found_item is not None and found_idx is not None:
+        try:
+            file_path = _community_file_path(found_item.get("stored_name", ""))
+        except ValueError:
+            return web.json_response({"error": "Not found."}, status=404)
 
-    try:
-        file_path = _community_file_path(found_item.get("stored_name", ""))
-    except ValueError:
-        return web.json_response({"error": "Not found."}, status=404)
+        if not os.path.isfile(file_path):
+            return web.json_response({"error": "File not found."}, status=404)
 
-    if not os.path.isfile(file_path):
-        return web.json_response({"error": "File not found."}, status=404)
+        items[found_idx]["downloads"] = max(0, int(items[found_idx].get("downloads", 0) or 0)) + 1
+        try:
+            _write_community_index(items)
+        except Exception:
+            pass
 
-    items[found_idx]["downloads"] = max(0, int(items[found_idx].get("downloads", 0) or 0)) + 1
-    try:
-        _write_community_index(items)
-    except Exception:
-        pass
+        response = web.FileResponse(file_path)
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Content-Disposition"] = f'attachment; filename="{_sanitize_upload_filename(found_item.get("file_name", "download.bin"))}"'
+        mime = _sanitize_text_field(found_item.get("mime", ""), max_len=120)
+        if mime:
+            response.content_type = mime
+        return response
 
-    response = web.FileResponse(file_path)
-    response.headers["Cache-Control"] = "no-store"
-    response.headers["Content-Disposition"] = f'attachment; filename="{_sanitize_upload_filename(found_item.get("file_name", "download.bin"))}"'
-    mime = _sanitize_text_field(found_item.get("mime", ""), max_len=120)
-    if mime:
-        response.content_type = mime
-    return response
+    # Try Claistore (GitHub) if configured
+    if claistore_is_configured():
+        try:
+            content, metadata = await claistore_read_skill_file(item_id)
+            if content is not None:
+                # Serve the skill content from GitHub
+                response = web.Response(body=content.encode("utf-8"))
+                response.headers["Cache-Control"] = "no-store"
+                file_name = metadata.get("file_name", f"{item_id}.md") if metadata else f"{item_id}.md"
+                response.headers["Content-Disposition"] = f'attachment; filename="{_sanitize_upload_filename(file_name)}"'
+                mime = metadata.get("mime", "text/markdown") if metadata else "text/markdown"
+                response.headers["Content-Type"] = mime
+                return response
+        except Exception as e:
+            logger.exception("Failed to download from Claistore")
+            return web.json_response({"error": f"Claistore download failed: {e}"}, status=500)
+
+    return web.json_response({"error": "Not found."}, status=404)
 
 
 @require_auth_csrf
@@ -3520,6 +3815,7 @@ async def handle_api_community_install(request):
     if builtin is not None:
         item, payload = builtin
     else:
+        # Try local community index first
         items = _read_community_index()
         found_item = None
         for entry in items:
@@ -3527,24 +3823,41 @@ async def handle_api_community_install(request):
                 found_item = entry
                 break
 
-        if found_item is None:
-            return web.json_response({"error": "Not found."}, status=404)
+        if found_item is not None:
+            try:
+                source_path = _community_file_path(found_item.get("stored_name", ""))
+            except ValueError:
+                return web.json_response({"error": "Not found."}, status=404)
 
-        try:
-            source_path = _community_file_path(found_item.get("stored_name", ""))
-        except ValueError:
-            return web.json_response({"error": "Not found."}, status=404)
+            if not os.path.isfile(source_path):
+                return web.json_response({"error": "File not found."}, status=404)
 
-        if not os.path.isfile(source_path):
-            return web.json_response({"error": "File not found."}, status=404)
+            try:
+                with open(source_path, "rb") as f:
+                    payload = f.read()
+            except Exception:
+                return web.json_response({"error": "Failed to read package."}, status=500)
 
-        try:
-            with open(source_path, "rb") as f:
-                payload = f.read()
-        except Exception:
-            return web.json_response({"error": "Failed to read package."}, status=500)
-
-        item = found_item
+            item = found_item
+        else:
+            # Try Claistore (GitHub) if configured
+            if claistore_is_configured():
+                try:
+                    content, metadata = await claistore_read_skill_file(item_id)
+                    if content is not None:
+                        # Get the file name from metadata or default
+                        file_name = metadata.get("file_name", f"{item_id}.md") if metadata else f"{item_id}.md"
+                        payload = content.encode("utf-8")
+                        # Create item from metadata or minimal info
+                        item = metadata if metadata else {
+                            "id": item_id,
+                            "name": item_id,
+                            "file_name": file_name,
+                            "mime": "text/markdown"
+                        }
+                except Exception as e:
+                    logger.exception("Failed to read from Claistore for install")
+                    return web.json_response({"error": f"Claistore read failed: {e}"}, status=500)
 
     if not item or payload is None:
         return web.json_response({"error": "Not found."}, status=404)
@@ -3565,6 +3878,7 @@ async def handle_api_community_install(request):
     openclaw_import = _import_openclaw_compatibility(safe_file_name, payload)
 
     installed_skill_doc = ""
+    tool_registration = None
     lower_name = safe_file_name.lower()
     if not openclaw_import.get("detected") and lower_name.endswith((".md", ".txt")):
         docs_dir = app_paths.dynamic_tools_docs_dir()
@@ -3577,6 +3891,9 @@ async def handle_api_community_install(request):
             with open(doc_path, "w", encoding="utf-8") as f:
                 f.write(decoded.rstrip() + "\n")
             installed_skill_doc = doc_name
+
+            # Try to register as a dynamic tool if frontmatter is present
+            tool_registration = _install_skill_as_tool(safe_file_name, decoded)
         except Exception:
             installed_skill_doc = ""
 
@@ -3590,6 +3907,8 @@ async def handle_api_community_install(request):
     }
     if installed_skill_doc:
         response_payload["skill_doc"] = installed_skill_doc
+    if tool_registration:
+        response_payload["tool_registration"] = tool_registration
     return web.json_response(response_payload)
 
 
@@ -3707,6 +4026,7 @@ async def main():
     web_app.router.add_post("/api/settings", handle_api_settings_post)
     web_app.router.add_get("/api/updates/check", handle_api_updates_check)
     web_app.router.add_post("/api/updates/apply", handle_api_updates_apply)
+    web_app.router.add_post("/api/updates/rollback", handle_api_updates_rollback)
     web_app.router.add_get("/api/context-usage", handle_api_context_usage)
     web_app.router.add_get("/api/google/status", handle_api_google_status)
     web_app.router.add_post("/api/google/connect", handle_api_google_connect)
@@ -3715,8 +4035,10 @@ async def main():
     web_app.router.add_post("/api/google/test", handle_api_google_test)
     web_app.router.add_get("/api/tools", handle_api_tools_get)
     web_app.router.add_post("/api/tools", handle_api_tools_post)
+    web_app.router.add_get("/api/tools/dynamic", handle_api_tools_dynamic)
     web_app.router.add_get("/api/community", handle_api_community_get)
     web_app.router.add_post("/api/community/upload", handle_api_community_upload)
+    web_app.router.add_post("/api/claistore/test", handle_api_claistore_test)
     web_app.router.add_get("/api/community/download/{item_id}", handle_api_community_download)
     web_app.router.add_post("/api/community/install/{item_id}", handle_api_community_install)
     web_app.router.add_get("/api/models", handle_api_models)

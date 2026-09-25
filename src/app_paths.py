@@ -15,7 +15,7 @@ def source_root() -> str:
 
 def resource_root() -> str:
     if is_frozen() and hasattr(sys, "_MEIPASS"):
-        return os.path.realpath(getattr(sys, "_MEIPASS"))
+        return os.path.realpath(os.path.join(getattr(sys, "_MEIPASS"), "src"))
     return source_root()
 
 

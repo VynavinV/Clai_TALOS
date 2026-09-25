@@ -634,6 +634,7 @@ function renderList() {
       + '<div class="tool-desc">' + description + '</div>'
       + '<div class="tool-meta"><span>' + esc(meta) + '</span></div>'
       + '<div class="tool-actions">'
+      + '<button class="btn" onclick="downloadItem(\'' + esc(item.id) + '\')">Download</button>'
       + '<button class="btn" onclick="installItem(\'' + esc(item.id) + '\')">Install on Server</button>'
       + '</div>'
       + '</article>';
@@ -733,6 +734,12 @@ async function uploadItem(event) {
   } finally {
     submitBtn.disabled = false;
   }
+}
+
+function downloadItem(id) {
+  var itemId = String(id || '').trim();
+  if (!itemId) return;
+  window.location.href = '/api/community/download/' + encodeURIComponent(itemId);
 }
 
 async function installItem(id) {

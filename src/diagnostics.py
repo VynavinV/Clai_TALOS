@@ -386,7 +386,7 @@ async def check_terminal() -> CheckResult:
 async def check_model_providers() -> CheckResult:
     """Key presence and reachability only — this never runs an inference."""
     enabled = []
-    for provider in ("openai", "anthropic", "gemini", "nvidia", "cerebras", "groq", "openrouter", "mistral", "zhipu", "ollama", "other"):
+    for provider in ("openai", "anthropic", "gemini", "nvidia", "cerebras", "groq", "qwen", "openrouter", "mistral", "zhipu", "ollama", "other"):
         try:
             if model_router._provider_enabled(provider):
                 enabled.append(provider)
@@ -775,6 +775,73 @@ async def check_tool_coverage() -> CheckResult:
     )
 
 
+async def check_ota() -> CheckResult:
+    """Verify OTA update infrastructure: git checkout, connectivity, rollback metadata."""
+    import ota_update
+
+    if not ota_update._bool_env("OTA_ENABLED", True):
+        return CheckResult(
+            "ota.status", "OTA Updates", "services", SKIP,
+            "OTA updates are disabled (OTA_ENABLED=0).",
+        )
+
+    git = ota_update._git_bin()
+    if not git:
+        return CheckResult(
+            "ota.status", "OTA Updates", "services", WARN,
+            "git binary not found on PATH. OTA updates require git.",
+            hint="Install git to enable over-the-air updates.",
+        )
+
+    repo_root = ota_update._repo_root()
+    if not ota_update._has_git_checkout(repo_root):
+        return CheckResult(
+            "ota.status", "OTA Updates", "services", WARN,
+            f"No git checkout at {repo_root}. OTA updates require a git working tree.",
+            hint="OTA only works on source-git installs.",
+        )
+
+    # Try a lightweight check: fetch with --dry-run to verify connectivity
+    # without modifying anything. This is the OTA "self-test" entry point.
+    try:
+        # Configure safe.directory inline to bypass git's ownership check
+        git_cmd = [git, "-c", f"safe.directory={repo_root}"]
+        result = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: ota_update._run(
+                git_cmd + ["-C", repo_root, "fetch", "--dry-run", "--quiet", "origin"],
+                timeout=30,
+            ),
+        )
+    except Exception as exc:
+        return CheckResult(
+            "ota.status", "OTA Updates", "services", FAIL,
+            f"OTA self-test failed: {exc}",
+            hint="Check network connectivity and git remote configuration.",
+        )
+
+    if result.returncode != 0:
+        return CheckResult(
+            "ota.status", "OTA Updates", "services", FAIL,
+            f"git fetch (dry-run) failed: {result.stderr.strip()}",
+            hint="Verify network connectivity and that the git remote is reachable.",
+        )
+
+    # Check rollback metadata validity
+    meta = ota_update._load_rollback_metadata()
+    meta_note = ""
+    if meta:
+        tag = meta.get("tag", "unknown")
+        meta_note = f" Rollback tag available: {tag}."
+
+    version = ota_update.current_version()
+    return CheckResult(
+        "ota.status", "OTA Updates", "services", OK,
+        f"OTA infrastructure healthy. Current version: {version}.{meta_note}",
+        data={"version": version, "rollback_available": meta is not None},
+    )
+
+
 def _make_tool_check(probe_id: str, name: str, category: str, fn) -> Callable[[], Awaitable[CheckResult]]:
     async def check() -> CheckResult:
         try:
@@ -811,6 +878,7 @@ CHECKS: list[Callable[[], Awaitable[CheckResult]]] = [
     check_background_service,
     check_google,
     check_telegram,
+    check_ota,
     check_tool_coverage,
 ] + TOOL_CHECKS
 
