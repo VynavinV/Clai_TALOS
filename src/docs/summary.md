@@ -110,6 +110,7 @@ Windows parity:
   - OpenRouter
   - Mistral
   - Ollama
+  - Other (any user-configured OpenAI-compatible endpoint via OTHER_BASE_URL)
 - Includes provider key gating, timeout handling, and some fallback logic.
 
 ### Persistence

@@ -345,13 +345,14 @@ var PROVIDERS = [
   { id: 'openrouter', name: 'OpenRouter', env_key: 'OPENROUTER_API_KEY', url: 'https://openrouter.ai/keys', desc: 'Access 200+ models through one API' },
   { id: 'mistral', name: 'Mistral', env_key: 'MISTRAL_API_KEY', url: 'https://console.mistral.ai/api-keys', desc: 'Mistral, Ministral, Codestral and Pixtral models' },
   { id: 'ollama', name: 'Ollama', env_key: '', url: 'https://ollama.com', desc: 'Local models, no API key needed' },
+  { id: 'other', name: 'Other', env_key: 'OTHER_API_KEY', url: '', desc: 'Any OpenAI-compatible endpoint — LM Studio, llama.cpp, vLLM, DeepSeek, Together and more' },
 ];
 
 var _providerModels = {};
 var _providerKeys = {};
 var _activeProvider = '';
 var _fetchTimer = null;
-var _baseUrlValues = { zhipu: '', nvidia: '', cerebras: '', groq: '', openrouter: '', mistral: '', ollama: '' };
+var _baseUrlValues = { zhipu: '', nvidia: '', cerebras: '', groq: '', openrouter: '', mistral: '', ollama: '', other: '' };
 var _otaStatus = null;
 
 function _saveBaseUrls() {
@@ -370,6 +371,8 @@ function _saveBaseUrls() {
   if (el) _baseUrlValues.mistral = el.value;
   el = document.getElementById('ollama-base-url');
   if (el) _baseUrlValues.ollama = el.value;
+  el = document.getElementById('other-base-url');
+  if (el) _baseUrlValues.other = el.value;
 
   var advanced = {
     'ollama-num-ctx': 'OLLAMA_NUM_CTX',
@@ -389,7 +392,9 @@ function _prov(id) { return PROVIDERS.find(function(p) { return p.id === id; });
 function renderProviderTabs() {
   var html = '';
   PROVIDERS.forEach(function(p) {
-    var hasKey = p.id === 'ollama' ? !!_ollamaModel : !!_providerKeys[p.env_key];
+    var hasKey = p.id === 'ollama' ? !!_ollamaModel
+      : p.id === 'other' ? !!_baseUrlValues.other
+      : !!_providerKeys[p.env_key];
     var isActive = p.id === _activeProvider;
     html += '<div class="provider-tab' + (isActive ? ' active' : '') + '" onclick="switchProvider(\'' + p.id + '\')">'
       + '<span class="tab-dot ' + (hasKey ? 'on' : 'off') + '"></span>'
@@ -474,6 +479,39 @@ function renderProviderPanels() {
 
         + '<div id="ollama-status" class="status-line">' + (_ollamaModel ? 'Active model: ' + _olAttr(_ollamaModel) : '') + '</div>'
         + '<button class="btn" id="ollama-setup-btn" onclick="setupOllama()">Download &amp; use this model</button>'
+        + '</div>';
+      return;
+    }
+
+    if (p.id === 'other') {
+      var otherKeySet = !!_providerKeys.OTHER_API_KEY;
+      var otherModels = (_providerModels.other || []).slice();
+      if (p.id === selProvider && selModelId && otherModels.indexOf(selModelId) === -1) {
+        otherModels.unshift(selModelId);
+      }
+      var otherOptions = otherModels.length > 0
+        ? otherModels.map(function(m) { return '<option value="' + m + '"' + (p.id === selProvider && m === selModelId ? ' selected' : '') + '>' + m + '</option>'; }).join('')
+        : '<option value="">Enter a Base URL to load models, or type a name manually</option>';
+      html += '<div class="provider-panel' + (isActive ? ' active' : '') + '" id="panel-other">'
+        + '<div class="provider-desc">' + p.desc + '. Works with anything that speaks the OpenAI chat API.</div>'
+        + '<div class="form-group">'
+        + '<label>Base URL <span id="key-badge-other-url">' + (_baseUrlValues.other ? '<span class="badge-set">Set</span>' : '<span class="badge-unset">Not set</span>') + '</span></label>'
+        + '<input type="text" id="other-base-url" placeholder="http://localhost:1234/v1" value="' + _olAttr(_baseUrlValues.other || '') + '" oninput="onOtherEndpointInput()" autocomplete="off" spellcheck="false">'
+        + '<div class="form-hint">The API root of your endpoint. Include /v1 when it is part of the path, e.g. http://localhost:1234/v1 or https://api.deepseek.com/v1. Models load automatically once the URL is reachable.</div>'
+        + '</div>'
+        + '<div class="form-group">'
+        + '<label>API Key <span id="key-badge-other">' + (otherKeySet ? '<span class="badge-set">Added</span>' : '<span class="badge-unset">Optional</span>') + '</span></label>'
+        + '<input type="password" id="key-other" placeholder="' + (otherKeySet ? 'Leave blank to keep your saved key' : 'Optional — leave blank for servers without a key') + '" autocomplete="off" oninput="onKeyInput(\'other\')">'
+        + '<div class="form-hint">Only needed if your endpoint requires one. Local servers like LM Studio and llama.cpp usually do not.</div>'
+        + '</div>'
+        + '<div class="form-group">'
+        + '<label>Main Text Model</label>'
+        + '<div class="model-select-wrap">'
+        + '<select id="model-other" onchange="onModelChange(\'other\')">' + otherOptions + '</select>'
+        + '<button class="model-override-btn" onclick="toggleModelOverride(\'model-other\')" title="Type model name manually">&#9998;</button>'
+        + '</div>'
+        + '<div class="form-hint">Pick from your endpoint, or use the pencil button to type any model name it serves.</div>'
+        + '</div>'
         + '</div>';
       return;
     }
@@ -864,8 +902,9 @@ function switchProvider(id) {
 function onKeyInput(providerId) {
   if (_fetchTimer) clearTimeout(_fetchTimer);
   var input = document.getElementById('key-' + providerId);
-  var apiKey = input.value.trim();
-  if (!apiKey) return;
+  var apiKey = input ? input.value.trim() : '';
+  // "other" endpoints can run without a key, so an empty key still fetches.
+  if (!apiKey && providerId !== 'other') return;
   var sel = document.getElementById('model-' + providerId);
   sel.innerHTML = '<option value="">Loading model list...</option>';
   _fetchTimer = setTimeout(function() {
@@ -873,11 +912,30 @@ function onKeyInput(providerId) {
   }, 600);
 }
 
+function onOtherEndpointInput() {
+  var el = document.getElementById('other-base-url');
+  if (el) _baseUrlValues.other = el.value.trim();
+  renderProviderTabs();
+  if (_fetchTimer) clearTimeout(_fetchTimer);
+  if (!_baseUrlValues.other) return;
+  var sel = document.getElementById('model-other');
+  if (sel) sel.innerHTML = '<option value="">Loading model list...</option>';
+  var keyInput = document.getElementById('key-other');
+  _fetchTimer = setTimeout(function() {
+    fetchModelsForProvider('other', keyInput ? keyInput.value.trim() : '');
+  }, 600);
+}
+
 async function fetchModelsForProvider(providerId, apiKey) {
   var sel = document.getElementById('model-' + providerId);
   var prevVal = sel ? sel.value : '';
   try {
-    var res = await _post('/api/models/fetch', { provider: providerId, api_key: apiKey });
+    var body = { provider: providerId, api_key: apiKey };
+    if (providerId === 'other') {
+      var urlEl = document.getElementById('other-base-url');
+      body.base_url = urlEl ? urlEl.value.trim() : _baseUrlValues.other || '';
+    }
+    var res = await _post('/api/models/fetch', body);
     var data = await res.json();
     if (data.models && data.models.length > 0) {
       _providerModels[providerId] = data.models;
@@ -886,8 +944,14 @@ async function fetchModelsForProvider(providerId, apiKey) {
 
   var models = _providerModels[providerId] || [];
   if (models.length === 0) {
-    sel.innerHTML = '<option value="">No models found. Check your key and try again.</option>';
+    var noneMsg = providerId === 'other'
+      ? 'No models found. Check the Base URL, or type a model name manually.'
+      : 'No models found. Check your key and try again.';
+    sel.innerHTML = '<option value="">' + noneMsg + '</option>';
     return;
+  }
+  if (providerId === 'other' && prevVal && models.indexOf(prevVal) === -1) {
+    models = [prevVal].concat(models);
   }
   sel.innerHTML = models.map(function(m) { return '<option value="' + m + '"' + (m === prevVal ? ' selected' : '') + '>' + m + '</option>'; }).join('');
 }
@@ -1005,10 +1069,12 @@ async function loadSettings() {
       GROQ_API_KEY: d.GROQ_API_KEY || '',
       OPENROUTER_API_KEY: d.OPENROUTER_API_KEY || '',
       MISTRAL_API_KEY: d.MISTRAL_API_KEY || '',
+      OTHER_API_KEY: d.OTHER_API_KEY || '',
     };
 
     _currentMainModel = d.MAIN_MODEL || '';
     _ollamaModel = d.OLLAMA_MODEL || '';
+    _baseUrlValues.other = d.OTHER_BASE_URL || '';
     _ollamaAdvanced = {
       OLLAMA_NUM_CTX: d.OLLAMA_NUM_CTX || '',
       OLLAMA_TEMPERATURE: d.OLLAMA_TEMPERATURE || '',
@@ -1028,6 +1094,10 @@ async function loadSettings() {
         var p = PROVIDERS[i];
         if (p.id === 'ollama' && _ollamaModel) {
           mainProvider = 'ollama';
+          break;
+        }
+        if (p.id === 'other' && _baseUrlValues.other) {
+          mainProvider = 'other';
           break;
         }
         if (_providerKeys[p.env_key]) {
@@ -1064,6 +1134,8 @@ async function loadSettings() {
     if (mbu) mbu.value = _baseUrlValues.mistral;
     var obu = document.getElementById('ollama-base-url');
     if (obu) obu.value = _baseUrlValues.ollama;
+    var otbu = document.getElementById('other-base-url');
+    if (otbu) otbu.value = _baseUrlValues.other;
 
     await loadImageModels(d);
     await loadFastModels(d);
@@ -1085,6 +1157,19 @@ async function loadAllProviderModels() {
     }).then(function(res) { return res.json(); }).then(function(data) {
         if (data.models && data.models.length > 0) {
           _providerModels['ollama'] = data.models;
+        }
+      }).catch(function() {});
+    }
+    if (p.id === 'other') {
+      // Key is optional for custom endpoints; the base URL is what matters.
+      if (!_baseUrlValues.other) return Promise.resolve();
+      return fetch('/api/models/fetch', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ provider: 'other', api_key: _providerKeys.OTHER_API_KEY || '', base_url: _baseUrlValues.other })
+      }).then(function(res) { return res.json(); }).then(function(data) {
+        if (data.models && data.models.length > 0) {
+          _providerModels['other'] = data.models;
         }
       }).catch(function() {});
     }
@@ -1357,6 +1442,7 @@ async function saveSettings() {
     OPENROUTER_BASE_URL: (document.getElementById('openrouter-base-url') || {}).value || _baseUrlValues.openrouter || '',
     MISTRAL_BASE_URL: (document.getElementById('mistral-base-url') || {}).value || _baseUrlValues.mistral || '',
     OLLAMA_BASE_URL: (document.getElementById('ollama-base-url') || {}).value || _baseUrlValues.ollama || '',
+    OTHER_BASE_URL: (document.getElementById('other-base-url') || {}).value || _baseUrlValues.other || '',
     OLLAMA_MODEL: (document.getElementById('ollama-model-name') || {}).value || _ollamaModel || '',
     OLLAMA_NUM_CTX: (document.getElementById('ollama-num-ctx') || {}).value || _ollamaAdvanced.OLLAMA_NUM_CTX || '',
     OLLAMA_TEMPERATURE: (document.getElementById('ollama-temperature') || {}).value || _ollamaAdvanced.OLLAMA_TEMPERATURE || '',

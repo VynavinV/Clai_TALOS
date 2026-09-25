@@ -749,8 +749,9 @@ headless_terminal_setup() {
   echo -e "  ${DIM}6) Cerebras      (llama4-scout, llama-3.3-70b)${RESET}"
   echo -e "  ${DIM}7) OpenRouter    (200+ models via one key)${RESET}"
   echo -e "  ${DIM}8) Ollama        (local models, no key needed)${RESET}"
+  echo -e "  ${DIM}9) Other         (any OpenAI-compatible endpoint)${RESET}"
   echo ""
-  prompt PROVIDER_NUM "Provider [1-8]" "2"
+  prompt PROVIDER_NUM "Provider [1-9]" "2"
 
   local provider="" env_key="" default_model=""
   case "$PROVIDER_NUM" in
@@ -762,6 +763,7 @@ headless_terminal_setup() {
     6) provider="cerebras";  env_key="CEREBRAS_API_KEY";  default_model="cerebras/llama4-scout-17b-16e-instruct" ;;
     7) provider="openrouter";env_key="OPENROUTER_API_KEY"; default_model="openrouter/anthropic/claude-sonnet-4-20250514" ;;
     8) provider="ollama";    env_key="";                   default_model="" ;;
+    9) provider="other";     env_key="OTHER_API_KEY";      default_model="" ;;
     *) fail "Invalid choice. Defaulting to Anthropic."; provider="anthropic"; env_key="ANTHROPIC_API_KEY"; default_model="anthropic/claude-sonnet-4-20250514" ;;
   esac
 
@@ -774,6 +776,28 @@ headless_terminal_setup() {
     env_set "OLLAMA_MODEL" "$OLLAMA_MODEL"
     env_set "MAIN_MODEL" "ollama/${OLLAMA_MODEL}"
     ok "Ollama configured: ${OLLAMA_MODEL}"
+  elif [[ "$provider" == "other" ]]; then
+    echo ""
+    echo -e "${DIM}Use any OpenAI-compatible endpoint: LM Studio, llama.cpp, vLLM, DeepSeek, Together...${RESET}"
+    echo -e "${DIM}Include /v1 in the URL when it is part of the path (e.g. http://localhost:1234/v1).${RESET}"
+    echo ""
+    prompt OTHER_BASE_URL "Base URL (e.g. http://localhost:1234/v1)" ""
+    while [[ -z "$OTHER_BASE_URL" ]]; do
+      warn "Base URL is required."
+      prompt OTHER_BASE_URL "Base URL (e.g. http://localhost:1234/v1)" ""
+    done
+    prompt_secret OTHER_KEY "API Key (press Enter to skip for keyless servers)"
+    if [[ -n "$OTHER_KEY" ]]; then
+      env_set "OTHER_API_KEY" "$OTHER_KEY"
+    fi
+    prompt OTHER_MODEL "Model name as your endpoint knows it (e.g. my-custom-model)" ""
+    while [[ -z "$OTHER_MODEL" ]]; do
+      warn "Model name is required."
+      prompt OTHER_MODEL "Model name as your endpoint knows it (e.g. my-custom-model)" ""
+    done
+    env_set "OTHER_BASE_URL" "$OTHER_BASE_URL"
+    env_set "MAIN_MODEL" "other/${OTHER_MODEL}"
+    ok "Custom endpoint configured: ${OTHER_BASE_URL}"
   else
     echo ""
     prompt_secret API_KEY "${provider^} API Key"

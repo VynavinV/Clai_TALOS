@@ -386,7 +386,7 @@ async def check_terminal() -> CheckResult:
 async def check_model_providers() -> CheckResult:
     """Key presence and reachability only — this never runs an inference."""
     enabled = []
-    for provider in ("openai", "anthropic", "gemini", "nvidia", "cerebras", "groq", "openrouter", "mistral", "zhipu", "ollama"):
+    for provider in ("openai", "anthropic", "gemini", "nvidia", "cerebras", "groq", "openrouter", "mistral", "zhipu", "ollama", "other"):
         try:
             if model_router._provider_enabled(provider):
                 enabled.append(provider)
@@ -396,7 +396,7 @@ async def check_model_providers() -> CheckResult:
     if not enabled:
         return CheckResult(
             "model.providers", "Model providers", "model", FAIL,
-            "No model provider is configured. Set at least one API key in Settings, or configure Ollama.",
+            "No model provider is configured. Set at least one API key in Settings, configure Ollama, or add a custom OpenAI-compatible endpoint.",
             hint="Without a provider the assistant cannot respond at all.",
         )
 

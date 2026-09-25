@@ -69,6 +69,7 @@ MANAGED_KEYS = [
     {"env_key": "GROQ_API_KEY", "label": "Groq", "icon": "&#9889;"},
     {"env_key": "OPENROUTER_API_KEY", "label": "OpenRouter", "icon": "&#128279;"},
     {"env_key": "MISTRAL_API_KEY", "label": "Mistral", "icon": "&#127787;"},
+    {"env_key": "OTHER_API_KEY", "label": "Other (custom endpoint)", "icon": "&#128736;"},
 ]
 
 PROVIDER_ENV_KEYS = {
@@ -81,6 +82,7 @@ PROVIDER_ENV_KEYS = {
     "groq": "GROQ_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
     "mistral": "MISTRAL_API_KEY",
+    "other": "OTHER_API_KEY",
 }
 
 SESSION_COOKIE = "talos_session"
@@ -2643,7 +2645,7 @@ async def handle_projects_page(request):
 _SECRET_KEYS = frozenset({
     "TELEGRAM_BOT_TOKEN", "ZHIPUAI_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY",
     "ANTHROPIC_API_KEY", "NVIDIA_API_KEY", "CEREBRAS_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY",
-    "MISTRAL_API_KEY", "GOOGLE_API_KEY", "GOOGLE_OAUTH_CLIENT_SECRET",
+    "MISTRAL_API_KEY", "OTHER_API_KEY", "GOOGLE_API_KEY", "GOOGLE_OAUTH_CLIENT_SECRET",
 })
 
 
@@ -2683,6 +2685,8 @@ async def handle_api_settings_get(request):
         "OPENROUTER_BASE_URL": env_vars.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
         "MISTRAL_BASE_URL": env_vars.get("MISTRAL_BASE_URL", "https://api.mistral.ai/v1"),
         "OLLAMA_BASE_URL": env_vars.get("OLLAMA_BASE_URL", "http://localhost:11434/v1"),
+        "OTHER_BASE_URL": env_vars.get("OTHER_BASE_URL", ""),
+        "OTHER_TIMEOUT_S": env_vars.get("OTHER_TIMEOUT_S", ""),
         "OLLAMA_MODEL": env_vars.get("OLLAMA_MODEL", ""),
         "OLLAMA_NUM_CTX": env_vars.get("OLLAMA_NUM_CTX", ""),
         "OLLAMA_TEMPERATURE": env_vars.get("OLLAMA_TEMPERATURE", ""),
@@ -2793,12 +2797,13 @@ async def handle_api_settings_post(request):
 
     _TEXT_KEYS = [
         "BOT_NAME", "TELEGRAM_BOT_TOKEN", "WEB_PORT",
-        "ZHIPUAI_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "NVIDIA_API_KEY", "CEREBRAS_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY", "MISTRAL_API_KEY",
+        "ZHIPUAI_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "NVIDIA_API_KEY", "CEREBRAS_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY", "MISTRAL_API_KEY", "OTHER_API_KEY",
         "GOOGLE_API_KEY", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET",
         "GOOGLE_OAUTH_REDIRECT_URI", "GOOGLE_APPS_SCRIPT_URL", "GOOGLE_OAUTH_SCOPES",
         "HIMALAYA_BIN", "HIMALAYA_CONFIG", "HIMALAYA_DEFAULT_ACCOUNT",
-        "PIPER_VOICE", "CLIENT_BASE_URL", "NVIDIA_BASE_URL", "CEREBRAS_BASE_URL", "GROQ_BASE_URL", "OPENROUTER_BASE_URL", "MISTRAL_BASE_URL", "OLLAMA_BASE_URL", "OLLAMA_MODEL",
+        "PIPER_VOICE", "CLIENT_BASE_URL", "NVIDIA_BASE_URL", "CEREBRAS_BASE_URL", "GROQ_BASE_URL", "OPENROUTER_BASE_URL", "MISTRAL_BASE_URL", "OLLAMA_BASE_URL", "OTHER_BASE_URL", "OLLAMA_MODEL",
         "OLLAMA_NUM_CTX", "OLLAMA_TEMPERATURE", "OLLAMA_MAX_TOKENS", "OLLAMA_KEEP_ALIVE", "OLLAMA_KEEP_WARM", "OLLAMA_TIMEOUT_S",
+        "OTHER_TIMEOUT_S",
         "OTA_CHANNEL", "TALOS_LAZY_TOOLS",
     ]
 
@@ -2905,16 +2910,24 @@ async def handle_api_models_fetch(request):
         return web.json_response({"error": "Invalid request."}, status=400)
     provider = str(body.get("provider", "")).strip()
     api_key = str(body.get("api_key", "")).strip()
+    base_url = str(body.get("base_url", "")).strip()
     if not provider:
         return web.json_response({"error": "Provider is required."}, status=400)
     # The settings page only ever holds masked keys, so a masked (or missing)
-    # key means "use the one already saved" rather than "no key".
+    # key means "use the one already saved" rather than "no key". The "other"
+    # provider may legitimately have no key at all (local servers), so an
+    # empty key is allowed there once the saved one is checked.
     if provider != "ollama" and (not api_key or _is_masked_secret(api_key)):
         stored = _read_env_file().get(PROVIDER_ENV_KEYS.get(provider, ""), "").strip()
-        if not stored:
+        if stored:
+            api_key = stored
+        elif provider != "other":
             return web.json_response({"error": "Provider and API key are required."}, status=400)
-        api_key = stored
-    result = model_router.fetch_provider_models(provider, api_key or "ollama")
+        else:
+            api_key = ""
+    if provider == "other" and not (base_url or _read_env_file().get("OTHER_BASE_URL", "").strip()):
+        return web.json_response({"error": "Add the Base URL of your endpoint first."}, status=400)
+    result = model_router.fetch_provider_models(provider, api_key, base_url=base_url)
     return web.json_response(result)
 
 

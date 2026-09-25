@@ -119,6 +119,15 @@ _PROVIDERS = {
         "patterns": ["ollama"],
         "env_key": "OLLAMA_MODEL",
     },
+    # Catch-all for any OpenAI-compatible endpoint the user points TALOS at
+    # (LM Studio, llama.cpp, vLLM, DeepSeek, Together, ...). Models are always
+    # written as "other/<model_id>" so routing never collides with named
+    # providers, and no pattern is attached so bare model ids never land here.
+    "other": {
+        "models": {},
+        "patterns": [],
+        "env_key": "OTHER_API_KEY",
+    },
 }
 
 _openai_client = None
@@ -131,6 +140,7 @@ _groq_client = None
 _openrouter_client = None
 _mistral_client = None
 _ollama_client = None
+_other_client = None
 
 _NVIDIA_DEFAULT_BASE_URL = "https://integrate.api.nvidia.com/v1"
 _NVIDIA_OPENAI_API_PATH = "/v1"
@@ -182,6 +192,7 @@ _GROQ_BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
 _OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 _MISTRAL_BASE_URL = os.getenv("MISTRAL_BASE_URL", "https://api.mistral.ai/v1")
 _OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+_OTHER_BASE_URL = os.getenv("OTHER_BASE_URL", "").strip().rstrip("/")
 
 _CLIENT_BASE_URL = os.getenv("CLIENT_BASE_URL", "https://api.z.ai/api/coding/paas/v4")
 
@@ -240,8 +251,8 @@ def get_all_model_aliases() -> dict[str, str]:
 
 
 def reload_clients():
-    global _openai_client, _anthropic_client, _gemini_client, _zhipu_client, _nvidia_client, _cerebras_client, _groq_client, _openrouter_client, _mistral_client, _ollama_client
-    global _CLIENT_BASE_URL, _NVIDIA_BASE_URL, _CEREBRAS_BASE_URL, _GROQ_BASE_URL, _OPENROUTER_BASE_URL, _MISTRAL_BASE_URL, _OLLAMA_BASE_URL
+    global _openai_client, _anthropic_client, _gemini_client, _zhipu_client, _nvidia_client, _cerebras_client, _groq_client, _openrouter_client, _mistral_client, _ollama_client, _other_client
+    global _CLIENT_BASE_URL, _NVIDIA_BASE_URL, _CEREBRAS_BASE_URL, _GROQ_BASE_URL, _OPENROUTER_BASE_URL, _MISTRAL_BASE_URL, _OLLAMA_BASE_URL, _OTHER_BASE_URL
     _openai_client = None
     _anthropic_client = None
     _gemini_client = None
@@ -252,6 +263,7 @@ def reload_clients():
     _openrouter_client = None
     _mistral_client = None
     _ollama_client = None
+    _other_client = None
     load_dotenv(dotenv_path=app_paths.env_file_path(), override=True)
     _CLIENT_BASE_URL = os.getenv("CLIENT_BASE_URL", "https://api.z.ai/api/coding/paas/v4")
     _NVIDIA_BASE_URL = _normalize_nvidia_base_url(os.getenv("NVIDIA_BASE_URL", _NVIDIA_DEFAULT_BASE_URL))
@@ -260,6 +272,7 @@ def reload_clients():
     _OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
     _MISTRAL_BASE_URL = os.getenv("MISTRAL_BASE_URL", "https://api.mistral.ai/v1")
     _OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+    _OTHER_BASE_URL = os.getenv("OTHER_BASE_URL", "").strip().rstrip("/")
 
     # Config just changed: re-resolve context windows and let the warm-up loop
     # re-check which local model to hold in memory instead of waiting out its cycle.
@@ -390,6 +403,25 @@ def _get_ollama_client():
             max_retries=0,
         )
     return _ollama_client
+
+
+def _get_other_client():
+    global _other_client
+    if _other_client is None:
+        from openai import AsyncOpenAI
+        base_url = _OTHER_BASE_URL or os.getenv("OTHER_BASE_URL", "").strip().rstrip("/")
+        if not base_url:
+            raise RuntimeError("OTHER_BASE_URL not set")
+        # Local OpenAI-compatible servers (llama.cpp, LM Studio, ...) often run
+        # without auth, but the SDK insists on a non-empty key.
+        api_key = os.getenv("OTHER_API_KEY", "").strip() or "not-set"
+        _other_client = AsyncOpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            timeout=_model_timeout_for_speed("normal", "other"),
+            max_retries=0,
+        )
+    return _other_client
 
 
 def _safe_json_loads(raw, default=None):
@@ -1065,6 +1097,24 @@ async def call_mistral(
     return await _openai_chat(client, kwargs)
 
 
+async def call_other(
+    model_id: str,
+    messages: list[dict],
+    tools: list[dict] | None,
+    runtime_profile: dict[str, Any] | None = None,
+) -> dict:
+    client = _get_other_client()
+    kwargs: dict[str, Any] = {
+        "model": model_id,
+        "messages": messages,
+    }
+    if tools:
+        kwargs["tools"] = _tools_to_openai(tools)
+        kwargs["tool_choice"] = "auto"
+
+    return await _openai_chat(client, kwargs)
+
+
 def _env_float(name: str) -> float | None:
     raw = os.getenv(name, "").strip()
     if not raw:
@@ -1319,6 +1369,7 @@ _CALLERS = {
     "openrouter": call_openrouter,
     "mistral": call_mistral,
     "ollama": call_ollama,
+    "other": call_other,
 }
 
 
@@ -1367,6 +1418,9 @@ def _is_image_model(model_id: str) -> bool:
 def _provider_enabled(provider: str) -> bool:
     if provider == "ollama":
         return bool(os.getenv("OLLAMA_MODEL", "").strip())
+    if provider == "other":
+        # Keyless local servers are valid, so the base URL is what matters.
+        return bool(os.getenv("OTHER_BASE_URL", "").strip())
     cfg = _PROVIDERS.get(provider, {})
     env_key = cfg.get("env_key")
     if not env_key:
@@ -1424,6 +1478,13 @@ def _model_timeout_for_speed(speed_mode: str, provider: str = "") -> int:
             return max(30, min(int(raw), 3600)) if raw else 600
         except ValueError:
             return 600
+    if provider == "other":
+        # Custom endpoints are frequently self-hosted; allow a slower budget.
+        raw = os.getenv("OTHER_TIMEOUT_S", "").strip()
+        try:
+            return max(30, min(int(raw), 3600)) if raw else 300
+        except ValueError:
+            return 300
     base = max(30, min(_MODEL_CALL_TIMEOUT_S, 600))
     if speed_mode == "quick":
         return max(30, min(base, 70))
@@ -1449,6 +1510,8 @@ async def call_model(
     if not caller:
         return {"content": f"Unknown provider: {provider}", "tool_calls": [], "message": None}
     if not _provider_enabled(provider):
+        if provider == "other":
+            return {"content": f"Model \"{model}\" needs a custom endpoint, but OTHER_BASE_URL is not set. Add your endpoint's Base URL in Settings to use this model.", "tool_calls": [], "message": None}
         cfg = _PROVIDERS.get(provider, {})
         env_key = cfg.get("env_key", "API_KEY")
         return {"content": f"Model \"{model}\" requires provider \"{provider}\", but {env_key} is not set. Add your API key in Settings to use this model.", "tool_calls": [], "message": None}
@@ -1736,7 +1799,36 @@ def _fetch_ollama_models(api_key: str) -> list[str]:
     return models
 
 
-def fetch_provider_models(provider: str, api_key: str) -> dict:
+def _other_base_url(base_url: str = "") -> str:
+    root = (base_url or _OTHER_BASE_URL or os.getenv("OTHER_BASE_URL", "")).strip().rstrip("/")
+    if root and "://" not in root:
+        root = f"http://{root}"
+    return root
+
+
+def _fetch_other_models(api_key: str, base_url: str = "") -> list[str]:
+    import httpx
+    root = _other_base_url(base_url)
+    if not root:
+        return []
+    key = (api_key or "").strip()
+    if "****" in key:
+        key = os.getenv("OTHER_API_KEY", "").strip()
+    headers = {"Authorization": f"Bearer {key}"} if key else {}
+    models: list[str] = []
+    try:
+        r = httpx.get(f"{root}/models", headers=headers, timeout=10)
+        r.raise_for_status()
+        for m in r.json().get("data", []):
+            mid = m.get("id", "") if isinstance(m, dict) else ""
+            if mid and mid not in models:
+                models.append(mid)
+    except Exception:
+        pass
+    return models
+
+
+def fetch_provider_models(provider: str, api_key: str, base_url: str = "") -> dict:
     fetchers = {
         "gemini": _fetch_gemini_models,
         "openai": _fetch_openai_models,
@@ -1748,12 +1840,16 @@ def fetch_provider_models(provider: str, api_key: str) -> dict:
         "openrouter": _fetch_openrouter_models,
         "mistral": _fetch_mistral_models,
         "ollama": _fetch_ollama_models,
+        "other": _fetch_other_models,
     }
     fetcher = fetchers.get(provider)
     if not fetcher:
         return {"models": [], "image_models": []}
     try:
-        models = fetcher(api_key)
+        if provider == "other":
+            models = fetcher(api_key, base_url)
+        else:
+            models = fetcher(api_key)
     except Exception:
         models = list(_PROVIDERS.get(provider, {}).get("models", {}).values())
     image_models = [m for m in models if _is_image_model(m)]
@@ -1898,6 +1994,12 @@ def list_provider_models() -> list[str]:
         if tagged not in models:
             models.append(tagged)
 
+    if os.getenv("OTHER_BASE_URL", "").strip():
+        for m in _fetch_other_models(os.getenv("OTHER_API_KEY", "")):
+            tagged = "other/" + m
+            if tagged not in models:
+                models.append(tagged)
+
     return models if models else list(get_all_model_aliases().values())
 
 
@@ -2011,6 +2113,13 @@ def list_models_with_provider() -> list[str]:
         if tagged not in seen:
             seen.add(tagged)
             result.append(tagged)
+
+    if os.getenv("OTHER_BASE_URL", "").strip():
+        for m in _fetch_other_models(os.getenv("OTHER_API_KEY", "")):
+            tagged = "other/" + m
+            if tagged not in seen:
+                seen.add(tagged)
+                result.append(tagged)
 
     return result if result else [p + "/" + m for p, m in get_all_model_aliases().items()]
 
