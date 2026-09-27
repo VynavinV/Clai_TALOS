@@ -1,0 +1,1044 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="csrf-token" content="{{CSRF_TOKEN}}">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Panel">
+<meta name="format-detection" content="telephone=no">
+<link rel="apple-touch-icon" href="/static/clai-icon.png">
+<title>{{BOT_NAME}} — Panel</title>
+<style>
+  :root {
+    --bg-0: #050912;
+    --bg-1: #0b1422;
+    --surface-0: rgba(11, 18, 30, 0.76);
+    --surface-2: rgba(255, 255, 255, 0.03);
+    --stroke-soft: rgba(143, 217, 255, 0.16);
+    --stroke-strong: rgba(143, 217, 255, 0.36);
+    --accent: #56ceff;
+    --accent-2: #55f0cb;
+    --text-0: #f4f8ff;
+    --text-1: #bfd0e8;
+    --text-2: #7b8fa8;
+    --danger: #ff6f8b;
+    --warn: #ffb969;
+    --ok: #42dfad;
+    --radius-lg: 20px;
+    --radius-md: 14px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { -webkit-text-size-adjust: 100%; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Avenir Next', 'Segoe UI', sans-serif;
+    background:
+      radial-gradient(900px 620px at 87% -10%, rgba(86, 206, 255, 0.2), transparent 70%),
+      radial-gradient(780px 520px at 6% -15%, rgba(85, 240, 203, 0.17), transparent 72%),
+      linear-gradient(160deg, var(--bg-1), var(--bg-0));
+    background-attachment: fixed;
+    color: var(--text-0);
+    min-height: 100vh;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  .topbar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    padding: 10px 16px;
+    padding-top: calc(10px + env(safe-area-inset-top));
+    background: linear-gradient(180deg, rgba(5, 9, 18, 0.96), rgba(5, 9, 18, 0.82));
+    border-bottom: 1px solid var(--stroke-soft);
+    -webkit-backdrop-filter: blur(12px);
+  }
+  .topbar img { width: 34px; height: 34px; border-radius: 50%; border: 1px solid rgba(86, 206, 255, 0.45); }
+  .topbar .name { margin-left: 10px; font-size: 1rem; font-weight: 600; letter-spacing: 0.01em; }
+  .topbar .clock { margin-left: auto; text-align: right; }
+  .topbar .clock .time { font-size: 1.05rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .topbar .clock .date { font-size: 0.68rem; color: var(--text-2); }
+
+  .live-badge {
+    display: inline-block;
+    margin-left: 12px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(66, 223, 173, 0.4);
+    background: rgba(66, 223, 173, 0.1);
+    color: var(--ok);
+    font-size: 0.66rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    vertical-align: middle;
+  }
+  .live-badge.off { border-color: rgba(255, 185, 105, 0.4); background: rgba(255, 185, 105, 0.1); color: var(--warn); }
+  .live-dot {
+    display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+    background: currentColor; margin-right: 5px; vertical-align: 1px;
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  .live-badge.off .live-dot { animation: none; opacity: 0.4; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+
+  .main {
+    padding: 86px 16px 32px;
+    padding-top: calc(86px + env(safe-area-inset-top));
+    max-width: 1220px;
+    margin: 0 auto;
+  }
+
+  .links {
+    display: flex;
+    flex-wrap: wrap;
+    margin: 0 0 18px -6px;
+  }
+  .links a {
+    display: inline-block;
+    padding: 8px 14px;
+    margin: 0 0 6px 6px;
+    border-radius: 999px;
+    border: 1px solid var(--stroke-soft);
+    background: var(--surface-2);
+    color: var(--text-1);
+    font-size: 0.8rem;
+    font-weight: 500;
+    text-decoration: none;
+  }
+  .links a:active { background: rgba(86, 206, 255, 0.15); border-color: var(--stroke-strong); }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+    grid-gap: 16px;
+    gap: 16px;
+    align-items: start;
+  }
+
+  .card {
+    background: var(--surface-0);
+    border: 1px solid var(--stroke-soft);
+    border-radius: var(--radius-lg);
+    padding: 18px;
+    min-width: 0;
+  }
+  .card.wide { grid-column: 1 / -1; }
+  .card-title {
+    display: flex;
+    align-items: center;
+    font-size: 0.86rem;
+    font-weight: 600;
+    color: var(--text-1);
+    letter-spacing: 0.02em;
+    margin-bottom: 14px;
+  }
+  .card-title .dot { width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; flex: 0 0 auto; }
+  .dot.ok { background: var(--ok); box-shadow: 0 0 8px rgba(66, 223, 173, 0.5); }
+  .dot.warn { background: var(--warn); box-shadow: 0 0 8px rgba(255, 185, 105, 0.5); }
+  .dot.err { background: var(--danger); box-shadow: 0 0 8px rgba(255, 111, 139, 0.5); }
+  .dot.idle { background: var(--text-2); }
+  .card-title .meta { margin-left: auto; font-size: 0.68rem; font-weight: 400; color: var(--text-2); }
+
+  .empty { color: var(--text-2); font-size: 0.85rem; padding: 12px 0; line-height: 1.5; }
+
+  /* System checks */
+  .check-row {
+    display: flex;
+    align-items: center;
+    padding: 10px 2px;
+    border-bottom: 1px solid rgba(143, 217, 255, 0.07);
+    font-size: 0.88rem;
+  }
+  .check-row:last-child { border-bottom: none; }
+  .check-row .dot { margin-right: 10px; flex: 0 0 auto; }
+  .check-row .detail { margin-left: auto; color: var(--text-2); font-size: 0.72rem; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .uptime-line { margin-top: 12px; font-size: 0.74rem; color: var(--text-2); }
+
+  /* Agents */
+  .agent-row {
+    display: flex;
+    align-items: center;
+    padding: 10px 2px;
+    border-bottom: 1px solid rgba(143, 217, 255, 0.07);
+  }
+  .agent-row:last-child { border-bottom: none; }
+  .agent-avatar {
+    width: 34px; height: 34px; border-radius: 50%; flex: 0 0 auto;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.8rem; font-weight: 700;
+    border: 1px solid var(--stroke-strong);
+    background: rgba(86, 206, 255, 0.12); color: var(--accent);
+  }
+  .agent-avatar.sub { border-color: rgba(183, 148, 244, 0.5); background: rgba(183, 148, 244, 0.12); color: #b794f4; }
+  .agent-info { margin-left: 12px; min-width: 0; flex: 1; }
+  .agent-name { font-size: 0.86rem; font-weight: 600; }
+  .agent-current { font-size: 0.72rem; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }
+  .status-pill {
+    margin-left: 10px; flex: 0 0 auto;
+    padding: 4px 10px; border-radius: 999px; font-size: 0.66rem; font-weight: 600; letter-spacing: 0.04em;
+  }
+  .status-pill.working { background: rgba(66, 223, 173, 0.12); color: var(--ok); border: 1px solid rgba(66, 223, 173, 0.35); }
+  .status-pill.idle { background: rgba(123, 143, 168, 0.12); color: var(--text-2); border: 1px solid rgba(123, 143, 168, 0.3); }
+
+  /* Tasks */
+  .task-row {
+    padding: 10px 2px;
+    border-bottom: 1px solid rgba(143, 217, 255, 0.07);
+  }
+  .task-row:last-child { border-bottom: none; }
+  .task-head { display: flex; align-items: center; font-size: 0.86rem; font-weight: 600; }
+  .task-sched { margin-left: auto; color: var(--text-2); font-size: 0.7rem; font-weight: 400; font-family: ui-monospace, Menlo, monospace; }
+  .task-sub { font-size: 0.72rem; color: var(--text-2); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .task-pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.6rem; font-weight: 700; letter-spacing: 0.05em; margin-left: 8px; }
+  .task-pill.on { background: rgba(66, 223, 173, 0.12); color: var(--ok); }
+  .task-pill.off { background: rgba(123, 143, 168, 0.15); color: var(--text-2); }
+
+  /* Model output */
+  .output-box {
+    background: rgba(4, 8, 16, 0.72);
+    border: 1px solid var(--stroke-soft);
+    border-radius: var(--radius-md);
+    padding: 12px;
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 0.76rem;
+    line-height: 1.6;
+    color: var(--text-1);
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    max-height: 210px;
+    -webkit-user-select: text;
+    user-select: text;
+  }
+  .caret {
+    display: inline-block; width: 8px; height: 14px; background: var(--accent);
+    vertical-align: -2px; margin-left: 2px; animation: blink 0.9s step-end infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  .feed-row {
+    display: flex;
+    align-items: baseline;
+    padding: 7px 0;
+    border-bottom: 1px solid rgba(143, 217, 255, 0.07);
+    font-size: 0.78rem;
+  }
+  .feed-row:last-child { border-bottom: none; }
+  .feed-row .tag {
+    flex: 0 0 auto; margin-right: 8px;
+    font-size: 0.62rem; font-weight: 700; letter-spacing: 0.05em;
+    padding: 2px 7px; border-radius: 6px;
+    background: rgba(86, 206, 255, 0.1); color: var(--accent);
+  }
+  .feed-row .tag.error { background: rgba(255, 111, 139, 0.12); color: var(--danger); }
+  .feed-row .tag.done { background: rgba(66, 223, 173, 0.12); color: var(--ok); }
+  .feed-row .tag.tool, .feed-row .tag.command { background: rgba(255, 185, 105, 0.1); color: var(--warn); }
+  .feed-row .tag.spawn, .feed-row .tag.model { background: rgba(183, 148, 244, 0.12); color: #b794f4; }
+  .feed-row .txt { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-1); }
+  .feed-row .age { flex: 0 0 auto; margin-left: 8px; color: var(--text-2); font-size: 0.66rem; font-variant-numeric: tabular-nums; }
+
+  /* Home Assistant */
+  .ha-status-line { display: flex; align-items: center; gap: 10px; font-size: 0.85rem; margin-bottom: 14px; flex-wrap: wrap; }
+  .ha-sub { font-size: 0.7rem; color: var(--text-2); }
+  .ha-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); grid-gap: 14px; gap: 14px; }
+  .ha-group-title { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em; color: var(--text-2); text-transform: uppercase; margin-bottom: 10px; }
+  .ha-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); grid-gap: 10px; gap: 10px; }
+  .ha-tile {
+    min-height: 74px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--stroke-soft);
+    background: var(--surface-2);
+    padding: 12px;
+    text-align: left;
+    color: var(--text-0);
+    font-family: inherit;
+    font-size: 0.82rem;
+    font-weight: 500;
+    display: flex;
+    flex-direction: column;
+    cursor: pointer;
+  }
+  .ha-tile:active { background: rgba(86, 206, 255, 0.14); }
+  .ha-tile .t-state { margin-top: auto; font-size: 0.68rem; color: var(--text-2); font-weight: 600; padding-top: 8px; }
+  .ha-tile.on { border-color: rgba(66, 223, 173, 0.5); background: rgba(66, 223, 173, 0.08); }
+  .ha-tile.on .t-state { color: var(--ok); }
+  .ha-tile.busy { opacity: 0.45; pointer-events: none; }
+  .ha-tile.run-tile .t-state { color: var(--accent); }
+
+  .sensor-list { display: flex; flex-wrap: wrap; margin: 0 -4px -8px 0; }
+  .sensor-chip {
+    display: inline-block;
+    margin: 0 6px 8px 0;
+    padding: 7px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--stroke-soft);
+    background: var(--surface-2);
+    font-size: 0.75rem;
+    color: var(--text-1);
+  }
+  .sensor-chip .val { font-weight: 700; color: var(--text-0); margin-left: 6px; }
+
+  /* Setup steps (grandma edition) */
+  .steps { counter-reset: step; }
+  .step { display: flex; margin-bottom: 16px; align-items: flex-start; }
+  .step-num {
+    flex: 0 0 auto;
+    width: 30px; height: 30px; border-radius: 50%;
+    border: 1px solid var(--stroke-strong);
+    background: rgba(86, 206, 255, 0.12);
+    color: var(--accent);
+    font-weight: 700; font-size: 0.85rem;
+    display: flex; align-items: center; justify-content: center;
+    margin-right: 12px;
+  }
+  .step-body { font-size: 0.85rem; line-height: 1.55; color: var(--text-1); padding-top: 4px; }
+  .step-body a { color: var(--accent); }
+  .step-body code {
+    font-family: ui-monospace, Menlo, monospace; font-size: 0.78rem;
+    background: rgba(86, 206, 255, 0.08); padding: 1px 6px; border-radius: 6px;
+    word-break: break-all;
+  }
+
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 0.74rem; font-weight: 600; color: var(--text-2); margin-bottom: 6px; letter-spacing: 0.02em; }
+  .field input {
+    width: 100%;
+    padding: 14px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--stroke-soft);
+    background: rgba(4, 8, 16, 0.6);
+    color: var(--text-0);
+    font-size: 16px;
+    font-family: ui-monospace, Menlo, monospace;
+    outline: none;
+    -webkit-appearance: none;
+    -webkit-user-select: text;
+    user-select: text;
+  }
+  .field input:focus { border-color: var(--stroke-strong); }
+
+  .btn {
+    display: inline-block;
+    padding: 14px 22px;
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(86, 206, 255, 0.45);
+    background: linear-gradient(90deg, rgba(86, 206, 255, 0.22), rgba(85, 240, 203, 0.14));
+    color: var(--text-0);
+    font-size: 0.88rem;
+    font-weight: 600;
+    cursor: pointer;
+    min-height: 48px;
+  }
+  .btn:active { background: rgba(86, 206, 255, 0.35); }
+  .btn.ghost { background: var(--surface-2); border-color: var(--stroke-soft); color: var(--text-1); }
+  .btn.small { padding: 9px 14px; min-height: 38px; font-size: 0.76rem; }
+  .btn:disabled { opacity: 0.4; pointer-events: none; }
+
+  .msg { font-size: 0.8rem; margin-top: 10px; min-height: 1.2em; }
+  .msg.ok { color: var(--ok); }
+  .msg.err { color: var(--danger); }
+
+  .help-note { font-size: 0.74rem; color: var(--text-2); line-height: 1.6; margin-top: 10px; }
+  .help-note a { color: var(--accent); }
+
+  details.fold { margin-top: 18px; border-top: 1px solid var(--stroke-soft); padding-top: 14px; }
+  details.fold summary { font-size: 0.8rem; font-weight: 600; color: var(--text-1); cursor: pointer; list-style: none; }
+  details.fold summary::-webkit-details-marker { display: none; }
+  details.fold[open] summary { margin-bottom: 10px; }
+
+  .toast {
+    position: fixed;
+    left: 50%;
+    bottom: 24px;
+    transform: translateX(-50%);
+    z-index: 40;
+    background: rgba(5, 9, 18, 0.95);
+    border: 1px solid var(--stroke-strong);
+    border-radius: 999px;
+    padding: 12px 20px;
+    font-size: 0.82rem;
+    color: var(--text-0);
+    max-width: 90%;
+    display: none;
+  }
+  .toast.show { display: block; }
+  .toast.err { border-color: rgba(255, 111, 139, 0.5); color: var(--danger); }
+
+  @media (max-width: 480px) {
+    .grid { grid-template-columns: 1fr; }
+    .topbar .clock .date { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <img src="/static/clai-icon.png" alt="">
+  <span class="name">{{BOT_NAME}}</span>
+  <span class="live-badge off" id="live-badge"><span class="live-dot"></span>LIVE</span>
+  <span class="clock">
+    <div class="time" id="clock-time">--:--</div>
+    <div class="date" id="clock-date"></div>
+  </span>
+</div>
+
+<main class="main">
+  <div class="links">
+    <a href="/dashboard">&#9632; Dashboard</a>
+    <a href="/activity">&#9673; Activity</a>
+    <a href="/static/chat.html">&#9993; Chat</a>
+    <a href="/settings">&#9881; Settings</a>
+  </div>
+
+  <div class="grid">
+
+    <!-- System checks -->
+    <div class="card">
+      <div class="card-title"><span class="dot ok" id="checks-dot"></span>System Checks<span class="meta" id="uptime"></span></div>
+      <div id="checks"><div class="empty">Checking your assistant's health...</div></div>
+    </div>
+
+    <!-- Live agents -->
+    <div class="card">
+      <div class="card-title"><span class="dot idle" id="agents-dot"></span>Agents<span class="meta" id="agents-meta"></span></div>
+      <div id="agents"><div class="empty">No agents right now. Your assistant is resting. 😴</div></div>
+    </div>
+
+    <!-- Scheduled tasks -->
+    <div class="card">
+      <div class="card-title"><span class="dot idle" id="tasks-dot"></span>Scheduled Tasks</div>
+      <div id="tasks"><div class="empty">Checking scheduled tasks...</div></div>
+    </div>
+
+    <!-- Model output -->
+    <div class="card wide">
+      <div class="card-title"><span class="dot idle" id="output-dot"></span>Model Output<span class="meta" id="output-meta">waiting for activity</span></div>
+      <div class="output-box" id="output-box">Nothing yet. When your assistant starts thinking or writing, you'll see it here live.</div>
+      <div id="feed" style="margin-top:12px;"></div>
+    </div>
+
+    <!-- Home Assistant -->
+    <div class="card wide" id="ha-card">
+      <div class="card-title"><span class="dot idle" id="ha-dot"></span>Home Assistant<span class="meta" id="ha-meta"></span></div>
+
+      <div id="ha-status-line" class="ha-status-line" style="display:none;">
+        <span id="ha-status-text" class="ha-sub"></span>
+        <button class="btn ghost small" id="ha-retry" style="margin-left:auto;">Try Again</button>
+      </div>
+
+      <!-- Setup: shown when Home Assistant is not connected yet -->
+      <div id="ha-setup" style="display:none;">
+        <div class="steps">
+          <div class="step"><div class="step-num">1</div>
+            <div class="step-body">
+              Find your Home Assistant address. Open Home Assistant in Safari on this iPad and copy the
+              address from the bar at the top. It usually looks like
+              <code>http://homeassistant.local:8123</code>.<br>
+              <a href="https://www.home-assistant.io/getting-started/" target="_blank">What is Home Assistant?</a>
+            </div>
+          </div>
+          <div class="step"><div class="step-num">2</div>
+            <div class="step-body">
+              Make an access key. In Home Assistant, tap your profile picture (bottom left), then
+              <strong>Security</strong>, scroll to <strong>Long-lived access tokens</strong>, tap
+              <strong>Create Token</strong>, give it a name like "Panel", and copy the long code it shows you.<br>
+              <a href="https://www.home-assistant.io/docs/authentication/#long-lived-access-token" target="_blank">Step-by-step with pictures</a>
+            </div>
+          </div>
+          <div class="step"><div class="step-num">3</div>
+            <div class="step-body">
+              Paste both below and tap <strong>Connect</strong>. That's it — your lights, switches,
+              and sensors will appear on this page.
+            </div>
+          </div>
+        </div>
+        <div class="field">
+          <label>Home Assistant Address</label>
+          <input type="url" id="ha-url-input" placeholder="http://homeassistant.local:8123" autocapitalize="off" autocorrect="off">
+        </div>
+        <div class="field">
+          <label>Access Token</label>
+          <input type="password" id="ha-token-input" placeholder="Paste the token from Step 2" autocomplete="off">
+        </div>
+        <button class="btn" id="ha-connect-btn" onclick="saveHa()">Connect</button>
+        <div class="msg" id="ha-msg"></div>
+        <div class="help-note">
+          Both are stored safely on your computer running {{BOT_NAME}}, never on the iPad.
+          You only do this once. To change later, open <a href="/settings">Settings</a>.
+        </div>
+      </div>
+
+      <!-- Controls: shown when connected -->
+      <div id="ha-controls" style="display:none;">
+        <div class="ha-groups">
+          <div id="ha-power-group">
+            <div class="ha-group-title">Lights &amp; Power</div>
+            <div class="ha-tiles" id="ha-power-tiles"></div>
+          </div>
+          <div id="ha-climate-group" style="display:none;">
+            <div class="ha-group-title">Climate</div>
+            <div class="ha-tiles" id="ha-climate-tiles"></div>
+          </div>
+          <div id="ha-run-group" style="display:none;">
+            <div class="ha-group-title">Scenes &amp; Routines</div>
+            <div class="ha-tiles" id="ha-run-tiles"></div>
+          </div>
+          <div id="ha-sensor-group" style="display:none;">
+            <div class="ha-group-title">Sensors</div>
+            <div class="sensor-list" id="ha-sensors"></div>
+          </div>
+        </div>
+        <details class="fold">
+          <summary>Something wrong? Tap here for help</summary>
+          <div class="help-note" id="ha-help-text"></div>
+        </details>
+      </div>
+    </div>
+
+    <!-- iPad instructions -->
+    <div class="card wide">
+      <details class="fold" style="border-top:none;padding-top:0;margin-top:0;">
+        <summary>&#128241; Make this an app on your iPad (one time)</summary>
+        <div class="steps" style="margin-top:14px;">
+          <div class="step"><div class="step-num">1</div><div class="step-body">Open this page in <strong>Safari</strong> (not inside another app).</div></div>
+          <div class="step"><div class="step-num">2</div><div class="step-body">Tap the <strong>Share</strong> button (the square with an arrow pointing up) in the bar at the top.</div></div>
+          <div class="step"><div class="step-num">3</div><div class="step-body">Scroll down and tap <strong>Add to Home Screen</strong>, then <strong>Add</strong>.</div></div>
+        </div>
+        <div class="help-note">
+          Now "Panel" sits on your home screen like any app and opens full screen.
+          Keep it propped on a stand with the screen on for an always-on control panel.
+          Recovery and timeout settings live in <a href="/settings">Settings &rarr; Recovery &amp; Timeouts</a>.
+        </div>
+      </details>
+    </div>
+
+  </div>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  var CSRF_META = document.querySelector('meta[name="csrf-token"]');
+  var CSRF = CSRF_META ? CSRF_META.getAttribute('content') : '';
+
+  var events = [];
+  var transcripts = new Map();
+  var es = null;
+  var esOk = false;
+  var toastTimer = null;
+
+  /* ---------- small helpers ---------- */
+
+  function $(id) { return document.getElementById(id); }
+
+  function getJSON(url) {
+    return fetch(url).then(function (r) {
+      if (r.status === 401) { window.location.href = '/'; throw new Error('unauthorized'); }
+      return r.json();
+    });
+  }
+
+  function postJSON(url, body) {
+    body = body || {};
+    body.csrf_token = CSRF;
+    return fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    }).then(function (r) {
+      if (r.status === 401) { window.location.href = '/'; throw new Error('unauthorized'); }
+      return r.json();
+    });
+  }
+
+  function esc(s) {
+    if (s === null || s === undefined) return '';
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function trunc(s, n) {
+    s = s || '';
+    return s.length > n ? s.slice(0, n) + '…' : s;
+  }
+
+  function ago(ts) {
+    var age = Math.max(0, Math.floor(Date.now() / 1000 - ts));
+    if (age < 5) return 'just now';
+    if (age < 60) return age + 's ago';
+    if (age < 3600) return Math.floor(age / 60) + 'm ago';
+    return Math.floor(age / 3600) + 'h ago';
+  }
+
+  function toast(text, isErr) {
+    var t = $('toast');
+    t.textContent = text;
+    t.className = 'toast show' + (isErr ? ' err' : '');
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.className = 'toast'; }, 4000);
+  }
+
+  function setDot(el, cls) { el.className = 'dot ' + cls; }
+
+  /* ---------- clock ---------- */
+
+  function tickClock() {
+    var now = new Date();
+    var hh = ('0' + now.getHours()).slice(-2);
+    var mm = ('0' + now.getMinutes()).slice(-2);
+    $('clock-time').textContent = hh + ':' + mm;
+    var days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    $('clock-date').textContent = days[now.getDay()] + ' ' + now.toLocaleDateString();
+  }
+  tickClock();
+  setInterval(tickClock, 1000);
+
+  /* ---------- system checks ---------- */
+
+  var CHECK_LABELS = {
+    bot: 'Telegram Messages',
+    tailscale: 'Secure Remote Access',
+    funnel: 'Message Routing',
+    venv: 'Environment',
+    credentials: 'Saved Credentials'
+  };
+
+  function loadChecks() {
+    getJSON('/api/status').then(function (d) {
+      var html = '';
+      var allOk = true;
+      Object.keys(CHECK_LABELS).forEach(function (key) {
+        var item = d[key] || {};
+        if (!item.ok) allOk = false;
+        var cls = item.ok ? 'ok' : 'warn';
+        html += '<div class="check-row"><span class="dot ' + cls + '"></span>' + esc(CHECK_LABELS[key]) +
+          '<span class="detail">' + esc(trunc(item.detail || '', 40)) + '</span></div>';
+      });
+      $('checks').innerHTML = html;
+      setDot($('checks-dot'), allOk ? 'ok' : 'warn');
+      $('uptime').textContent = d.uptime ? ('up ' + d.uptime) : '';
+    }).catch(function () {});
+  }
+
+  /* ---------- activity (agents + model output) ---------- */
+
+  var FEED_TYPES = ['receive', 'thinking', 'model', 'tool', 'command', 'spawn', 'done', 'error', 'blocked', 'reasoning', 'result'];
+
+  function streamKey(evt) {
+    var x = evt.extra || {};
+    return [x.run || '?', evt.agent, x.round == null ? '?' : x.round, x.kind || 'content'].join('|');
+  }
+
+  function ingestStream(evt) {
+    var key = streamKey(evt);
+    var text = (evt.extra && evt.extra.text) || evt.detail || '';
+    var entry = transcripts.get(key);
+    if (!entry) {
+      entry = { key: key, agent: evt.agent, kind: (evt.extra && evt.extra.kind) || 'content', text: text, lastTs: evt.ts };
+      transcripts.set(key, entry);
+      return true;
+    }
+    entry.text += text;
+    entry.lastTs = evt.ts;
+    return false;
+  }
+
+  function rebuildTranscripts() {
+    transcripts.clear();
+    events.forEach(function (evt) {
+      if (evt.type === 'stream') ingestStream(evt);
+    });
+  }
+
+  function addEvent(evt) {
+    if (evt.type === 'stream') {
+      if (ingestStream(evt)) events.push(evt);
+    } else {
+      events.push(evt);
+    }
+    if (events.length > 400) {
+      events = events.slice(-400);
+      rebuildTranscripts();
+    }
+  }
+
+  function renderAgents() {
+    var now = Date.now() / 1000;
+    var agents = {};
+    events.forEach(function (evt) {
+      var age = now - evt.ts;
+      if (age > 300 && !agents[evt.agent]) return;
+      if (!agents[evt.agent]) agents[evt.agent] = { id: evt.agent, lastEvent: evt };
+      if (evt.ts > agents[evt.agent].lastEvent.ts) agents[evt.agent].lastEvent = evt;
+    });
+
+    var list = Object.keys(agents).map(function (k) { return agents[k]; })
+      .sort(function (a, b) { return b.lastEvent.ts - a.lastEvent.ts; });
+
+    var box = $('agents');
+    if (list.length === 0) {
+      box.innerHTML = '<div class="empty">No agents right now. Your assistant is resting. &#128564;</div>';
+      setDot($('agents-dot'), 'idle');
+      $('agents-meta').textContent = '';
+      return;
+    }
+
+    var working = 0;
+    var html = list.map(function (a) {
+      var age = now - a.lastEvent.ts;
+      var isActive = age < 30;
+      if (isActive) working++;
+      var isOrch = a.id === 'orchestrator';
+      var name = isOrch ? 'Orchestrator' : a.id.replace(/^sub-/, '');
+      name = name.charAt(0).toUpperCase() + name.slice(1);
+      var label = a.lastEvent.label || '';
+      var detail = trunc(a.lastEvent.detail || '', 48);
+      return '<div class="agent-row">' +
+        '<div class="agent-avatar' + (isOrch ? '' : ' sub') + '">' + (isOrch ? 'O' : 'S') + '</div>' +
+        '<div class="agent-info"><div class="agent-name">' + esc(name) + '</div>' +
+        '<div class="agent-current">' + esc(label) + (detail ? ' · ' + esc(detail) : '') + '</div></div>' +
+        '<span class="status-pill ' + (isActive ? 'working' : 'idle') + '">' + (isActive ? 'WORKING' : 'IDLE') + '</span>' +
+        '</div>';
+    }).join('');
+    box.innerHTML = html;
+    setDot($('agents-dot'), working > 0 ? 'ok' : 'idle');
+    $('agents-meta').textContent = list.length + (list.length === 1 ? ' agent' : ' agents');
+  }
+
+  function renderOutput() {
+    var now = Date.now() / 1000;
+    var newest = null;
+    transcripts.forEach(function (entry) {
+      if (!newest || entry.lastTs > newest.lastTs) newest = entry;
+    });
+
+    var box = $('output-box');
+    var atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+
+    if (!newest || (now - newest.lastTs) > 180) {
+      setDot($('output-dot'), 'idle');
+      $('output-meta').textContent = 'waiting for activity';
+      return;
+    }
+
+    var streaming = (now - newest.lastTs) < 4;
+    setDot($('output-dot'), streaming ? 'ok' : 'idle');
+    $('output-meta').textContent = newest.agent + ' · ' + (streaming ? 'writing…' : ago(newest.lastTs));
+    box.textContent = newest.text;
+    if (streaming) {
+      var caret = document.createElement('span');
+      caret.className = 'caret';
+      box.appendChild(caret);
+    }
+    if (atBottom) box.scrollTop = box.scrollHeight;
+  }
+
+  function renderFeed() {
+    var now = Date.now() / 1000;
+    var rows = [];
+    for (var i = events.length - 1; i >= 0 && rows.length < 14; i--) {
+      var evt = events[i];
+      if (evt.type === 'stream' || FEED_TYPES.indexOf(evt.type) === -1) continue;
+      rows.push(evt);
+    }
+    if (rows.length === 0) {
+      $('feed').innerHTML = '';
+      return;
+    }
+    var html = rows.map(function (evt) {
+      var label = evt.label || evt.type;
+      var detail = trunc((evt.detail || (evt.extra && evt.extra.text) || ''), 70);
+      return '<div class="feed-row">' +
+        '<span class="tag ' + esc(evt.type) + '">' + esc(evt.type.toUpperCase()) + '</span>' +
+        '<span class="txt">' + esc(label) + (detail ? ' — ' + esc(detail) : '') + '</span>' +
+        '<span class="age">' + ago(evt.ts) + '</span></div>';
+    }).join('');
+    $('feed').innerHTML = html;
+  }
+
+  function renderActivity() {
+    renderAgents();
+    renderOutput();
+    renderFeed();
+  }
+
+  function connectSSE() {
+    if (es) { es.close(); es = null; }
+    try { es = new EventSource('/api/activity/stream'); } catch (e) { return; }
+    es.onopen = function () {
+      esOk = true;
+      $('live-badge').className = 'live-badge';
+    };
+    es.onmessage = function (e) {
+      try {
+        addEvent(JSON.parse(e.data));
+        renderActivity();
+      } catch (err) {}
+    };
+    es.onerror = function () {
+      esOk = false;
+      $('live-badge').className = 'live-badge off';
+      if (es) { es.close(); es = null; }
+      setTimeout(connectSSE, 5000);
+    };
+  }
+
+  function loadHistory() {
+    getJSON('/api/activity/history').then(function (data) {
+      if (!Array.isArray(data)) return;
+      events = [];
+      transcripts.clear();
+      var seen = new Set();
+      data.forEach(function (evt) {
+        if (evt.type === 'stream') {
+          var key = streamKey(evt);
+          if (seen.has(key)) return;
+          seen.add(key);
+        }
+        addEvent(evt);
+      });
+      renderActivity();
+    }).catch(function () {});
+  }
+
+  /* ---------- scheduled tasks ---------- */
+
+  function loadTasks() {
+    getJSON('/api/tasks').then(function (d) {
+      var tasks = d.tasks || [];
+      var box = $('tasks');
+      if (tasks.length === 0) {
+        box.innerHTML = '<div class="empty">No scheduled tasks yet. Ask your assistant things like "every morning at 8, give me the weather".</div>';
+        setDot($('tasks-dot'), 'idle');
+        return;
+      }
+      setDot($('tasks-dot'), 'ok');
+      box.innerHTML = tasks.map(function (t) {
+        var sub = t.enabled
+          ? 'Next: ' + (t.next_run ? esc(t.next_run) : 'not scheduled') + (t.last_result ? ' · last: ' + esc(trunc(t.last_result, 40)) : '')
+          : (t.last_run ? 'Last ran: ' + esc(t.last_run) : 'Paused');
+        return '<div class="task-row">' +
+          '<div class="task-head">' + esc(t.name) +
+          '<span class="task-sched">' + esc(t.schedule) + '</span>' +
+          '<span class="task-pill ' + (t.enabled ? 'on' : 'off') + '">' + (t.enabled ? 'ON' : 'OFF') + '</span></div>' +
+          '<div class="task-sub">' + sub + '</div></div>';
+      }).join('');
+    }).catch(function () {});
+  }
+
+  /* ---------- Home Assistant ---------- */
+
+  var haEntities = [];
+
+  function haDomainOf(e) { return (e.entity_id || '').split('.')[0]; }
+
+  function renderHaStatus() {
+    getJSON('/api/homeassistant/status').then(function (d) {
+      var configured = !!d.configured;
+      var enabled = d.enabled !== false;
+      $('ha-setup').style.display = (!configured || !enabled) ? 'block' : 'none';
+      $('ha-status-line').style.display = configured ? 'flex' : 'none';
+      $('ha-controls').style.display = (configured && d.ok) ? 'block' : 'none';
+
+      if (!configured && !enabled) {
+        $('ha-meta').textContent = 'switched off';
+        $('ha-msg').textContent = 'Home Assistant is switched off in Settings.';
+        setDot($('ha-dot'), 'idle');
+        return;
+      }
+      if (!configured) {
+        $('ha-meta').textContent = 'not set up yet';
+        setDot($('ha-dot'), 'idle');
+        getJSON('/api/settings').then(function (s) {
+          if ($('ha-url-input').value === '') $('ha-url-input').value = s.HOMEASSISTANT_URL || '';
+        }).catch(function () {});
+        return;
+      }
+      if (!d.ok) {
+        $('ha-meta').textContent = 'problem';
+        $('ha-status-text').textContent = d.error || 'Home Assistant is not reachable right now.';
+        $('ha-help-text').innerHTML =
+          esc(d.error || '') + '<br><br>Check Home Assistant is running, then tap "Try Again". ' +
+          'To change the address or token, open <a href="/settings">Settings &rarr; Home Assistant</a>.';
+        setDot($('ha-dot'), 'err');
+        return;
+      }
+      $('ha-meta').textContent = d.location ? ('connected · ' + d.location) : 'connected';
+      $('ha-status-text').textContent = '';
+      setDot($('ha-dot'), 'ok');
+      $('ha-help-text').innerHTML =
+        'If something stopped working: check Home Assistant is running, that your access token is still valid ' +
+        '(Profile &rarr; Security &rarr; Long-lived access tokens), and that both devices are on the same network. ' +
+        'Address and token can be changed in <a href="/settings">Settings &rarr; Home Assistant</a>.';
+      loadHaStates();
+    }).catch(function () {
+      setDot($('ha-dot'), 'err');
+    });
+  }
+
+  function saveHa() {
+    var btn = $('ha-connect-btn');
+    var url = $('ha-url-input').value.trim().replace(/\/+$/, '');
+    var token = $('ha-token-input').value.trim();
+
+    if (!url) { $('ha-msg').className = 'msg err'; $('ha-msg').textContent = 'Please paste your Home Assistant address (Step 1).'; return; }
+    if (!/^https?:\/\//.test(url)) { $('ha-msg').className = 'msg err'; $('ha-msg').textContent = 'The address should start with http:// (Step 1).'; return; }
+
+    var payload = { HOMEASSISTANT_URL: url, HOMEASSISTANT_ENABLED: '1' };
+    // Don't resend the masked token the server showed us; only send a fresh one.
+    if (token && token.indexOf('****') === -1) payload.HOMEASSISTANT_TOKEN = token;
+
+    btn.disabled = true;
+    $('ha-msg').className = 'msg'; $('ha-msg').textContent = 'Connecting...';
+    postJSON('/api/settings', payload).then(function (d) {
+      btn.disabled = false;
+      if (d.ok || d.telegram) {
+        $('ha-msg').className = 'msg ok'; $('ha-msg').textContent = 'Saved. Checking the connection...';
+        $('ha-token-input').value = '';
+        renderHaStatus();
+      } else if (d.error) {
+        $('ha-msg').className = 'msg err'; $('ha-msg').textContent = 'Saved, but there was a problem: ' + d.error;
+        renderHaStatus();
+      } else {
+        $('ha-msg').className = 'msg err'; $('ha-msg').textContent = 'Could not save. Please try again.';
+      }
+    }).catch(function () {
+      btn.disabled = false;
+      $('ha-msg').className = 'msg err'; $('ha-msg').textContent = 'Connection problem. Please try again.';
+    });
+  }
+
+  function haTile(e, extraClass) {
+    var isOn = e.state === 'on';
+    var stateLabel = e.state;
+    if (isOn) stateLabel = 'ON';
+    else if (e.state === 'off') stateLabel = 'OFF';
+    if (e.domain === 'climate' && e.attributes && e.attributes.current_temperature != null) {
+      stateLabel = (e.state === 'off' ? 'OFF · ' : e.state + ' · ') + e.attributes.current_temperature + '°';
+    }
+    return '<button class="ha-tile' + (isOn ? ' on' : '') + (extraClass || '') + '"' +
+      ' data-domain="' + esc(e.domain) + '" data-entity="' + esc(e.entity_id) + '">' +
+      '<span>' + esc(e.name) + '</span>' +
+      '<span class="t-state">' + esc(stateLabel.toUpperCase()) + '</span></button>';
+  }
+
+  function renderHaEntities() {
+    var power = [], climate = [], run = [], sensors = [];
+    haEntities.forEach(function (e) {
+      var d = haDomainOf(e);
+      if (['light', 'switch', 'fan', 'input_boolean', 'humidifier', 'siren'].indexOf(d) !== -1) power.push(e);
+      else if (d === 'climate') climate.push(e);
+      else if (d === 'scene' || d === 'script') run.push(e);
+      else if (d === 'sensor' || d === 'binary_sensor') sensors.push(e);
+    });
+
+    $('ha-power-group').style.display = power.length ? 'block' : 'none';
+    $('ha-climate-group').style.display = climate.length ? 'block' : 'none';
+    $('ha-run-group').style.display = run.length ? 'block' : 'none';
+    $('ha-sensor-group').style.display = sensors.length ? 'block' : 'none';
+
+    $('ha-power-tiles').innerHTML = power.length
+      ? power.map(function (e) { return haTile(e); }).join('')
+      : '<div class="empty">No lights or switches found.</div>';
+
+    $('ha-climate-tiles').innerHTML = climate.map(function (e) { return haTile(e); }).join('');
+    $('ha-run-tiles').innerHTML = run.map(function (e) {
+      return '<button class="ha-tile run-tile" data-domain="' + esc(e.domain) + '" data-entity="' + esc(e.entity_id) + '">' +
+        '<span>' + esc(e.name) + '</span><span class="t-state">RUN</span></button>';
+    }).join('');
+
+    var shown = sensors.slice(0, 40);
+    $('ha-sensors').innerHTML = shown.map(function (e) {
+      var unit = (e.attributes && e.attributes.unit_of_measurement) || '';
+      var val = e.state === 'unavailable' ? '—' : e.state + (unit ? ' ' + unit : '');
+      return '<span class="sensor-chip">' + esc(e.name) + '<span class="val">' + esc(val) + '</span></span>';
+    }).join('') + (sensors.length > shown.length
+      ? '<span class="sensor-chip">+' + (sensors.length - shown.length) + ' more</span>'
+      : '');
+  }
+
+  function loadHaStates() {
+    getJSON('/api/homeassistant/states').then(function (d) {
+      if (!d.ok) {
+        if (d.error) {
+          $('ha-controls').style.display = 'none';
+          $('ha-status-line').style.display = 'flex';
+          $('ha-status-text').textContent = d.error;
+          setDot($('ha-dot'), 'err');
+          $('ha-meta').textContent = 'problem';
+        }
+        return;
+      }
+      haEntities = d.entities || [];
+      setDot($('ha-dot'), 'ok');
+      renderHaEntities();
+    }).catch(function () {});
+  }
+
+  function haTap(ev) {
+    var tile = ev.target;
+    while (tile && tile !== document.body && !(tile.classList && tile.classList.contains('ha-tile'))) tile = tile.parentNode;
+    if (!tile || !tile.getAttribute) return;
+    var domain = tile.getAttribute('data-domain');
+    var entity = tile.getAttribute('data-entity');
+    var isRun = tile.classList.contains('run-tile');
+    tile.classList.add('busy');
+
+    postJSON('/api/homeassistant/service', {
+      domain: domain,
+      service: isRun ? 'turn_on' : 'toggle',
+      entity_id: entity
+    }).then(function (d) {
+      tile.classList.remove('busy');
+      if (d.ok) {
+        if (isRun) toast('Ran ' + entity.split('.').slice(1).join('.'));
+        setTimeout(loadHaStates, 700);
+      } else {
+        toast(d.error || 'Home Assistant could not do that.', true);
+      }
+    }).catch(function () {
+      tile.classList.remove('busy');
+      toast('Connection problem. Please try again.', true);
+    });
+  }
+
+  /* ---------- boot ---------- */
+
+  loadChecks();
+  setInterval(function () { if (!document.hidden) loadChecks(); }, 30000);
+
+  loadTasks();
+  setInterval(function () { if (!document.hidden) loadTasks(); }, 30000);
+
+  loadHistory();
+  connectSSE();
+  setInterval(function () { if (!document.hidden && !esOk) connectSSE(); }, 15000);
+  setInterval(function () { if (!document.hidden) renderActivity(); }, 2000);
+
+  renderHaStatus();
+  setInterval(function () { if (!document.hidden) renderHaStatus(); }, 45000);
+  setInterval(function () { if (!document.hidden && $('ha-controls').style.display !== 'none') loadHaStates(); }, 15000);
+
+  document.addEventListener('click', function (ev) {
+    var t = ev.target;
+    while (t && t !== document.body) {
+      if (t.classList && (t.classList.contains('ha-tile'))) { haTap({ target: t }); return; }
+      t = t.parentNode;
+    }
+  });
+
+  $('ha-retry').onclick = function () { renderHaStatus(); };
+})();
+</script>
+</body>
+</html>

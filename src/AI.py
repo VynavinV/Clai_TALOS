@@ -82,11 +82,14 @@ def _pick_runtime_model(base_model: str, speed_mode: str) -> str:
     return base_model
 
 
-def _agent_limits_for_speed(speed_mode: str) -> tuple[int, int, int]:
+def _agent_limits_for_speed(speed_mode: str) -> tuple[int, int, int | None]:
     mode = _normalize_speed_mode(speed_mode)
     rounds = max(1, _MAX_TOOL_ROUNDS)
     calls = max(1, _MAX_TOOL_CALLS_PER_ROUND)
-    timeout = max(60, min(int(_MAX_ORCHESTRATOR_WALL_TIMEOUT_S), 1800))
+    if os.getenv("ORCHESTRATOR_TIMEOUT_ENABLED", "1") == "0":
+        timeout = None  # Read live from env so Settings changes apply without a restart.
+    else:
+        timeout = max(60, min(int(_MAX_ORCHESTRATOR_WALL_TIMEOUT_S), 1800))
 
     if mode == "quick":
         return (

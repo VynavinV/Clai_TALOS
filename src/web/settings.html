@@ -105,6 +105,15 @@
   .badge-set { font-size: 0.65rem; padding: 0.1rem 0.45rem; border-radius: 20px; background: rgba(72,187,120,0.15); color: #48bb78; border: 1px solid rgba(72,187,120,0.3); text-transform: uppercase; margin-left: 0.4rem; }
   .badge-unset { font-size: 0.65rem; padding: 0.1rem 0.45rem; border-radius: 20px; background: rgba(245,101,101,0.15); color: #f56565; border: 1px solid rgba(245,101,101,0.3); text-transform: uppercase; margin-left: 0.4rem; }
 
+  .toggle-row { display: flex; align-items: flex-start; gap: 0.65rem; margin-bottom: 1rem; }
+  .toggle-row input[type="checkbox"] { width: 18px; height: 18px; margin-top: 0.15rem; accent-color: #63b3ed; flex-shrink: 0; cursor: pointer; }
+  .toggle-label { font-size: 0.85rem; color: #ccc; line-height: 1.45; }
+  .toggle-label strong { color: #e0e0e0; }
+  .toggle-sub { font-size: 0.72rem; color: #666; margin-top: 0.2rem; line-height: 1.5; }
+  .sub-fields { margin: 0.4rem 0 0.9rem 27px; }
+  .sub-fields .form-group { margin-bottom: 0.7rem; }
+  .sub-fields.dim { opacity: 0.45; }
+
   .provider-tabs { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 1rem; }
   .provider-tab { padding: 0.45rem 0.9rem; border-radius: 8px; font-size: 0.8rem; font-weight: 500; cursor: pointer; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); color: #888; transition: all 0.15s; }
   .provider-tab:hover { background: rgba(255,255,255,0.06); color: #bbb; }
@@ -168,6 +177,7 @@
   <div class="sidebar-brand"><img src="/static/clai-icon.png" alt="Clai"><span>{{BOT_NAME}}</span></div>
   <div class="nav-items">
     <a href="/dashboard" class="nav-item"><span class="icon">&#9632;</span> Dashboard</a>
+    <a href="/panel" class="nav-item"><span class="icon">&#128241;</span> Panel</a>
     <a href="/keys" class="nav-item"><span class="icon">&#9919;</span> API Keys</a>
     <a href="/tools" class="nav-item"><span class="icon">&#9881;</span> Tools</a>
     <a href="/claistore" class="nav-item"><span class="icon">&#11088;</span> ClaiStore</a>
@@ -265,6 +275,37 @@
   </div>
 
   <div class="section">
+    <div class="section-title">Home Assistant (Smart Home)</div>
+    <div class="form-hint" style="margin-bottom:0.9rem;">
+      Connect your lights, switches, and sensors so they show up on the
+      <a href="/panel" style="color:#63b3ed;">Panel page</a> (great for an always-on tablet).
+    </div>
+    <div class="toggle-row">
+      <input type="checkbox" id="ha-enabled">
+      <div class="toggle-label"><strong>Use Home Assistant</strong>
+        <div class="toggle-sub">Turn off to hide the smart home controls without losing your settings.</div>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Home Assistant Address</label>
+      <input type="text" id="ha-url" placeholder="http://homeassistant.local:8123" inputmode="url" autocapitalize="off">
+      <div class="form-hint">Open Home Assistant and copy the address from the top bar of your browser. Usually <code>http://homeassistant.local:8123</code>.</div>
+    </div>
+    <div class="form-group">
+      <label>Access Token</label>
+      <input type="password" id="ha-token" placeholder="Paste your long-lived access token" autocomplete="off">
+      <div class="form-hint">
+        In Home Assistant: tap your profile picture (bottom left) &rarr; <strong>Security</strong> &rarr; <strong>Long-lived access tokens</strong> &rarr; <strong>Create Token</strong>.
+        Step-by-step with pictures: <a href="https://www.home-assistant.io/docs/authentication/#long-lived-access-token" target="_blank" style="color:#63b3ed;">home-assistant.io guide</a>.
+      </div>
+    </div>
+    <div class="google-actions">
+      <button class="btn" id="ha-test-btn" onclick="testHomeAssistant()">Check Connection</button>
+    </div>
+    <div class="status-line" id="ha-connection-status"></div>
+  </div>
+
+  <div class="section">
     <div class="section-title">Email Helper (Himalaya)</div>
     <div class="form-group"><label>Program Name</label><input type="text" id="himalaya-bin" placeholder="himalaya"></div>
     <div class="form-group"><label>Config File Path</label><input type="text" id="himalaya-config" placeholder="Optional"></div>
@@ -356,6 +397,36 @@
         <div class="status-line" id="context-usage-label">Checking memory usage...</div>
         <div class="form-hint" id="context-usage-detail">This meter updates live for your current chat profile.</div>
       </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Recovery &amp; Timeouts</div>
+    <div class="form-hint" style="margin-bottom:0.9rem;">
+      These decide when your assistant gives itself a nudge, and when it stops a job that's taking too long. Changes apply immediately after saving.
+    </div>
+
+    <div class="toggle-row">
+      <input type="checkbox" id="stuck-enabled">
+      <div class="toggle-label"><strong>Auto-Recovery</strong>
+        <div class="toggle-sub">If the assistant stops making progress for a while, it pokes itself with a recovery message and tries a different approach.</div>
+      </div>
+    </div>
+    <div class="sub-fields" id="stuck-fields">
+      <div class="form-group"><label>Wait before injecting recovery (seconds)</label><input type="text" id="stuck-threshold" placeholder="90" inputmode="numeric"><div class="form-hint">How long with no progress before recovery kicks in. Default 90.</div></div>
+      <div class="form-group"><label>How often to check (seconds)</label><input type="text" id="stuck-interval" placeholder="10" inputmode="numeric"><div class="form-hint">Default 10.</div></div>
+      <div class="form-group"><label>Max recovery attempts per message</label><input type="text" id="stuck-max" placeholder="2" inputmode="numeric"><div class="form-hint">After this many tries it stops and waits for you. Default 2.</div></div>
+    </div>
+
+    <div class="toggle-row">
+      <input type="checkbox" id="orchestrator-timeout-enabled">
+      <div class="toggle-label"><strong>Processing Timeout</strong>
+        <div class="toggle-sub">Stops a job that has been running too long, so it can't hang forever. Turn off only if you regularly run very long jobs.</div>
+      </div>
+    </div>
+    <div class="sub-fields" id="orchestrator-timeout-fields">
+      <div class="form-group"><label>Stop jobs after (seconds)</label><input type="text" id="orchestrator-timeout" placeholder="300" inputmode="numeric"><div class="form-hint">The overall limit for one request. Default 300 (5 minutes).</div></div>
+      <div class="form-group"><label>Helper timeout (seconds)</label><input type="text" id="subagent-timeout" placeholder="180" inputmode="numeric"><div class="form-hint">The limit for each sub-helper the main assistant spawns. Default 180 (3 minutes).</div></div>
     </div>
   </div>
 
@@ -1105,6 +1176,18 @@ async function loadSettings() {
     document.getElementById('max-subagent-tool-rounds').value = d.MAX_SUBAGENT_TOOL_ROUNDS || '5';
     document.getElementById('max-subagent-tool-calls-per-round').value = d.MAX_SUBAGENT_TOOL_CALLS_PER_ROUND || '15';
     document.getElementById('max-context-chars').value = d.MAX_CONTEXT_CHARS || '120000';
+    document.getElementById('ha-url').value = d.HOMEASSISTANT_URL || '';
+    document.getElementById('ha-token').value = d.HOMEASSISTANT_TOKEN || '';
+    document.getElementById('ha-enabled').checked = (d.HOMEASSISTANT_ENABLED || '1') !== '0';
+    document.getElementById('stuck-enabled').checked = (d.TALOS_STUCK_ENABLED || '1') !== '0';
+    document.getElementById('stuck-threshold').value = d.TALOS_STUCK_THRESHOLD_S || '90';
+    document.getElementById('stuck-interval').value = d.TALOS_STUCK_CHECK_INTERVAL_S || '10';
+    document.getElementById('stuck-max').value = d.TALOS_STUCK_MAX_INTERVENTIONS || '2';
+    document.getElementById('orchestrator-timeout-enabled').checked = (d.ORCHESTRATOR_TIMEOUT_ENABLED || '1') !== '0';
+    document.getElementById('orchestrator-timeout').value = d.MAX_ORCHESTRATOR_WALL_TIMEOUT_S || '300';
+    document.getElementById('subagent-timeout').value = d.MAX_SUBAGENT_WALL_TIMEOUT_S || '180';
+    updateToggleDim();
+    loadHomeAssistantStatus();
     var otaChannel = String(d.OTA_CHANNEL || 'stable').toLowerCase();
     if (otaChannel !== 'stable' && otaChannel !== 'prerelease') otaChannel = 'stable';
     document.getElementById('ota-channel').value = otaChannel;
@@ -1668,8 +1751,20 @@ async function saveSettings() {
     MAX_WORKFLOW_STEPS: document.getElementById('max-workflow-steps').value.trim(),
     MAX_SUBAGENT_TOOL_ROUNDS: document.getElementById('max-subagent-tool-rounds').value.trim(),
     MAX_SUBAGENT_TOOL_CALLS_PER_ROUND: document.getElementById('max-subagent-tool-calls-per-round').value.trim(),
-    MAX_CONTEXT_CHARS: document.getElementById('max-context-chars').value.trim()
+    MAX_CONTEXT_CHARS: document.getElementById('max-context-chars').value.trim(),
+    HOMEASSISTANT_URL: document.getElementById('ha-url').value.trim(),
+    HOMEASSISTANT_ENABLED: document.getElementById('ha-enabled').checked ? '1' : '0',
+    TALOS_STUCK_ENABLED: document.getElementById('stuck-enabled').checked ? '1' : '0',
+    TALOS_STUCK_THRESHOLD_S: document.getElementById('stuck-threshold').value.trim(),
+    TALOS_STUCK_CHECK_INTERVAL_S: document.getElementById('stuck-interval').value.trim(),
+    TALOS_STUCK_MAX_INTERVENTIONS: document.getElementById('stuck-max').value.trim(),
+    ORCHESTRATOR_TIMEOUT_ENABLED: document.getElementById('orchestrator-timeout-enabled').checked ? '1' : '0',
+    MAX_ORCHESTRATOR_WALL_TIMEOUT_S: document.getElementById('orchestrator-timeout').value.trim(),
+    MAX_SUBAGENT_WALL_TIMEOUT_S: document.getElementById('subagent-timeout').value.trim()
   };
+
+  var haToken = document.getElementById('ha-token').value.trim();
+  if (haToken && haToken.indexOf('****') === -1) p.HOMEASSISTANT_TOKEN = haToken;
 
   if (activeProv && activeKeyVal) {
     p[activeProv.env_key] = activeKeyVal;
@@ -1752,6 +1847,52 @@ async function disconnectGoogle() {
 async function hotReload() {
   try { var res = await _post('/api/reload', {}); var d = await res.json(); showMsg(d.ok ? 'Changes applied.' : (d.error || 'Could not apply changes.'), d.ok); } catch (e) { showMsg('Connection problem. Please try again.', false); }
 }
+
+function updateToggleDim() {
+  var sf = document.getElementById('stuck-fields');
+  var of = document.getElementById('orchestrator-timeout-fields');
+  if (sf) sf.className = 'sub-fields' + (document.getElementById('stuck-enabled').checked ? '' : ' dim');
+  if (of) of.className = 'sub-fields' + (document.getElementById('orchestrator-timeout-enabled').checked ? '' : ' dim');
+}
+
+async function loadHomeAssistantStatus() {
+  var el = document.getElementById('ha-connection-status');
+  if (!el) return;
+  try {
+    var res = await fetch('/api/homeassistant/status');
+    if (res.status === 401) return;
+    var d = await res.json();
+    if (!d.configured) el.textContent = 'Home Assistant: not set up yet — add the address and token above.';
+    else if (!d.enabled) el.textContent = 'Home Assistant: switched off.';
+    else if (d.ok) el.textContent = 'Home Assistant: connected' + (d.version ? ' (version ' + d.version + ')' : '') + (d.location ? ' — ' + d.location : '');
+    else el.textContent = 'Home Assistant: ' + (d.error || 'not reachable right now.');
+  } catch (e) { el.textContent = 'Home Assistant status unavailable right now'; }
+}
+
+async function testHomeAssistant() {
+  var btn = document.getElementById('ha-test-btn');
+  var el = document.getElementById('ha-connection-status');
+  btn.disabled = true;
+  el.textContent = 'Saving and checking connection...';
+  var payload = {
+    HOMEASSISTANT_URL: document.getElementById('ha-url').value.trim(),
+    HOMEASSISTANT_ENABLED: document.getElementById('ha-enabled').checked ? '1' : '0'
+  };
+  var haToken = document.getElementById('ha-token').value.trim();
+  if (haToken && haToken.indexOf('****') === -1) payload.HOMEASSISTANT_TOKEN = haToken;
+  try {
+    await _post('/api/settings', payload);
+    var res = await fetch('/api/homeassistant/status');
+    var d = await res.json();
+    if (d.ok) el.textContent = 'Home Assistant: connected' + (d.version ? ' (version ' + d.version + ')' : '') + (d.location ? ' — ' + d.location : '');
+    else el.textContent = d.error || 'Could not reach Home Assistant.';
+  } catch (e) { el.textContent = 'Connection problem. Please try again.'; }
+  btn.disabled = false;
+}
+
+document.getElementById('stuck-enabled').addEventListener('change', updateToggleDim);
+document.getElementById('orchestrator-timeout-enabled').addEventListener('change', updateToggleDim);
+document.getElementById('ha-enabled').addEventListener('change', loadHomeAssistantStatus);
 
 async function restartBot() {
   if (!confirm('Restart the assistant now?')) return;

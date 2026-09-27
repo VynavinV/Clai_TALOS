@@ -150,6 +150,21 @@ def list_cron_jobs(user_id: int) -> list[dict]:
                ORDER BY id ASC""",
             (user_id,),
         ).fetchall()
+    return _cron_rows_to_dicts(rows)
+
+
+def list_all_cron_jobs() -> list[dict]:
+    """Every cron job regardless of owner, for the Panel page's task list."""
+    with _conn() as conn:
+        rows = conn.execute(
+            """SELECT id, name, schedule, command, timezone, enabled, last_run, next_run, last_result
+               FROM cron_jobs
+               ORDER BY id ASC""",
+        ).fetchall()
+    return _cron_rows_to_dicts(rows)
+
+
+def _cron_rows_to_dicts(rows) -> list[dict]:
     return [
         {
             "id": r["id"],

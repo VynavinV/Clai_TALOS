@@ -10,9 +10,23 @@ import activity_tracker
 logger = logging.getLogger("talos.core")
 
 GREETINGS = {"hi", "hello", "hey"}
-_STUCK_CHECK_INTERVAL_S = max(5, int(os.getenv("TALOS_STUCK_CHECK_INTERVAL_S", "10")))
-_STUCK_THRESHOLD_S = max(30, int(os.getenv("TALOS_STUCK_THRESHOLD_S", "90")))
-_STUCK_MAX_INTERVENTIONS = max(1, int(os.getenv("TALOS_STUCK_MAX_INTERVENTIONS", "2")))
+
+
+def _int_env(key: str, default: int, lo: int) -> int:
+    try:
+        return max(lo, int(os.getenv(key, str(default))))
+    except (TypeError, ValueError):
+        return default
+
+
+def _stuck_settings() -> dict:
+    """Stuck-recovery knobs, read live so Settings changes apply without a restart."""
+    return {
+        "enabled": os.getenv("TALOS_STUCK_ENABLED", "1") != "0",
+        "check_interval_s": _int_env("TALOS_STUCK_CHECK_INTERVAL_S", 10, 5),
+        "threshold_s": _int_env("TALOS_STUCK_THRESHOLD_S", 90, 30),
+        "max_interventions": _int_env("TALOS_STUCK_MAX_INTERVENTIONS", 2, 1),
+    }
 
 _STUCK_RECOVERY_MESSAGES = [
     "SYSTEM INTERVENTION: You have been stuck with no progress for {elapsed}s. Whatever command or operation you're waiting on is likely hung. STOP waiting, try a different approach, and inform the user.",
@@ -73,15 +87,19 @@ def _build_activity_send(send_func, state: dict):
 async def _stuck_watchdog(send_func, state: dict, interrupt_queue: asyncio.Queue | None) -> None:
     try:
         while True:
-            await asyncio.sleep(_STUCK_CHECK_INTERVAL_S)
+            cfg = _stuck_settings()
+            await asyncio.sleep(cfg["check_interval_s"])
 
-            if state["interventions_sent"] >= _STUCK_MAX_INTERVENTIONS:
+            if not cfg["enabled"]:
+                continue
+
+            if state["interventions_sent"] >= cfg["max_interventions"]:
                 continue
 
             now = time.monotonic()
             real_activity_age = now - state["last_real_activity"]
 
-            if real_activity_age <= _STUCK_THRESHOLD_S:
+            if real_activity_age <= cfg["threshold_s"]:
                 continue
 
             elapsed = int(real_activity_age)

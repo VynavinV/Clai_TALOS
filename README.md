@@ -563,10 +563,12 @@ Main pages:
 - First-time credential creation page.
 - `/dashboard`
 - Primary control panel and status view.
+- `/panel`
+- Always-on panel for tablets (system checks, live agents, scheduled tasks, model output, and Home Assistant controls). Works on old iPads (iOS 12 Safari); use Safari's "Add to Home Screen" to run it like an app.
 - `/keys`
 - API key management UI.
 - `/settings`
-- Bot/runtime/integration configuration UI.
+- Bot/runtime/integration configuration UI, including Home Assistant connection and recovery/timeout knobs.
 - `/tools`
 - Toggle built-in tool permissions (`.tools_config`).
 - `/projects`
@@ -621,6 +623,24 @@ Main pages:
 | POST | `/api/chat` | Web chat message endpoint |
 | POST | `/api/reload` | Hot reload env + clients |
 | POST | `/api/restart` | Process restart |
+
+### Panel and Home Assistant routes
+
+| Method | Route | Purpose |
+|--------|-------|---------|
+| GET | `/panel` | Always-on tablet panel page |
+| GET | `/api/tasks` | List scheduled tasks (cron jobs) |
+| GET | `/api/activity/history` | Recent activity events |
+| GET | `/api/activity/stream` | Live activity events (SSE) |
+| GET | `/api/homeassistant/status` | Home Assistant connection check |
+| GET | `/api/homeassistant/states` | Home Assistant entity states |
+| POST | `/api/homeassistant/service` | Call a Home Assistant service (toggle/run) |
+
+#### Setting up the Panel on an iPad (grandma edition)
+
+1. Open `http://<your-computer-ip>:8080/panel` in Safari on the iPad (same Wi-Fi).
+2. Tap Share → "Add to Home Screen" → Add. It now opens full screen like an app.
+3. To add smart home controls: open Home Assistant, copy the address (e.g. `http://homeassistant.local:8123`), create a long-lived access token (Profile → Security → Long-lived access tokens), and paste both into the Panel's "Home Assistant" card or Settings → Home Assistant.
 
 ### Static and project serving routes
 
@@ -702,6 +722,16 @@ Ollama runs models locally with no API key. Install from [ollama.com](https://ol
 |----------|---------|-------------|
 | `PIPER_VOICE` | `en_US-lessac-medium` | TTS voice selector |
 
+### Home Assistant bridge
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `HOMEASSISTANT_URL` | empty | Home Assistant address, e.g. `http://homeassistant.local:8123` |
+| `HOMEASSISTANT_TOKEN` | empty | Long-lived access token (Profile → Security → Long-lived access tokens) |
+| `HOMEASSISTANT_ENABLED` | `1` | Show/hide smart home controls on the Panel page |
+
+Requests are proxied through the TALOS server, so the token never reaches the browser.
+
 ### Orchestrator limits and safety knobs
 
 | Variable | Default | Description |
@@ -711,6 +741,7 @@ Ollama runs models locally with no API key. Install from [ollama.com](https://ol
 | `MAX_COMMAND_TIMEOUT` | `120` | Max seconds for command tools |
 | `MAX_WORKFLOW_STEPS` | `12` | Cap workflow step count |
 | `MAX_ORCHESTRATOR_WALL_TIMEOUT_S` | `300` | Wall-clock budget for orchestrator run |
+| `ORCHESTRATOR_TIMEOUT_ENABLED` | `1` | `0` disables the processing timeout entirely |
 | `MAX_SUBAGENT_TOOL_ROUNDS` | `5` | Subagent tool rounds cap |
 | `MAX_SUBAGENT_TOOL_CALLS_PER_ROUND` | `15` | Subagent calls per round cap |
 | `MAX_SUBAGENT_WALL_TIMEOUT_S` | `180` | Subagent wall-clock budget |
@@ -718,6 +749,17 @@ Ollama runs models locally with no API key. Install from [ollama.com](https://ol
 | `SUBAGENT_MAX_TELEGRAM_MESSAGE_CHARS` | `260` | Max chars per subagent update |
 | `SUBAGENT_MIN_UPDATE_INTERVAL_S` | `30` | Min spacing between subagent updates |
 | `MAX_CONTEXT_CHARS` | `120000` | Context threshold shown in dashboard |
+
+### Recovery watchdog (autoinject)
+
+Read live, so Settings changes apply without a restart.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TALOS_STUCK_ENABLED` | `1` | `0` turns off autoinject recovery |
+| `TALOS_STUCK_CHECK_INTERVAL_S` | `10` | How often the watchdog checks for progress |
+| `TALOS_STUCK_THRESHOLD_S` | `90` | Seconds without progress before recovery is injected |
+| `TALOS_STUCK_MAX_INTERVENTIONS` | `2` | Recovery attempts per message |
 
 ### Core progress notifier knobs
 

@@ -33,6 +33,7 @@ import dynamic_tools
 import model_router
 import core
 import google_integration
+import homeassistant
 import activity_tracker
 import ollama_setup
 import app_paths
@@ -2570,6 +2571,48 @@ async def handle_api_activity_stream(request):
     return resp
 
 
+async def handle_panel(request):
+    token = request.cookies.get(SESSION_COOKIE)
+    if not validate_session(token):
+        return web.HTTPFound("/")
+    if needs_onboarding():
+        return web.HTTPFound("/onboarding")
+    return _serve_auth_page(request, "panel.html")
+
+
+async def handle_api_tasks(request):
+    token = request.cookies.get(SESSION_COOKIE)
+    if not validate_session(token):
+        return web.json_response({"error": "unauthorized"}, status=401)
+    return web.json_response({"ok": True, "tasks": db.list_all_cron_jobs()})
+
+
+async def handle_api_homeassistant_status(request):
+    token = request.cookies.get(SESSION_COOKIE)
+    if not validate_session(token):
+        return web.json_response({"error": "unauthorized"}, status=401)
+    return web.json_response(await homeassistant.get_status())
+
+
+async def handle_api_homeassistant_states(request):
+    token = request.cookies.get(SESSION_COOKIE)
+    if not validate_session(token):
+        return web.json_response({"error": "unauthorized"}, status=401)
+    return web.json_response(await homeassistant.get_states())
+
+
+@require_auth_csrf
+async def handle_api_homeassistant_service(request):
+    body = request._json_body if isinstance(request._json_body, dict) else {}
+    result = await homeassistant.call_service(
+        body.get("domain", ""),
+        body.get("service", ""),
+        body.get("entity_id", ""),
+        body.get("data") if isinstance(body.get("data"), dict) else None,
+    )
+    return web.json_response(result)
+
+
 async def handle_keys(request):
     token = request.cookies.get(SESSION_COOKIE)
     if not validate_session(token):
@@ -2768,7 +2811,7 @@ _SECRET_KEYS = frozenset({
     "TELEGRAM_BOT_TOKEN", "ZHIPUAI_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY",
     "ANTHROPIC_API_KEY", "NVIDIA_API_KEY", "CEREBRAS_API_KEY", "GROQ_API_KEY", "QWEN_API_KEY", "OPENROUTER_API_KEY",
     "MISTRAL_API_KEY", "OTHER_API_KEY", "GOOGLE_API_KEY", "GOOGLE_OAUTH_CLIENT_SECRET",
-    "CLAISTORE_GITHUB_TOKEN",
+    "CLAISTORE_GITHUB_TOKEN", "HOMEASSISTANT_TOKEN",
 })
 
 
@@ -2827,6 +2870,15 @@ async def handle_api_settings_get(request):
         "MAX_SUBAGENT_TOOL_ROUNDS": env_vars.get("MAX_SUBAGENT_TOOL_ROUNDS", "5"),
         "MAX_SUBAGENT_TOOL_CALLS_PER_ROUND": env_vars.get("MAX_SUBAGENT_TOOL_CALLS_PER_ROUND", "15"),
         "MAX_CONTEXT_CHARS": env_vars.get("MAX_CONTEXT_CHARS", "120000"),
+        "HOMEASSISTANT_URL": env_vars.get("HOMEASSISTANT_URL", ""),
+        "HOMEASSISTANT_ENABLED": env_vars.get("HOMEASSISTANT_ENABLED", "1"),
+        "TALOS_STUCK_ENABLED": env_vars.get("TALOS_STUCK_ENABLED", "1"),
+        "TALOS_STUCK_CHECK_INTERVAL_S": env_vars.get("TALOS_STUCK_CHECK_INTERVAL_S", "10"),
+        "TALOS_STUCK_THRESHOLD_S": env_vars.get("TALOS_STUCK_THRESHOLD_S", "90"),
+        "TALOS_STUCK_MAX_INTERVENTIONS": env_vars.get("TALOS_STUCK_MAX_INTERVENTIONS", "2"),
+        "ORCHESTRATOR_TIMEOUT_ENABLED": env_vars.get("ORCHESTRATOR_TIMEOUT_ENABLED", "1"),
+        "MAX_ORCHESTRATOR_WALL_TIMEOUT_S": env_vars.get("MAX_ORCHESTRATOR_WALL_TIMEOUT_S", "300"),
+        "MAX_SUBAGENT_WALL_TIMEOUT_S": env_vars.get("MAX_SUBAGENT_WALL_TIMEOUT_S", "180"),
         "CLAISTORE_GITHUB_REPO": env_vars.get("CLAISTORE_GITHUB_REPO", ""),
         "CLAISTORE_GITHUB_TOKEN": env_vars.get("CLAISTORE_GITHUB_TOKEN", ""),
         "CLAISTORE_GITHUB_BRANCH": env_vars.get("CLAISTORE_GITHUB_BRANCH", "main"),
@@ -2985,7 +3037,15 @@ async def handle_api_settings_post(request):
         "OTHER_TIMEOUT_S",
         "OTA_CHANNEL", "TALOS_LAZY_TOOLS",
         "CLAISTORE_GITHUB_REPO", "CLAISTORE_GITHUB_TOKEN", "CLAISTORE_GITHUB_BRANCH",
+        "HOMEASSISTANT_URL", "HOMEASSISTANT_TOKEN",
     ]
+
+    # On/off switches, stored as "1"/"0" so they survive the flat .env format.
+    _BOOL_KEYS = ["HOMEASSISTANT_ENABLED", "TALOS_STUCK_ENABLED", "ORCHESTRATOR_TIMEOUT_ENABLED"]
+
+    for key in _BOOL_KEYS:
+        if key in body:
+            env_vars[key] = "1" if str(body[key]).strip().lower() in ("1", "true", "on", "yes") else "0"
 
     _is_masked = _is_masked_secret
 
@@ -3022,6 +3082,11 @@ async def handle_api_settings_post(request):
         ("MAX_SUBAGENT_TOOL_ROUNDS", 1, 50),
         ("MAX_SUBAGENT_TOOL_CALLS_PER_ROUND", 1, 100),
         ("MAX_CONTEXT_CHARS", 10000, 1000000),
+        ("TALOS_STUCK_CHECK_INTERVAL_S", 5, 600),
+        ("TALOS_STUCK_THRESHOLD_S", 30, 3600),
+        ("TALOS_STUCK_MAX_INTERVENTIONS", 1, 10),
+        ("MAX_ORCHESTRATOR_WALL_TIMEOUT_S", 60, 3600),
+        ("MAX_SUBAGENT_WALL_TIMEOUT_S", 30, 1800),
     ]
 
     for key, lo, hi in _INT_KEYS:
@@ -4016,6 +4081,11 @@ async def main():
     web_app.router.add_get("/community", handle_community_page)
     web_app.router.add_get("/docs", handle_docs_page)
     web_app.router.add_get("/projects", handle_projects_page)
+    web_app.router.add_get("/panel", handle_panel)
+    web_app.router.add_get("/api/tasks", handle_api_tasks)
+    web_app.router.add_get("/api/homeassistant/status", handle_api_homeassistant_status)
+    web_app.router.add_get("/api/homeassistant/states", handle_api_homeassistant_states)
+    web_app.router.add_post("/api/homeassistant/service", handle_api_homeassistant_service)
     web_app.router.add_post("/login", handle_login)
     web_app.router.add_post("/logout", handle_logout)
     web_app.router.add_get("/api/status", handle_status)
