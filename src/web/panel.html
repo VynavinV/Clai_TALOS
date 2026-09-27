@@ -180,17 +180,18 @@
 
   .board {
     display: grid;
-    grid-template-columns: minmax(0, 1.45fr) minmax(290px, 1fr);
-    grid-template-rows: auto minmax(0, 1.35fr) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
     grid-gap: 0.85rem;
     gap: 0.85rem;
     height: 100%;
     min-height: 0;
   }
-  #sec-ha { grid-column: 1 / 3; grid-row: 1; min-height: 0; max-height: 40vh; display: flex; flex-direction: column; }
-  #sec-agents { grid-column: 1; grid-row: 2; min-height: 0; }
-  #sec-output { grid-column: 1; grid-row: 3; min-height: 0; }
-  #sec-side { grid-column: 2; grid-row: 2 / 4; min-height: 0; }
+  .board-col { display: flex; flex-direction: column; gap: 0.85rem; min-height: 0; min-width: 0; }
+  #sec-ha { flex: 1.25 1 0; min-height: 0; }
+  #sec-side { flex: 1 1 0; min-height: 0; }
+  #sec-sensors { flex: 0 1 auto; max-height: 48%; min-height: 0; }
+  #sec-agents { flex: 1 1 0; min-height: 0; }
+  #sec-output { flex: 1.25 1 0; min-height: 0; }
 
   /* ---------- sections ---------- */
 
@@ -696,54 +697,10 @@
     display: flex; align-items: center;
   }
   .ha-tile .t-state .sdot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; margin-right: 0.3rem; flex-shrink: 0; }
+  .ha-tile .t-hint { margin-top: 0.15rem; padding-top: 0; color: var(--text-2); opacity: 0.75; letter-spacing: 0.06em; font-size: 0.52rem; }
 
-  /* light controls: brightness slider + color dots */
-  .t-controls {
-    margin-top: 0.5rem;
-    padding-top: 0.5rem;
-    border-top: 1px solid rgba(143, 217, 255, 0.09);
-  }
-  .ha-tile:not(.on) .t-controls { opacity: 0.5; }
+  /* light controls live only in the long-press modal */
 
-  .t-bright {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 100%;
-    height: 24px;
-    background: transparent;
-    margin: 0;
-    padding: 0;
-    cursor: pointer;
-  }
-  .t-bright::-webkit-slider-runnable-track {
-    height: 6px;
-    border-radius: 3px;
-    background: linear-gradient(90deg, rgba(86, 206, 255, 0.55), rgba(86, 206, 255, 0.12));
-    border: 1px solid rgba(143, 217, 255, 0.22);
-  }
-  .t-bright::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    width: 18px; height: 18px;
-    border-radius: 50%;
-    background: var(--accent);
-    margin-top: -7px;
-    box-shadow: 0 0 9px rgba(86, 206, 255, 0.65);
-  }
-
-  .c-dots { display: flex; align-items: center; margin-top: 0.45rem; }
-  .c-dot {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 17px; height: 17px;
-    border-radius: 50%;
-    border: 1px solid rgba(255, 255, 255, 0.28);
-    margin-right: 5px;
-    padding: 0;
-    cursor: pointer;
-    flex-shrink: 0;
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
-  }
-  .c-dot:active { transform: scale(1.25); box-shadow: 0 0 10px rgba(255, 255, 255, 0.5); }
   .ha-tile.on {
     border-color: rgba(66, 223, 173, 0.5);
     background: linear-gradient(145deg, rgba(66, 223, 173, 0.13), rgba(255, 255, 255, 0.02));
@@ -775,16 +732,6 @@
     white-space: nowrap;
   }
   .sensor-chip .val { font-weight: 700; color: var(--text-0); margin-left: 0.3rem; }
-
-  /* ---------- collapsible sensors sub-section ---------- */
-
-  .ha-subfold { border-top: 1px solid rgba(143, 217, 255, 0.12); margin-top: 0.7rem; padding-top: 0.15rem; }
-  .ha-subfold-head { display: flex; align-items: center; min-height: 42px; cursor: pointer; }
-  .ha-subfold-head > * + * { margin-left: 0.5rem; }
-  .ha-subfold-head .chev { margin-left: auto; }
-  .ha-subfold.folded .chev { transform: rotate(-90deg); }
-  .ha-subfold-body { margin-top: 0.35rem; }
-  .ha-subfold.folded .ha-subfold-body { display: none; }
 
   /* ---------- hidden devices ---------- */
 
@@ -822,20 +769,30 @@
     color: var(--text-1); font-size: 1.3rem; line-height: 1; font-family: inherit; cursor: pointer;
   }
   .m-row-label { display: flex; justify-content: space-between; font-size: 0.64rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-2); margin: 0.65rem 0 0.2rem; }
-  .m-bright {
-    -webkit-appearance: none; appearance: none;
-    width: 100%; height: 52px; margin: 0; background: transparent; cursor: pointer;
+  .m-slider { position: relative; height: 52px; margin-top: 0.2rem; cursor: pointer; }
+  .m-slider::before {
+    content: '';
+    position: absolute; left: 0; right: 0; top: 50%;
+    margin-top: -8px; height: 16px;
+    border-radius: 8px;
+    background: rgba(86, 206, 255, 0.08);
+    border: 1px solid rgba(143, 217, 255, 0.3);
   }
-  .m-bright::-webkit-slider-runnable-track {
-    height: 12px; border-radius: 6px;
-    background: linear-gradient(90deg, rgba(86, 206, 255, 0.6), rgba(86, 206, 255, 0.12));
-    border: 1px solid rgba(143, 217, 255, 0.25);
+  .m-slider-fill {
+    position: absolute; left: 0; top: 50%;
+    margin-top: -8px; height: 16px; width: 100%;
+    border-radius: 8px;
+    background: linear-gradient(90deg, rgba(86, 206, 255, 0.85), rgba(86, 206, 255, 0.35));
+    pointer-events: none;
   }
-  .m-bright::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    width: 34px; height: 34px; border-radius: 50%;
-    background: var(--accent); margin-top: -12px;
+  .m-slider-handle {
+    position: absolute; top: 50%; left: 100%;
+    width: 38px; height: 38px; margin: -19px 0 0 -19px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: 2px solid rgba(255, 255, 255, 0.75);
     box-shadow: 0 0 14px rgba(86, 206, 255, 0.7);
+    pointer-events: none;
   }
   .m-swatches { display: flex; flex-wrap: wrap; margin-top: 0.4rem; }
   .m-swatch {
@@ -977,7 +934,7 @@
   }
   .out-block.enter { animation: block-in 0.35s ease both; }
 
-  .btn, .nav-links a, .follow-btn, .out-tab, .ha-mini-btn, .svc-dots span, .c-dot {
+  .btn, .nav-links a, .follow-btn, .out-tab, .ha-mini-btn, .svc-dots span {
     transition: transform 0.15s ease, border-color 0.25s ease, background 0.25s ease, box-shadow 0.25s ease, color 0.25s ease, opacity 0.25s ease;
   }
   .btn:active, .nav-links a:active, .follow-btn:active, .out-tab:active, .ha-mini-btn:active { transform: scale(0.95); }
@@ -1026,6 +983,7 @@
     body { overflow: auto; }
     .main { padding: 0.7rem; }
     .board { display: block; height: auto; }
+    .board-col { display: block; }
     .section { margin-bottom: 0.8rem; }
     #sec-agents .sec-body { height: 300px; }
     #sec-ha { max-height: none; }
@@ -1073,6 +1031,7 @@
 
 <main class="main">
   <div class="board" id="board">
+  <div class="board-col" id="col-a">
 
     <!-- Home Assistant -->
     <section class="section" id="sec-ha">
@@ -1141,17 +1100,6 @@
               <div class="ha-group-title">&#127916; Scenes &amp; Routines</div>
               <div class="ha-tiles" id="ha-run-tiles"></div>
             </div>
-            <div id="ha-sensor-group" class="ha-subfold" style="display:none;">
-              <div class="ha-subfold-head" id="ha-sensor-fold">
-                <span class="sec-icon">&#128225;</span>
-                <span class="ha-group-title" style="margin:0;">Sensors</span>
-                <span class="sec-meta" id="ha-sensor-count"></span>
-                <span class="chev">&#9660;</span>
-              </div>
-              <div class="ha-subfold-body">
-                <div class="sensor-list" id="ha-sensors"></div>
-              </div>
-            </div>
           </div>
           <details class="fold" id="ha-hidden-fold" style="display:none; margin-top:0.7rem;">
             <summary>&#128065; Hidden devices (<span id="ha-hidden-count">0</span>) — tap to manage</summary>
@@ -1163,44 +1111,6 @@
           </details>
         </div>
 
-      </div>
-    </section>
-
-    <!-- Live Agents -->
-    <section class="section" id="sec-agents">
-      <div class="sec-head" onclick="toggleSection('sec-agents')">
-        <span class="sec-icon">&#129302;</span>
-        <span class="sec-dot idle" id="agents-dot"></span>
-        <span class="sec-title">Live Agents</span>
-        <span class="sec-meta" id="agents-meta"></span>
-        <span class="chev">&#9660;</span>
-      </div>
-      <div class="sec-body no-pad">
-        <div class="agents-web" id="agents-web">
-          <svg class="agents-web-links" id="agents-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg>
-          <div class="agents-web-stage" id="agents-strip"></div>
-          <div class="agents-empty" id="agents-empty">
-            <span class="sleeping-icon">&#128564;</span>
-            <span>No active agents right now</span>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Agent Output -->
-    <section class="section" id="sec-output">
-      <div class="sec-head" onclick="toggleSection('sec-output')">
-        <span class="sec-icon">&#128172;</span>
-        <span class="sec-dot idle" id="output-dot"></span>
-        <span class="sec-title">Agent Output</span>
-        <span class="sec-meta" id="output-meta">waiting for activity</span>
-        <span class="chev">&#9660;</span>
-      </div>
-      <div class="sec-body no-pad" style="display:flex; flex-direction:column;">
-        <div class="wave-strip" id="waveform" title="Activity over the last minute"></div>
-        <div class="out-tabs" id="out-tabs"></div>
-        <div class="out-box" id="out-box">Nothing yet. When your assistants start thinking or writing, their live output appears here — one tab per agent. Tap an agent in the graph above to watch it.</div>
-        <div class="out-ticker" id="out-ticker"><span class="txt">Recent activity will appear here.</span></div>
       </div>
     </section>
 
@@ -1265,8 +1175,64 @@
       </div>
     </section>
 
+  </div><!-- /col-a -->
 
-  </div>
+  <div class="board-col" id="col-b">
+
+    <!-- Sensors (own section: collapse it and Live Agents takes this spot) -->
+    <section class="section" id="sec-sensors">
+      <div class="sec-head" onclick="toggleSection('sec-sensors')">
+        <span class="sec-icon">&#128225;</span>
+        <span class="sec-dot ok" id="sensors-dot"></span>
+        <span class="sec-title">Sensors</span>
+        <span class="sec-meta" id="ha-sensor-count"></span>
+        <span class="chev">&#9660;</span>
+      </div>
+      <div class="sec-body">
+        <div class="sensor-list" id="ha-sensors"></div>
+      </div>
+    </section>
+
+    <!-- Live Agents -->
+    <section class="section" id="sec-agents">
+      <div class="sec-head" onclick="toggleSection('sec-agents')">
+        <span class="sec-icon">&#129302;</span>
+        <span class="sec-dot idle" id="agents-dot"></span>
+        <span class="sec-title">Live Agents</span>
+        <span class="sec-meta" id="agents-meta"></span>
+        <span class="chev">&#9660;</span>
+      </div>
+      <div class="sec-body no-pad">
+        <div class="agents-web" id="agents-web">
+          <svg class="agents-web-links" id="agents-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg>
+          <div class="agents-web-stage" id="agents-strip"></div>
+          <div class="agents-empty" id="agents-empty">
+            <span class="sleeping-icon">&#128564;</span>
+            <span>No active agents right now</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Agent Output -->
+    <section class="section" id="sec-output">
+      <div class="sec-head" onclick="toggleSection('sec-output')">
+        <span class="sec-icon">&#128172;</span>
+        <span class="sec-dot idle" id="output-dot"></span>
+        <span class="sec-title">Agent Output</span>
+        <span class="sec-meta" id="output-meta">waiting for activity</span>
+        <span class="chev">&#9660;</span>
+      </div>
+      <div class="sec-body no-pad" style="display:flex; flex-direction:column;">
+        <div class="wave-strip" id="waveform" title="Activity over the last minute"></div>
+        <div class="out-tabs" id="out-tabs"></div>
+        <div class="out-box" id="out-box">Nothing yet. When your assistants start thinking or writing, their live output appears here — one tab per agent. Tap an agent in the graph above to watch it.</div>
+        <div class="out-ticker" id="out-ticker"><span class="txt">Recent activity will appear here.</span></div>
+      </div>
+    </section>
+
+  </div><!-- /col-b -->
+  </div><!-- /board -->
 
   <div class="split h" id="split-ha"><span class="grip"></span></div>
   <div class="split h" id="split-mid"><span class="grip"></span></div>
@@ -1287,7 +1253,10 @@
     </div>
     <div id="m-bright-wrap">
       <div class="m-row-label"><span>Brightness</span><span class="mono" id="m-bright-val">100%</span></div>
-      <input type="range" class="m-bright" id="m-bright" min="1" max="100" value="100">
+      <div class="m-slider" id="m-bright-slider">
+        <div class="m-slider-fill" id="m-bright-fill"></div>
+        <div class="m-slider-handle" id="m-bright-handle"></div>
+      </div>
     </div>
     <div class="m-row-label" id="m-color-label" style="display:none;">Color</div>
     <div class="m-swatches" id="m-colors" style="display:none;"></div>
@@ -1429,23 +1398,25 @@
 
   function applyGrid() {
     var board = $('board');
+    var flexIds = ['sec-ha', 'sec-side', 'sec-sensors', 'sec-agents', 'sec-output'];
     if (window.matchMedia && window.matchMedia('(max-width: 860px)').matches) {
-      board.style.gridTemplateRows = '';
       board.style.gridTemplateColumns = '';
-      $('sec-ha').style.maxHeight = '';
+      flexIds.forEach(function (id) { $(id).style.flex = ''; });
+      $('sec-sensors').style.maxHeight = '';
       return;
     }
-    var c = readCollapsed();
-    var r1 = c['sec-ha'] ? 'auto' : (sizes.ha ? (sizes.ha * 100).toFixed(2) + '%' : 'auto');
-    var r2 = c['sec-agents'] ? 'auto' : (sizes.ag ? (sizes.ag * 100).toFixed(2) + '%' : 'minmax(0, 1.35fr)');
-    var r3 = c['sec-output'] ? 'auto' : 'minmax(0, 1fr)';
-    board.style.gridTemplateRows = r1 + ' ' + r2 + ' ' + r3;
     if (sizes.col) {
-      board.style.gridTemplateColumns = 'minmax(0, ' + sizes.col.toFixed(3) + 'fr) minmax(290px, ' + (1 - sizes.col).toFixed(3) + 'fr)';
+      board.style.gridTemplateColumns = 'minmax(0, ' + sizes.col.toFixed(3) + 'fr) minmax(0, ' + (1 - sizes.col).toFixed(3) + 'fr)';
     } else {
       board.style.gridTemplateColumns = '';
     }
-    $('sec-ha').style.maxHeight = sizes.ha ? 'none' : '';
+    // left column: HA above Vitals
+    $('sec-ha').style.flex = sizes.ha ? ('0 0 ' + (sizes.ha * 100).toFixed(2) + '%') : '';
+    $('sec-side').style.flex = '';
+    // right column: Sensors auto (collapses to header), Agents/Output share the rest
+    $('sec-sensors').style.flex = '';
+    $('sec-agents').style.flex = sizes.ag ? ('0 0 ' + (sizes.ag * 100).toFixed(2) + '%') : '';
+    $('sec-output').style.flex = '';
   }
 
   window.toggleSection = function (id) {
@@ -1496,13 +1467,14 @@
     var haR = $('sec-ha').getBoundingClientRect();
     var agR = $('sec-agents').getBoundingClientRect();
     var opR = $('sec-output').getBoundingClientRect();
+    var seR = $('sec-sensors').getBoundingClientRect();
     var c = readCollapsed();
 
     var s = $('split-ha');
-    if (!c['sec-ha']) {
+    if (!c['sec-ha'] && !c['sec-side']) {
       s.style.top = (haR.bottom - hostR.top) + 'px';
       s.style.left = '0px';
-      s.style.width = hostR.width + 'px';
+      s.style.width = haR.width + 'px';
       s.classList.add('on');
     } else {
       s.classList.remove('on');
@@ -1511,7 +1483,7 @@
     s = $('split-mid');
     if (!c['sec-agents'] && !c['sec-output']) {
       s.style.top = (agR.bottom - hostR.top) + 'px';
-      s.style.left = '0px';
+      s.style.left = (agR.left - hostR.left) + 'px';
       s.style.width = agR.width + 'px';
       s.classList.add('on');
     } else {
@@ -1519,10 +1491,11 @@
     }
 
     s = $('split-col');
+    var colTop = (seR.height > 0) ? seR.top : agR.top;
     if (!c['sec-agents'] || !c['sec-output']) {
-      s.style.left = (agR.right - hostR.left) + 'px';
-      s.style.top = (agR.top - hostR.top) + 'px';
-      s.style.height = (opR.bottom - agR.top) + 'px';
+      s.style.left = (agR.left - hostR.left) + 'px';
+      s.style.top = (colTop - hostR.top) + 'px';
+      s.style.height = (opR.bottom - colTop) + 'px';
       s.classList.add('on');
     } else {
       s.classList.remove('on');
@@ -1574,8 +1547,8 @@
 
   addDrag($('split-ha'), {
     move: function (x, y) {
-      var r = $('board').getBoundingClientRect();
-      sizes.ha = clampFrac((y - r.top) / r.height, 0.12, 0.75);
+      var r = $('col-a').getBoundingClientRect();
+      sizes.ha = clampFrac((y - r.top) / r.height, 0.15, 0.85);
       applyGrid();
       layoutSplitters();
     },
@@ -1584,8 +1557,8 @@
 
   addDrag($('split-mid'), {
     move: function (x, y) {
-      var r = $('board').getBoundingClientRect();
-      sizes.ag = clampFrac((y - r.top) / r.height, 0.2, 0.8);
+      var r = $('col-b').getBoundingClientRect();
+      sizes.ag = clampFrac((y - r.top) / r.height, 0.15, 0.85);
       applyGrid();
       layoutSplitters();
     },
@@ -1604,7 +1577,7 @@
 
   (function restoreCollapsed() {
     var c = readCollapsed();
-    ['sec-agents', 'sec-output', 'sec-side', 'sec-ha'].forEach(function (id) {
+    ['sec-agents', 'sec-output', 'sec-side', 'sec-ha', 'sec-sensors'].forEach(function (id) {
       if (c[id]) $(id).classList.add('collapsed');
     });
     applyGrid();
@@ -2465,41 +2438,6 @@
     return { bright: bright, color: color, temp: temp, a: a };
   }
 
-  function lightControls(e) {
-    var caps = lightCapabilities(e);
-    if (!caps) return '';
-    var a = caps.a;
-    var html = '<div class="t-controls">';
-    if (caps.bright) {
-      var pct = a.brightness != null ? Math.round(a.brightness / 255 * 100) : (e.state === 'on' ? 100 : 50);
-      html += '<input type="range" class="t-bright" min="1" max="100" value="' + pct + '"'
-        + ' data-entity="' + esc(e.entity_id) + '" aria-label="Brightness for ' + esc(e.name) + '">';
-    }
-    if (caps.color || caps.temp) {
-      html += '<div class="c-dots">';
-      if (caps.color) {
-        for (var i = 0; i < COLOR_PRESETS.length; i++) {
-          var c = COLOR_PRESETS[i];
-          html += '<button class="c-dot" style="background:' + c.css + '"'
-            + ' data-h="' + c.h + '" data-s="' + c.s + '"'
-            + ' title="' + esc(c.title) + '" aria-label="' + esc(c.title) + '"></button>';
-        }
-      }
-      if (caps.temp) {
-        // Warm ↔ cool white for bulbs that only do color temperature.
-        var minM = typeof a.min_mireds === 'number' ? a.min_mireds : 153;
-        var maxM = typeof a.max_mireds === 'number' ? a.max_mireds : 500;
-        var warm = Math.min(maxM, Math.max(minM, 400));
-        var cool = Math.max(minM, Math.min(maxM, 180));
-        html += '<button class="c-dot" style="background:hsl(30, 80%, 65%)" data-temp="' + warm + '" title="Warm white" aria-label="Warm white"></button>';
-        html += '<button class="c-dot" style="background:hsl(210, 60%, 85%)" data-temp="' + cool + '" title="Cool white" aria-label="Cool white"></button>';
-      }
-      html += '</div>';
-    }
-    html += '</div>';
-    return html;
-  }
-
   function haTile(e, delay) {
     var isOn = e.state === 'on';
     var stateLabel = e.state === 'on' ? 'On' : (e.state === 'off' ? 'Off' : e.state);
@@ -2515,7 +2453,7 @@
       '<span class="t-icon">' + haIcon(e.domain) + '</span>' +
       '<span class="t-name">' + esc(e.name) + '</span>' +
       '<span class="t-state"><span class="sdot"></span>' + esc(stateLabel) + '</span>' +
-      lightControls(e) +
+      '<span class="t-state t-hint">Hold for controls</span>' +
       '</div>';
   }
 
@@ -2539,17 +2477,6 @@
   function entityById(id) {
     for (var i = 0; i < haEntities.length; i++) if (haEntities[i].entity_id === id) return haEntities[i];
     return null;
-  }
-
-  /* ---------- collapsible sensors ---------- */
-
-  var SENSOR_FOLD_KEY = 'panel-sensors-folded';
-
-  function sensorsFolded() {
-    try { var v = window.localStorage.getItem(SENSOR_FOLD_KEY); return v === null ? true : v === '1'; } catch (e) { return true; }
-  }
-  function setSensorsFolded(v) {
-    try { window.localStorage.setItem(SENSOR_FOLD_KEY, v ? '1' : '0'); } catch (e) {}
   }
 
   function haSig(entities) {
@@ -2598,7 +2525,7 @@
   }
 
   function renderHaEntities() {
-    if (brightDragging) return; // don't yank the slider out from under a finger
+    if (brightDragging) return; // don't yank a control out from under a finger
     var sig = haSig(haEntities);
     if (sig === lastHaSig) return; // nothing changed; keep the DOM (and its animations) untouched
     lastHaSig = sig;
@@ -2620,7 +2547,7 @@
     $('ha-power-group').style.display = power.length ? 'block' : 'none';
     $('ha-climate-group').style.display = climate.length ? 'block' : 'none';
     $('ha-run-group').style.display = run.length ? 'block' : 'none';
-    $('ha-sensor-group').style.display = sensors.length ? 'block' : 'none';
+    $('sec-sensors').style.display = sensors.length ? 'flex' : 'none';
 
     $('ha-power-tiles').innerHTML = power.length
       ? power.map(function (e) { return haTile(e, nextDelay()); }).join('')
@@ -2645,7 +2572,6 @@
       ? '<span class="sensor-chip">+' + (sensors.length - shown.length) + ' more</span>'
       : '');
 
-    $('ha-sensor-group').classList.toggle('folded', sensorsFolded());
     $('ha-sensor-count').textContent = sensors.length + ' sensors';
 
     var hiddenIds = Object.keys(hiddenMap);
@@ -2726,69 +2652,6 @@
     if (isOn) tile.classList.add('on');
   }
 
-  /* brightness slider: UI follows the finger live, value is sent throttled,
-     shown optimistically, and falls back to the real level after 5s if HA never applied it */
-  var brightTimers = {};
-
-  function sendBrightness(input) {
-    var n = parseInt(input.value, 10);
-    if (isNaN(n) || n < 1) n = 1;
-    var entity = input.getAttribute('data-entity');
-    var tile = tileOf(input);
-    if (tile) setTileState(tile, 'On · ' + n + '%', true);
-    scheduleBrightFallback(entity, n);
-    postJSON('/api/homeassistant/service', {
-      domain: 'light',
-      service: 'turn_on',
-      entity_id: entity,
-      data: { brightness_pct: n }
-    }).then(function (d) {
-      if (!d.ok) {
-        delete brightPending[entity];
-        toast(d.error || 'Could not change brightness.', true);
-        lastHaSig = '';
-        loadHaStates();
-      }
-    }).catch(function () {
-      delete brightPending[entity];
-      lastHaSig = '';
-      loadHaStates();
-    });
-  }
-
-  document.addEventListener('input', function (ev) {
-    var t = ev.target;
-    if (!t.classList) return;
-    if (t.classList.contains('t-bright')) {
-      var tile = tileOf(t);
-      if (tile) setTileState(tile, 'On · ' + t.value + '%', true);
-      var entity = t.getAttribute('data-entity');
-      if (brightTimers[entity]) clearTimeout(brightTimers[entity]);
-      brightTimers[entity] = setTimeout(function () {
-        delete brightTimers[entity];
-        sendBrightness(t);
-      }, 350);
-    } else if (t.id === 'm-bright') {
-      $('m-bright-val').textContent = t.value + '%';
-      modalBrightSend(parseInt(t.value, 10));
-    }
-  }, false);
-
-  document.addEventListener('change', function (ev) {
-    var t = ev.target;
-    if (!t.classList || !t.classList.contains('t-bright')) return;
-    var entity = t.getAttribute('data-entity');
-    if (brightTimers[entity]) { clearTimeout(brightTimers[entity]); delete brightTimers[entity]; }
-    sendBrightness(t);
-  }, false);
-
-  /* don't let a background refresh rebuild tiles mid-drag */
-  document.addEventListener('touchstart', function (ev) {
-    if (ev.target && ev.target.classList && ev.target.classList.contains('t-bright')) brightDragging = true;
-  }, { passive: true });
-  document.addEventListener('touchend', function () { brightDragging = false; }, { passive: true });
-  document.addEventListener('touchcancel', function () { brightDragging = false; }, { passive: true });
-
   /* ---------- long-press → big device panel ---------- */
 
   var lpTimer = null;
@@ -2835,6 +2698,55 @@
   var modalEntityId = null;
   var modalBrightTimer = null;
 
+  /* custom brightness slider: visible bar + handle, UI follows the finger live */
+  var mSlider = null;
+  var mSliderVal = 100;
+  var mSliderDrag = false;
+
+  function setModalBright(pct, send) {
+    mSliderVal = pct;
+    $('m-bright-val').textContent = pct + '%';
+    $('m-bright-fill').style.width = pct + '%';
+    $('m-bright-handle').style.left = pct + '%';
+    if (send) modalBrightSend(pct);
+  }
+
+  function mSliderPct(x) {
+    var r = mSlider.getBoundingClientRect();
+    if (!r.width) return mSliderVal;
+    var p = Math.round((x - r.left) / r.width * 100);
+    return Math.max(1, Math.min(100, p));
+  }
+
+  function initModalSlider() {
+    mSlider = $('m-bright-slider');
+    mSlider.addEventListener('touchstart', function (ev) {
+      mSliderDrag = true;
+      setModalBright(mSliderPct(ev.touches[0].clientX), true);
+      if (ev.cancelable) ev.preventDefault();
+    }, { passive: false });
+    mSlider.addEventListener('mousedown', function (ev) {
+      mSliderDrag = true;
+      setModalBright(mSliderPct(ev.clientX), true);
+    });
+  }
+  initModalSlider();
+
+  document.addEventListener('touchmove', function (ev) {
+    if (!mSliderDrag) return;
+    if (ev.cancelable) ev.preventDefault();
+    setModalBright(mSliderPct(ev.touches[0].clientX), true);
+  }, { passive: false });
+  document.addEventListener('touchend', function () {
+    if (mSliderDrag) { mSliderDrag = false; modalBrightSend(mSliderVal); }
+  }, { passive: true });
+  document.addEventListener('mousemove', function (ev) {
+    if (mSliderDrag) setModalBright(mSliderPct(ev.clientX), true);
+  });
+  document.addEventListener('mouseup', function () {
+    if (mSliderDrag) { mSliderDrag = false; modalBrightSend(mSliderVal); }
+  });
+
   function modalBrightSend(pct) {
     if (!modalEntityId || isNaN(pct)) return;
     if (modalBrightTimer) clearTimeout(modalBrightTimer);
@@ -2866,8 +2778,7 @@
     if (pct == null && cap && cap.a.brightness != null) pct = Math.round(cap.a.brightness / 255 * 100);
     if (pct == null) pct = e.state === 'on' ? 100 : 50;
     $('m-bright-wrap').style.display = (cap && cap.bright) ? 'block' : 'none';
-    $('m-bright').value = pct;
-    $('m-bright-val').textContent = pct + '%';
+    setModalBright(pct, false);
 
     var hasColor = !!(cap && cap.color);
     var hasTemp = !!(cap && cap.temp);
@@ -2951,43 +2862,6 @@
   });
 
   /* sensors fold + unhide */
-  $('ha-sensor-fold').addEventListener('click', function () {
-    var folded = !$('ha-sensor-group').classList.contains('folded');
-    setSensorsFolded(folded);
-    $('ha-sensor-group').classList.toggle('folded', folded);
-  });
-
-  /* color dots */
-  function haColor(dot) {
-    var tile = tileOf(dot);
-    if (!tile) return;
-    var entity = tile.getAttribute('data-entity');
-    var data;
-    if (dot.getAttribute('data-temp')) {
-      data = { color_temp: parseInt(dot.getAttribute('data-temp'), 10) };
-    } else {
-      data = { hs_color: [parseFloat(dot.getAttribute('data-h')), parseFloat(dot.getAttribute('data-s'))] };
-    }
-    tile.classList.add('busy');
-    postJSON('/api/homeassistant/service', {
-      domain: 'light',
-      service: 'turn_on',
-      entity_id: entity,
-      data: data
-    }).then(function (d) {
-      tile.classList.remove('busy');
-      if (d.ok) {
-        setTileState(tile, 'On', true);
-        pulseTile(tile);
-        setTimeout(loadHaStates, 900);
-      } else {
-        toast(d.error || 'Could not change the color.', true);
-      }
-    }).catch(function () {
-      tile.classList.remove('busy');
-    });
-  }
-
   document.addEventListener('click', function (ev) {
     if (lpFired) { lpFired = false; return; }
     var t = ev.target;
@@ -3002,9 +2876,6 @@
         }
         return;
       }
-      if (t.classList.contains('c-dot')) { haColor(t); return; }
-      if (t.classList.contains('t-bright')) { return; }
-      if (t.classList.contains('t-controls')) { return; }
       if (t.classList.contains('ha-tile')) { haTap(t); return; }
       t = t.parentNode;
     }
