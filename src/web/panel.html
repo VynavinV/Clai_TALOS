@@ -52,6 +52,7 @@
     flex-direction: column;
     -webkit-tap-highlight-color: transparent;
     -webkit-user-select: none;
+    -webkit-touch-callout: none;
     user-select: none;
   }
 
@@ -775,6 +776,92 @@
   }
   .sensor-chip .val { font-weight: 700; color: var(--text-0); margin-left: 0.3rem; }
 
+  /* ---------- collapsible sensors sub-section ---------- */
+
+  .ha-subfold { border-top: 1px solid rgba(143, 217, 255, 0.12); margin-top: 0.7rem; padding-top: 0.15rem; }
+  .ha-subfold-head { display: flex; align-items: center; min-height: 42px; cursor: pointer; }
+  .ha-subfold-head > * + * { margin-left: 0.5rem; }
+  .ha-subfold-head .chev { margin-left: auto; }
+  .ha-subfold.folded .chev { transform: rotate(-90deg); }
+  .ha-subfold-body { margin-top: 0.35rem; }
+  .ha-subfold.folded .ha-subfold-body { display: none; }
+
+  /* ---------- hidden devices ---------- */
+
+  .hide-row { display: flex; align-items: center; justify-content: space-between; padding: 0.4rem 0; border-bottom: 1px solid rgba(143, 217, 255, 0.08); font-size: 0.74rem; }
+  .hide-row:last-child { border-bottom: none; }
+  .hide-row .ha-mini-btn { margin-left: 0.8rem; }
+
+  /* ---------- long-press device modal ---------- */
+
+  .ha-modal {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    z-index: 60; display: none;
+    align-items: center; justify-content: center;
+    background: rgba(2, 5, 12, 0.72);
+  }
+  .ha-modal.open { display: flex; }
+  .ha-modal-card {
+    width: 94%; max-width: 500px;
+    max-height: 88%; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    background: linear-gradient(165deg, rgba(17, 28, 44, 0.98), rgba(9, 15, 26, 0.96));
+    border: 1px solid var(--stroke-strong);
+    border-radius: 22px;
+    padding: 1.05rem;
+    animation: rise-in 0.22s ease;
+  }
+  .m-head { display: flex; align-items: center; margin-bottom: 0.8rem; }
+  .m-head > * + * { margin-left: 0.65rem; }
+  .m-icon { font-size: 2rem; line-height: 1; }
+  .m-title { min-width: 0; flex: 1; }
+  .m-name { font-size: 1.05rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .m-state { font-size: 0.68rem; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.08em; margin-top: 0.15rem; }
+  .m-close {
+    width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0;
+    border: 1px solid var(--stroke-soft); background: var(--surface-2);
+    color: var(--text-1); font-size: 1.3rem; line-height: 1; font-family: inherit; cursor: pointer;
+  }
+  .m-row-label { display: flex; justify-content: space-between; font-size: 0.64rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-2); margin: 0.65rem 0 0.2rem; }
+  .m-bright {
+    -webkit-appearance: none; appearance: none;
+    width: 100%; height: 52px; margin: 0; background: transparent; cursor: pointer;
+  }
+  .m-bright::-webkit-slider-runnable-track {
+    height: 12px; border-radius: 6px;
+    background: linear-gradient(90deg, rgba(86, 206, 255, 0.6), rgba(86, 206, 255, 0.12));
+    border: 1px solid rgba(143, 217, 255, 0.25);
+  }
+  .m-bright::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 34px; height: 34px; border-radius: 50%;
+    background: var(--accent); margin-top: -12px;
+    box-shadow: 0 0 14px rgba(86, 206, 255, 0.7);
+  }
+  .m-swatches { display: flex; flex-wrap: wrap; margin-top: 0.4rem; }
+  .m-swatch {
+    width: 46px; height: 46px; border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    margin: 0 8px 8px 0; padding: 0; cursor: pointer;
+  }
+  .m-swatch:active { transform: scale(0.92); }
+  .m-actions { display: flex; margin-top: 0.7rem; }
+  .m-actions .btn { flex: 1; }
+  .m-actions .btn + .btn { margin-left: 0.6rem; }
+  .m-hide { border-color: rgba(255, 111, 139, 0.4); background: rgba(255, 111, 139, 0.1); }
+
+  /* ---------- iOS 12 perf mode: kill expensive effects ---------- */
+
+  .perf-lite .aurora, .perf-lite .pulse-ring::before, .perf-lite .pulse-ring::after,
+  .perf-lite .svc-tile.warn .svc-emoji, .perf-lite .ha-tile.on::after,
+  .perf-lite .agent-node.active::after, .perf-lite .node-spin { animation: none !important; }
+  .perf-lite .topbar, .perf-lite .agent-node { -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .perf-lite .ha-tile, .perf-lite .agent-node, .perf-lite .gauge .gauge-fill,
+  .perf-lite .svc-emoji, .perf-lite .clock .time, .perf-lite .agents-web-links line.active {
+    box-shadow: none !important; filter: none !important; text-shadow: none !important;
+  }
+  .perf-lite .sec-body, .perf-lite .wv-bar, .perf-lite .board { transition: none !important; }
+  .perf-lite .agents-web::before, .perf-lite::before { display: none; }
+
   /* ---------- setup steps ---------- */
 
   .steps { counter-reset: step; }
@@ -940,9 +1027,15 @@
     .main { padding: 0.7rem; }
     .board { display: block; height: auto; }
     .section { margin-bottom: 0.8rem; }
-    #sec-agents .sec-body { height: 320px; }
+    #sec-agents .sec-body { height: 300px; }
     #sec-ha { max-height: none; }
     .sec-body { max-height: 60vh; }
+    #sec-output .sec-body { max-height: none; height: 62vh; }
+    .out-box { font-size: 0.78rem; }
+    .ha-tiles { grid-template-columns: repeat(auto-fill, minmax(146px, 1fr)); }
+    .ha-tile { min-height: 92px; font-size: 0.84rem; -webkit-touch-callout: none; }
+    .ha-tile .t-name { font-size: 0.8rem; }
+    .ha-tile .t-icon { font-size: 1.7rem; }
     .clock .date { display: none; }
     .nav-links { display: none; }
   }
@@ -1048,11 +1141,22 @@
               <div class="ha-group-title">&#127916; Scenes &amp; Routines</div>
               <div class="ha-tiles" id="ha-run-tiles"></div>
             </div>
-            <div id="ha-sensor-group" style="display:none;">
-              <div class="ha-group-title">&#128225; Sensors</div>
-              <div class="sensor-list" id="ha-sensors"></div>
+            <div id="ha-sensor-group" class="ha-subfold" style="display:none;">
+              <div class="ha-subfold-head" id="ha-sensor-fold">
+                <span class="sec-icon">&#128225;</span>
+                <span class="ha-group-title" style="margin:0;">Sensors</span>
+                <span class="sec-meta" id="ha-sensor-count"></span>
+                <span class="chev">&#9660;</span>
+              </div>
+              <div class="ha-subfold-body">
+                <div class="sensor-list" id="ha-sensors"></div>
+              </div>
             </div>
           </div>
+          <details class="fold" id="ha-hidden-fold" style="display:none; margin-top:0.7rem;">
+            <summary>&#128065; Hidden devices (<span id="ha-hidden-count">0</span>) — tap to manage</summary>
+            <div class="help-note" id="ha-hidden-list"></div>
+          </details>
           <details class="fold">
             <summary style="margin-top:0.7rem; display:inline-block;">Something wrong? Tap here for help</summary>
             <div class="help-note" id="ha-help-text"></div>
@@ -1170,6 +1274,30 @@
 </main>
 
 <div class="toast" id="toast"></div>
+
+<div class="ha-modal" id="ha-modal">
+  <div class="ha-modal-card">
+    <div class="m-head">
+      <span class="m-icon" id="m-icon">&#128161;</span>
+      <div class="m-title">
+        <div class="m-name" id="m-name"></div>
+        <div class="m-state" id="m-state"></div>
+      </div>
+      <button class="m-close" id="m-close" aria-label="Close">&times;</button>
+    </div>
+    <div id="m-bright-wrap">
+      <div class="m-row-label"><span>Brightness</span><span class="mono" id="m-bright-val">100%</span></div>
+      <input type="range" class="m-bright" id="m-bright" min="1" max="100" value="100">
+    </div>
+    <div class="m-row-label" id="m-color-label" style="display:none;">Color</div>
+    <div class="m-swatches" id="m-colors" style="display:none;"></div>
+    <div class="m-actions">
+      <button class="btn" id="m-power">On / Off</button>
+      <button class="btn m-hide" id="m-hide">Hide Device</button>
+    </div>
+    <div class="help-note">Long-press any device tile to open this menu. Hidden devices can be restored from "Hidden devices" in the Home Assistant panel.</div>
+  </div>
+</div>
 
 <script>
 (function () {
@@ -1403,14 +1531,21 @@
 
   function addDrag(el, handlers) {
     var active = false;
+    var raf = null;
+    var lastX = 0, lastY = 0;
     function begin(e, x, y) {
       active = true;
       el.classList.add('active');
       if (handlers.begin) handlers.begin();
       if (e.cancelable) e.preventDefault();
     }
-    function move(x, y) {
-      if (active) handlers.move(x, y);
+    function scheduleMove(x, y) {
+      lastX = x; lastY = y;
+      if (raf) return;
+      raf = window.requestAnimationFrame(function () {
+        raf = null;
+        if (active) handlers.move(lastX, lastY);
+      });
     }
     function end() {
       if (!active) return;
@@ -1419,7 +1554,7 @@
       if (handlers.end) handlers.end();
     }
     el.addEventListener('mousedown', function (e) { begin(e, e.clientX, e.clientY); });
-    document.addEventListener('mousemove', function (e) { move(e.clientX, e.clientY); });
+    document.addEventListener('mousemove', function (e) { if (active) scheduleMove(e.clientX, e.clientY); });
     document.addEventListener('mouseup', end);
     el.addEventListener('touchstart', function (e) {
       var t = e.touches[0];
@@ -1429,7 +1564,7 @@
       if (!active) return;
       if (e.cancelable) e.preventDefault();
       var t = e.touches[0];
-      move(t.clientX, t.clientY);
+      scheduleMove(t.clientX, t.clientY);
     }, { passive: false });
     document.addEventListener('touchend', end);
     document.addEventListener('touchcancel', end);
@@ -2141,6 +2276,17 @@
     renderTicker();
   }
 
+  /* coalesce bursts of SSE events into one render — huge win on old iPads */
+  var renderQueued = false;
+  function queueRenderActivity() {
+    if (renderQueued) return;
+    renderQueued = true;
+    setTimeout(function () {
+      renderQueued = false;
+      if (!document.hidden) renderActivity();
+    }, 300);
+  }
+
   function connectSSE() {
     if (es) { es.close(); es = null; }
     try { es = new EventSource('/api/activity/stream'); } catch (e) { return; }
@@ -2151,7 +2297,7 @@
     es.onmessage = function (e) {
       try {
         addEvent(JSON.parse(e.data));
-        renderActivity();
+        queueRenderActivity();
       } catch (err) {}
     };
     es.onerror = function () {
@@ -2374,16 +2520,85 @@
   }
 
   var lastHaSig = '';
+  var brightDragging = false;
+
+  /* ---------- hidden devices (long-press → Hide) ---------- */
+
+  var HIDDEN_KEY = 'panel-ha-hidden-v1';
+
+  function readHiddenList() {
+    try { return JSON.parse(window.localStorage.getItem(HIDDEN_KEY) || '[]') || []; } catch (e) { return []; }
+  }
+  var hiddenMap = {};
+  readHiddenList().forEach(function (id) { hiddenMap[id] = true; });
+  function saveHiddenList() {
+    try { window.localStorage.setItem(HIDDEN_KEY, JSON.stringify(Object.keys(hiddenMap))); } catch (e) {}
+  }
+  function forceHaRender() { lastHaSig = ''; renderHaEntities(); }
+
+  function entityById(id) {
+    for (var i = 0; i < haEntities.length; i++) if (haEntities[i].entity_id === id) return haEntities[i];
+    return null;
+  }
+
+  /* ---------- collapsible sensors ---------- */
+
+  var SENSOR_FOLD_KEY = 'panel-sensors-folded';
+
+  function sensorsFolded() {
+    try { var v = window.localStorage.getItem(SENSOR_FOLD_KEY); return v === null ? true : v === '1'; } catch (e) { return true; }
+  }
+  function setSensorsFolded(v) {
+    try { window.localStorage.setItem(SENSOR_FOLD_KEY, v ? '1' : '0'); } catch (e) {}
+  }
 
   function haSig(entities) {
-    var parts = [];
+    var parts = [Object.keys(hiddenMap).join(',')];
     entities.forEach(function (e) {
       parts.push(e.entity_id + ':' + e.state + ':' + (e.attributes && e.attributes.brightness != null ? e.attributes.brightness : ''));
     });
     return parts.join('|');
   }
 
+  /* optimistic brightness: while a send is unconfirmed, keep showing the value we sent */
+  var brightPending = {}; // entity_id -> { pct, timer }
+
+  function pendingPct(entityId) {
+    var p = brightPending[entityId];
+    return p ? p.pct : null;
+  }
+
+  function scheduleBrightFallback(entityId, pct) {
+    var p = brightPending[entityId];
+    if (p && p.timer) clearTimeout(p.timer);
+    brightPending[entityId] = {
+      pct: pct,
+      timer: setTimeout(function () {
+        delete brightPending[entityId];
+        // redraw from truth; if HA applied our value nothing visibly changes,
+        // otherwise the tile falls back to the real level
+        lastHaSig = '';
+        loadHaStates();
+      }, 5000)
+    };
+  }
+
+  function displayEntity(e) {
+    var p = brightPending[e.entity_id];
+    if (!p || e.domain !== 'light') return e;
+    var a = e.attributes || {};
+    var copy = {};
+    for (var k in e) copy[k] = e[k];
+    var ca = {};
+    for (var kk in a) ca[kk] = a[kk];
+    ca.brightness = Math.round(p.pct / 100 * 255);
+    copy.attributes = ca;
+    copy.state = 'on';
+    return copy;
+  }
+
   function renderHaEntities() {
+    if (brightDragging) return; // don't yank the slider out from under a finger
     var sig = haSig(haEntities);
     if (sig === lastHaSig) return; // nothing changed; keep the DOM (and its animations) untouched
     lastHaSig = sig;
@@ -2392,7 +2607,9 @@
     var nextDelay = function () { var d = stagger; stagger = Math.min(stagger + 22, 400); return d; };
 
     var power = [], climate = [], run = [], sensors = [];
-    haEntities.forEach(function (e) {
+    haEntities.forEach(function (e0) {
+      if (hiddenMap[e0.entity_id]) return;
+      var e = displayEntity(e0);
       var d = haDomainOf(e);
       if (['light', 'switch', 'fan', 'input_boolean', 'humidifier', 'siren'].indexOf(d) !== -1) power.push(e);
       else if (d === 'climate') climate.push(e);
@@ -2427,6 +2644,21 @@
     }).join('') + (sensors.length > shown.length
       ? '<span class="sensor-chip">+' + (sensors.length - shown.length) + ' more</span>'
       : '');
+
+    $('ha-sensor-group').classList.toggle('folded', sensorsFolded());
+    $('ha-sensor-count').textContent = sensors.length + ' sensors';
+
+    var hiddenIds = Object.keys(hiddenMap);
+    $('ha-hidden-fold').style.display = hiddenIds.length ? 'block' : 'none';
+    $('ha-hidden-count').textContent = hiddenIds.length;
+    if (hiddenIds.length) {
+      $('ha-hidden-list').innerHTML = hiddenIds.map(function (id) {
+        var ent = entityById(id);
+        var name = ent ? ent.name : id;
+        return '<div class="hide-row"><span>' + esc(name) + '</span>'
+          + '<button class="ha-mini-btn unhide" data-entity="' + esc(id) + '">Show</button></div>';
+      }).join('');
+    }
   }
 
   function loadHaStates() {
@@ -2494,7 +2726,8 @@
     if (isOn) tile.classList.add('on');
   }
 
-  /* brightness slider: drag to dim, release confirms */
+  /* brightness slider: UI follows the finger live, value is sent throttled,
+     shown optimistically, and falls back to the real level after 5s if HA never applied it */
   var brightTimers = {};
 
   function sendBrightness(input) {
@@ -2503,27 +2736,42 @@
     var entity = input.getAttribute('data-entity');
     var tile = tileOf(input);
     if (tile) setTileState(tile, 'On · ' + n + '%', true);
+    scheduleBrightFallback(entity, n);
     postJSON('/api/homeassistant/service', {
       domain: 'light',
       service: 'turn_on',
       entity_id: entity,
       data: { brightness_pct: n }
     }).then(function (d) {
-      if (!d.ok) toast(d.error || 'Could not change brightness.', true);
-    }).catch(function () {});
+      if (!d.ok) {
+        delete brightPending[entity];
+        toast(d.error || 'Could not change brightness.', true);
+        lastHaSig = '';
+        loadHaStates();
+      }
+    }).catch(function () {
+      delete brightPending[entity];
+      lastHaSig = '';
+      loadHaStates();
+    });
   }
 
   document.addEventListener('input', function (ev) {
     var t = ev.target;
-    if (!t.classList || !t.classList.contains('t-bright')) return;
-    var tile = tileOf(t);
-    if (tile) setTileState(tile, 'On · ' + t.value + '%', true);
-    var entity = t.getAttribute('data-entity');
-    if (brightTimers[entity]) clearTimeout(brightTimers[entity]);
-    brightTimers[entity] = setTimeout(function () {
-      delete brightTimers[entity];
-      sendBrightness(t);
-    }, 400);
+    if (!t.classList) return;
+    if (t.classList.contains('t-bright')) {
+      var tile = tileOf(t);
+      if (tile) setTileState(tile, 'On · ' + t.value + '%', true);
+      var entity = t.getAttribute('data-entity');
+      if (brightTimers[entity]) clearTimeout(brightTimers[entity]);
+      brightTimers[entity] = setTimeout(function () {
+        delete brightTimers[entity];
+        sendBrightness(t);
+      }, 350);
+    } else if (t.id === 'm-bright') {
+      $('m-bright-val').textContent = t.value + '%';
+      modalBrightSend(parseInt(t.value, 10));
+    }
   }, false);
 
   document.addEventListener('change', function (ev) {
@@ -2533,6 +2781,181 @@
     if (brightTimers[entity]) { clearTimeout(brightTimers[entity]); delete brightTimers[entity]; }
     sendBrightness(t);
   }, false);
+
+  /* don't let a background refresh rebuild tiles mid-drag */
+  document.addEventListener('touchstart', function (ev) {
+    if (ev.target && ev.target.classList && ev.target.classList.contains('t-bright')) brightDragging = true;
+  }, { passive: true });
+  document.addEventListener('touchend', function () { brightDragging = false; }, { passive: true });
+  document.addEventListener('touchcancel', function () { brightDragging = false; }, { passive: true });
+
+  /* ---------- long-press → big device panel ---------- */
+
+  var lpTimer = null;
+  var lpStart = null;
+  var lpFired = false;
+
+  function cancelLongPress() {
+    if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; }
+    lpStart = null;
+  }
+
+  document.addEventListener('touchstart', function (ev) {
+    var t = ev.target;
+    if (!t || !t.classList) return;
+    if (t.tagName === 'INPUT' || t.tagName === 'BUTTON' || t.classList.contains('t-controls')) return;
+    var tile = tileOf(t);
+    if (!tile || tile.classList.contains('run-tile')) return;
+    lpStart = { x: ev.touches[0].clientX, y: ev.touches[0].clientY };
+    cancelLongPress();
+    lpTimer = setTimeout(function () {
+      lpTimer = null;
+      lpFired = true;
+      setTimeout(function () { lpFired = false; }, 600);
+      if (navigator.vibrate) try { navigator.vibrate(20); } catch (e) {}
+      openDeviceModal(tile.getAttribute('data-entity'));
+    }, 480);
+  }, { passive: true });
+
+  document.addEventListener('touchmove', function (ev) {
+    if (!lpTimer || !lpStart) return;
+    var t = ev.touches[0];
+    if (Math.abs(t.clientX - lpStart.x) > 12 || Math.abs(t.clientY - lpStart.y) > 12) cancelLongPress();
+  }, { passive: true });
+  document.addEventListener('touchend', cancelLongPress, { passive: true });
+  document.addEventListener('touchcancel', cancelLongPress, { passive: true });
+  document.addEventListener('contextmenu', function (ev) {
+    var tile = tileOf(ev.target);
+    if (tile && !tile.classList.contains('run-tile')) {
+      ev.preventDefault();
+      openDeviceModal(tile.getAttribute('data-entity'));
+    }
+  });
+
+  var modalEntityId = null;
+  var modalBrightTimer = null;
+
+  function modalBrightSend(pct) {
+    if (!modalEntityId || isNaN(pct)) return;
+    if (modalBrightTimer) clearTimeout(modalBrightTimer);
+    modalBrightTimer = setTimeout(function () {
+      modalBrightTimer = null;
+      scheduleBrightFallback(modalEntityId, pct);
+      postJSON('/api/homeassistant/service', {
+        domain: 'light',
+        service: 'turn_on',
+        entity_id: modalEntityId,
+        data: { brightness_pct: pct }
+      }).then(function (d) {
+        if (!d.ok) { delete brightPending[modalEntityId]; toast(d.error || 'Could not change brightness.', true); }
+      }).catch(function () {});
+    }, 300);
+  }
+
+  function openDeviceModal(entityId) {
+    var e = entityById(entityId);
+    if (!e) return;
+    modalEntityId = entityId;
+    var cap = e.domain === 'light' ? lightCapabilities(e) : null;
+
+    $('m-icon').innerHTML = haIcon(e.domain);
+    $('m-name').textContent = e.name;
+    $('m-state').textContent = (e.state === 'on' ? 'On' : e.state === 'off' ? 'Off' : e.state);
+
+    var pct = pendingPct(entityId);
+    if (pct == null && cap && cap.a.brightness != null) pct = Math.round(cap.a.brightness / 255 * 100);
+    if (pct == null) pct = e.state === 'on' ? 100 : 50;
+    $('m-bright-wrap').style.display = (cap && cap.bright) ? 'block' : 'none';
+    $('m-bright').value = pct;
+    $('m-bright-val').textContent = pct + '%';
+
+    var hasColor = !!(cap && cap.color);
+    var hasTemp = !!(cap && cap.temp);
+    $('m-colors').style.display = (hasColor || hasTemp) ? 'flex' : 'none';
+    $('m-color-label').style.display = (hasColor || hasTemp) ? 'flex' : 'none';
+    if (hasColor || hasTemp) {
+      var html = '';
+      if (hasColor) {
+        for (var i = 0; i < COLOR_PRESETS.length; i++) {
+          var c = COLOR_PRESETS[i];
+          html += '<button class="m-swatch" style="background:' + c.css + '"'
+            + ' data-h="' + c.h + '" data-s="' + c.s + '" title="' + esc(c.title) + '" aria-label="' + esc(c.title) + '"></button>';
+        }
+      }
+      if (hasTemp) {
+        var a = cap.a;
+        var minM = typeof a.min_mireds === 'number' ? a.min_mireds : 153;
+        var maxM = typeof a.max_mireds === 'number' ? a.max_mireds : 500;
+        html += '<button class="m-swatch" style="background:hsl(30, 80%, 65%)" data-temp="' + Math.min(maxM, Math.max(minM, 400)) + '" title="Warm white" aria-label="Warm white"></button>';
+        html += '<button class="m-swatch" style="background:hsl(210, 60%, 85%)" data-temp="' + Math.max(minM, Math.min(maxM, 180)) + '" title="Cool white" aria-label="Cool white"></button>';
+      }
+      $('m-colors').innerHTML = html;
+    }
+
+    $('ha-modal').classList.add('open');
+  }
+
+  function closeDeviceModal() {
+    $('ha-modal').classList.remove('open');
+    modalEntityId = null;
+  }
+
+  $('m-close').addEventListener('click', closeDeviceModal);
+  $('ha-modal').addEventListener('click', function (ev) {
+    if (ev.target === $('ha-modal')) closeDeviceModal();
+  });
+
+  $('m-power').addEventListener('click', function () {
+    if (!modalEntityId) return;
+    var e = entityById(modalEntityId);
+    var wasOn = e && e.state === 'on';
+    $('m-state').textContent = wasOn ? 'Off' : 'On';
+    postJSON('/api/homeassistant/service', {
+      domain: modalEntityId.split('.')[0],
+      service: 'toggle',
+      entity_id: modalEntityId
+    }).then(function (d) {
+      if (d.ok) { closeDeviceModal(); loadHaStates(); }
+      else toast(d.error || 'Home Assistant could not do that.', true);
+    }).catch(function () { toast('Connection problem. Please try again.', true); });
+  });
+
+  $('m-hide').addEventListener('click', function () {
+    if (!modalEntityId) return;
+    var e = entityById(modalEntityId);
+    hiddenMap[modalEntityId] = true;
+    saveHiddenList();
+    forceHaRender();
+    closeDeviceModal();
+    toast('Hidden "' + (e ? e.name : modalEntityId) + '" — find it under Hidden devices in the panel.');
+  });
+
+  $('m-colors').addEventListener('click', function (ev) {
+    var b = ev.target;
+    if (!b || !b.classList || !b.classList.contains('m-swatch') || !modalEntityId) return;
+    var data;
+    if (b.getAttribute('data-temp')) {
+      data = { color_temp: parseInt(b.getAttribute('data-temp'), 10) };
+    } else {
+      data = { hs_color: [parseFloat(b.getAttribute('data-h')), parseFloat(b.getAttribute('data-s'))] };
+    }
+    postJSON('/api/homeassistant/service', {
+      domain: 'light',
+      service: 'turn_on',
+      entity_id: modalEntityId,
+      data: data
+    }).then(function (d) {
+      if (!d.ok) toast(d.error || 'Could not change the color.', true);
+      else { $('m-state').textContent = 'On'; loadHaStates(); }
+    }).catch(function () {});
+  });
+
+  /* sensors fold + unhide */
+  $('ha-sensor-fold').addEventListener('click', function () {
+    var folded = !$('ha-sensor-group').classList.contains('folded');
+    setSensorsFolded(folded);
+    $('ha-sensor-group').classList.toggle('folded', folded);
+  });
 
   /* color dots */
   function haColor(dot) {
@@ -2566,9 +2989,19 @@
   }
 
   document.addEventListener('click', function (ev) {
+    if (lpFired) { lpFired = false; return; }
     var t = ev.target;
     while (t && t !== document.body) {
       if (!t.classList) { t = t.parentNode; continue; }
+      if (t.classList.contains('unhide')) {
+        var uid = t.getAttribute('data-entity');
+        if (uid) {
+          delete hiddenMap[uid];
+          saveHiddenList();
+          forceHaRender();
+        }
+        return;
+      }
       if (t.classList.contains('c-dot')) { haColor(t); return; }
       if (t.classList.contains('t-bright')) { return; }
       if (t.classList.contains('t-controls')) { return; }
@@ -2578,6 +3011,12 @@
   });
 
   /* ---------- boot ---------- */
+
+  /* old iPads (iOS 12): strip the expensive effects so drags stay smooth */
+  (function perfMode() {
+    var m = navigator.userAgent.match(/OS (\d+)_\d/);
+    if (m && parseInt(m[1], 10) < 13) document.body.classList.add('perf-lite');
+  })();
 
   loadChecks();
   setInterval(function () { if (!document.hidden) loadChecks(); }, 30000);
