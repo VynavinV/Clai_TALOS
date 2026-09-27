@@ -35,7 +35,7 @@
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  html { -webkit-text-size-adjust: 100%; height: 100%; }
+  html { -webkit-text-size-adjust: 100%; height: 100%; background-color: #050912; }
 
   body {
     font-family: 'Sora', -apple-system, BlinkMacSystemFont, 'Avenir Next', sans-serif;
@@ -44,6 +44,7 @@
       radial-gradient(780px 520px at 6% -15%, rgba(85, 240, 203, 0.17), transparent 72%),
       linear-gradient(160deg, var(--bg-1), var(--bg-0));
     background-attachment: fixed;
+    background-color: #050912;
     color: var(--text-0);
     height: 100%;
     overflow: hidden;
@@ -143,6 +144,21 @@
   .topbar .pills { display: flex; align-items: center; margin-left: 0.7rem; }
   .topbar .pills > * + * { margin-left: 0.45rem; }
 
+  .zoom-ctl { display: flex; align-items: center; margin-left: 0.7rem; flex-shrink: 0; }
+  .zoom-ctl button {
+    font-family: inherit;
+    background: var(--surface-2);
+    border: 1px solid var(--stroke-soft);
+    color: var(--text-1);
+    cursor: pointer;
+    height: 30px;
+    line-height: 1;
+  }
+  .zoom-ctl .zbtn { width: 30px; border-radius: 999px 0 0 999px; font-size: 0.95rem; font-weight: 700; }
+  .zoom-ctl .zbtn.plus { border-radius: 0 999px 999px 0; border-left: none; }
+  .zoom-ctl .zpct { width: 46px; border: none; border-top: 1px solid var(--stroke-soft); border-bottom: 1px solid var(--stroke-soft); font-size: 0.62rem; font-weight: 700; letter-spacing: 0.04em; font-variant-numeric: tabular-nums; }
+  .zoom-ctl button:active { color: var(--accent); }
+
   .clock { margin-left: auto; text-align: right; flex-shrink: 0; }
   .clock .time { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 1.28rem; font-weight: 700; letter-spacing: 0.03em; color: var(--text-0); text-shadow: 0 0 18px rgba(86, 206, 255, 0.35); }
   .clock .date { font-size: 0.58rem; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.12em; }
@@ -164,16 +180,16 @@
   .board {
     display: grid;
     grid-template-columns: minmax(0, 1.45fr) minmax(290px, 1fr);
-    grid-template-rows: minmax(0, 1.35fr) minmax(0, 1fr) auto;
+    grid-template-rows: auto minmax(0, 1.35fr) minmax(0, 1fr);
     grid-gap: 0.85rem;
     gap: 0.85rem;
     height: 100%;
     min-height: 0;
   }
-  #sec-agents { grid-column: 1; grid-row: 1; min-height: 0; }
-  #sec-output { grid-column: 1; grid-row: 2; min-height: 0; }
-  #sec-side { grid-column: 2; grid-row: 1 / 3; min-height: 0; }
-  #sec-ha { grid-column: 1 / 3; grid-row: 3; min-height: 0; max-height: 34vh; display: flex; flex-direction: column; }
+  #sec-ha { grid-column: 1 / 3; grid-row: 1; min-height: 0; max-height: 40vh; display: flex; flex-direction: column; }
+  #sec-agents { grid-column: 1; grid-row: 2; min-height: 0; }
+  #sec-output { grid-column: 1; grid-row: 3; min-height: 0; }
+  #sec-side { grid-column: 2; grid-row: 2 / 4; min-height: 0; }
 
   /* ---------- sections ---------- */
 
@@ -205,6 +221,7 @@
     flex-shrink: 0;
     min-height: 44px;
     border-bottom: 1px solid rgba(143, 217, 255, 0.1);
+    transition: background 0.2s ease;
   }
   .sec-head > * + * { margin-left: 0.55rem; }
   .sec-head:active { background: rgba(86, 206, 255, 0.06); }
@@ -220,20 +237,35 @@
 
   .sec-meta { margin-left: auto; font-size: 0.64rem; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-  .chev { color: var(--text-2); font-size: 0.6rem; transition: transform 0.2s ease; flex-shrink: 0; }
+  .chev { color: var(--text-2); font-size: 0.6rem; transition: transform 0.25s ease; flex-shrink: 0; }
   .section.collapsed .chev { transform: rotate(-90deg); }
   .section.collapsed .sec-head { border-bottom-color: transparent; }
-  .section.collapsed .sec-body { display: none !important; }
 
   .sec-body {
     flex: 1;
     min-height: 0;
+    max-height: 100vh;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     padding: 0.8rem;
     position: relative;
+    transition: max-height 0.5s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.32s ease 0.08s, padding 0.3s ease;
   }
   .sec-body.no-pad { padding: 0; }
+
+  .section.collapsed .sec-body {
+    display: block !important;
+    max-height: 0;
+    opacity: 0;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    padding-left: 0.8rem;
+    padding-right: 0.8rem;
+    overflow: hidden;
+    pointer-events: none;
+    transition: max-height 0.4s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.2s ease, padding 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  .section.collapsed .sec-body.no-pad { padding-left: 0; padding-right: 0; }
 
   /* ---------- agents web ---------- */
 
@@ -663,6 +695,54 @@
     display: flex; align-items: center;
   }
   .ha-tile .t-state .sdot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; margin-right: 0.3rem; flex-shrink: 0; }
+
+  /* light controls: brightness slider + color dots */
+  .t-controls {
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid rgba(143, 217, 255, 0.09);
+  }
+  .ha-tile:not(.on) .t-controls { opacity: 0.5; }
+
+  .t-bright {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 24px;
+    background: transparent;
+    margin: 0;
+    padding: 0;
+    cursor: pointer;
+  }
+  .t-bright::-webkit-slider-runnable-track {
+    height: 6px;
+    border-radius: 3px;
+    background: linear-gradient(90deg, rgba(86, 206, 255, 0.55), rgba(86, 206, 255, 0.12));
+    border: 1px solid rgba(143, 217, 255, 0.22);
+  }
+  .t-bright::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: var(--accent);
+    margin-top: -7px;
+    box-shadow: 0 0 9px rgba(86, 206, 255, 0.65);
+  }
+
+  .c-dots { display: flex; align-items: center; margin-top: 0.45rem; }
+  .c-dot {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 17px; height: 17px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    margin-right: 5px;
+    padding: 0;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .c-dot:active { transform: scale(1.25); box-shadow: 0 0 10px rgba(255, 255, 255, 0.5); }
   .ha-tile.on {
     border-color: rgba(66, 223, 173, 0.5);
     background: linear-gradient(145deg, rgba(66, 223, 173, 0.13), rgba(255, 255, 255, 0.02));
@@ -756,7 +836,8 @@
   .help-note a { color: var(--accent); }
 
   .toast {
-    position: fixed; left: 50%; bottom: 18px;
+    position: fixed; left: 50%;
+    bottom: calc(18px + env(safe-area-inset-bottom));
     transform: translateX(-50%);
     z-index: 40;
     background: rgba(5, 9, 18, 0.95);
@@ -769,6 +850,90 @@
   }
   .toast.show { display: block; }
   .toast.err { border-color: rgba(255, 111, 139, 0.5); color: var(--danger); }
+
+  /* ---------- motion polish ---------- */
+
+  @keyframes tile-in {
+    from { opacity: 0; transform: translateY(10px) scale(0.97); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  .ha-tile.enter { animation: tile-in 0.38s cubic-bezier(0.2, 0.8, 0.3, 1) both; }
+  .sensor-chip.enter { animation: tile-in 0.38s cubic-bezier(0.2, 0.8, 0.3, 1) both; }
+
+  @keyframes tile-flash {
+    0% { box-shadow: 0 0 0 0 rgba(86, 206, 255, 0.55); }
+    100% { box-shadow: 0 0 0 14px rgba(86, 206, 255, 0); }
+  }
+  .ha-tile.flash { animation: tile-flash 0.65s ease-out; }
+
+  @keyframes node-in {
+    from { opacity: 0; transform: translate(-50%, -50%) scale(0.6); }
+    to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  }
+  .agent-node.enter { animation: node-in 0.5s cubic-bezier(0.18, 0.9, 0.32, 1.25) both; }
+
+  @keyframes stat-flash {
+    0% { color: var(--accent); text-shadow: 0 0 16px rgba(86, 206, 255, 0.8); }
+    100% { text-shadow: none; }
+  }
+  .stat-num.flash { animation: stat-flash 0.8s ease-out; }
+
+  @keyframes toast-in {
+    from { opacity: 0; transform: translate(-50%, 14px); }
+    to { opacity: 1; transform: translate(-50%, 0); }
+  }
+  .toast.show { animation: toast-in 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.25); }
+
+  @keyframes block-in {
+    from { opacity: 0; transform: translateX(-6px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  .out-block.enter { animation: block-in 0.35s ease both; }
+
+  .btn, .nav-links a, .follow-btn, .out-tab, .ha-mini-btn, .svc-dots span, .c-dot {
+    transition: transform 0.15s ease, border-color 0.25s ease, background 0.25s ease, box-shadow 0.25s ease, color 0.25s ease, opacity 0.25s ease;
+  }
+  .btn:active, .nav-links a:active, .follow-btn:active, .out-tab:active, .ha-mini-btn:active { transform: scale(0.95); }
+  .ha-tile { transition: border-color 0.25s ease, box-shadow 0.25s ease, background 0.25s ease, transform 0.15s ease; }
+  .ha-tile:active { transform: scale(0.97); }
+
+  .meta-pill { transition: all 0.35s ease; }
+  .svc-dots span { transition: all 0.35s ease; }
+  .stat-num, .uptime-value { transition: color 0.3s ease; }
+
+  /* ---------- section resize splitters ---------- */
+
+  .split { position: absolute; z-index: 15; display: none; }
+  .split.on { display: block; }
+  .split.h { height: 18px; margin-top: -9px; cursor: row-resize; left: 0; }
+  .split.v { width: 18px; margin-left: -9px; cursor: col-resize; top: 0; }
+  .split .grip {
+    position: absolute;
+    background: rgba(143, 217, 255, 0.22);
+    border: 1px solid rgba(143, 217, 255, 0.28);
+    border-radius: 999px;
+    transition: background 0.2s ease, box-shadow 0.2s ease;
+  }
+  .split.h .grip { width: 46px; height: 5px; top: 6px; left: 50%; margin-left: -23px; }
+  .split.v .grip { width: 5px; height: 46px; left: 6px; top: 50%; margin-top: -23px; }
+  .split:active .grip, .split.active .grip {
+    background: var(--accent);
+    box-shadow: 0 0 12px rgba(86, 206, 255, 0.65);
+  }
+
+  .board {
+    transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  @media (hover: hover) {
+    .ha-tile:hover { border-color: rgba(86, 206, 255, 0.44); transform: translateY(-2px); }
+    .ha-tile.on:hover { border-color: rgba(66, 223, 173, 0.6); }
+    .out-tab:hover { color: #dff4ff; border-color: rgba(86, 206, 255, 0.4); }
+    .nav-links a:hover { border-color: var(--stroke-strong); color: #e2f4ff; }
+    .status-card, .stat { transition: border-color 0.25s ease, transform 0.25s cubic-bezier(0.32, 0.72, 0, 1); }
+    .status-card:hover, .stat:hover { border-color: rgba(86, 206, 255, 0.34); transform: translateY(-1px); }
+    .sec-head:hover { background: rgba(86, 206, 255, 0.04); }
+  }
 
   @media (max-width: 860px) {
     body { overflow: auto; }
@@ -797,6 +962,11 @@
   <div class="pills">
     <span class="meta-pill off" id="live-badge"><span class="live-dot"></span>LIVE</span>
   </div>
+  <div class="zoom-ctl" title="Text size — tap the % to reset">
+    <button class="zbtn" onclick="zoomStep(-1)" aria-label="Smaller">&minus;</button>
+    <button class="zpct" id="zoom-pct" onclick="zoomReset()" aria-label="Reset size">100%</button>
+    <button class="zbtn plus" onclick="zoomStep(1)" aria-label="Bigger">+</button>
+  </div>
   <div class="nav-links">
     <a href="/dashboard">&#9632; Home</a>
     <a href="/activity">&#9673; Activity</a>
@@ -810,6 +980,87 @@
 
 <main class="main">
   <div class="board" id="board">
+
+    <!-- Home Assistant -->
+    <section class="section" id="sec-ha">
+      <div class="sec-head" onclick="toggleSection('sec-ha')">
+        <span class="sec-icon">&#127968;</span>
+        <span class="sec-dot idle" id="ha-dot"></span>
+        <span class="sec-title">Home Assistant</span>
+        <span class="sec-meta" id="ha-meta"></span>
+        <span class="chev">&#9660;</span>
+      </div>
+      <div class="sec-body">
+
+        <div class="ha-status" id="ha-status-line" style="display:none;">
+          <span id="ha-status-text"></span>
+          <button class="ha-mini-btn" id="ha-retry">Try Again</button>
+        </div>
+
+        <div id="ha-setup" style="display:none;">
+          <div class="steps">
+            <div class="step"><div class="step-num">1</div>
+              <div class="step-body">
+                Find your Home Assistant address. Open Home Assistant in Safari on this iPad and copy the address
+                from the bar at the top. It usually looks like <code>http://homeassistant.local:8123</code>.<br>
+                <a href="https://www.home-assistant.io/getting-started/" target="_blank">What is Home Assistant?</a>
+              </div>
+            </div>
+            <div class="step"><div class="step-num">2</div>
+              <div class="step-body">
+                Make an access key. In Home Assistant, tap your profile picture (bottom left), then <strong>Security</strong>,
+                scroll to <strong>Long-lived access tokens</strong>, tap <strong>Create Token</strong>, name it "Panel",
+                and copy the long code it shows.<br>
+                <a href="https://www.home-assistant.io/docs/authentication/#long-lived-access-token" target="_blank">Step-by-step with pictures</a>
+              </div>
+            </div>
+            <div class="step"><div class="step-num">3</div>
+              <div class="step-body">Paste both below and tap <strong>Connect</strong>. Your lights, switches, and sensors appear on this page.</div>
+            </div>
+          </div>
+          <div class="field">
+            <label>Home Assistant Address</label>
+            <input type="url" id="ha-url-input" placeholder="http://homeassistant.local:8123" autocapitalize="off" autocorrect="off">
+          </div>
+          <div class="field">
+            <label>Access Token</label>
+            <input type="password" id="ha-token-input" placeholder="Paste the token from Step 2" autocomplete="off">
+          </div>
+          <button class="btn" id="ha-connect-btn" onclick="saveHa()">Connect</button>
+          <div class="msg" id="ha-msg"></div>
+          <div class="help-note">
+            Both are stored safely on the computer running {{BOT_NAME}}, never on the iPad. You only do this once.
+            To change later, open <a href="/settings">Settings &rarr; Home Assistant</a>.
+          </div>
+        </div>
+
+        <div id="ha-controls" style="display:none;">
+          <div class="ha-groups">
+            <div id="ha-power-group">
+              <div class="ha-group-title">&#128161; Lights &amp; Power</div>
+              <div class="ha-tiles" id="ha-power-tiles"></div>
+            </div>
+            <div id="ha-climate-group" style="display:none;">
+              <div class="ha-group-title">&#10052; Climate</div>
+              <div class="ha-tiles" id="ha-climate-tiles"></div>
+            </div>
+            <div id="ha-run-group" style="display:none;">
+              <div class="ha-group-title">&#127916; Scenes &amp; Routines</div>
+              <div class="ha-tiles" id="ha-run-tiles"></div>
+            </div>
+            <div id="ha-sensor-group" style="display:none;">
+              <div class="ha-group-title">&#128225; Sensors</div>
+              <div class="sensor-list" id="ha-sensors"></div>
+            </div>
+          </div>
+          <details class="fold">
+            <summary style="margin-top:0.7rem; display:inline-block;">Something wrong? Tap here for help</summary>
+            <div class="help-note" id="ha-help-text"></div>
+          </details>
+        </div>
+
+      </div>
+    </section>
 
     <!-- Live Agents -->
     <section class="section" id="sec-agents">
@@ -910,88 +1161,12 @@
       </div>
     </section>
 
-    <!-- Home Assistant -->
-    <section class="section" id="sec-ha">
-      <div class="sec-head" onclick="toggleSection('sec-ha')">
-        <span class="sec-icon">&#127968;</span>
-        <span class="sec-dot idle" id="ha-dot"></span>
-        <span class="sec-title">Home Assistant</span>
-        <span class="sec-meta" id="ha-meta"></span>
-        <span class="chev">&#9660;</span>
-      </div>
-      <div class="sec-body">
-
-        <div class="ha-status" id="ha-status-line" style="display:none;">
-          <span id="ha-status-text"></span>
-          <button class="ha-mini-btn" id="ha-retry">Try Again</button>
-        </div>
-
-        <div id="ha-setup" style="display:none;">
-          <div class="steps">
-            <div class="step"><div class="step-num">1</div>
-              <div class="step-body">
-                Find your Home Assistant address. Open Home Assistant in Safari on this iPad and copy the address
-                from the bar at the top. It usually looks like <code>http://homeassistant.local:8123</code>.<br>
-                <a href="https://www.home-assistant.io/getting-started/" target="_blank">What is Home Assistant?</a>
-              </div>
-            </div>
-            <div class="step"><div class="step-num">2</div>
-              <div class="step-body">
-                Make an access key. In Home Assistant, tap your profile picture (bottom left), then <strong>Security</strong>,
-                scroll to <strong>Long-lived access tokens</strong>, tap <strong>Create Token</strong>, name it "Panel",
-                and copy the long code it shows.<br>
-                <a href="https://www.home-assistant.io/docs/authentication/#long-lived-access-token" target="_blank">Step-by-step with pictures</a>
-              </div>
-            </div>
-            <div class="step"><div class="step-num">3</div>
-              <div class="step-body">Paste both below and tap <strong>Connect</strong>. Your lights, switches, and sensors appear on this page.</div>
-            </div>
-          </div>
-          <div class="field">
-            <label>Home Assistant Address</label>
-            <input type="url" id="ha-url-input" placeholder="http://homeassistant.local:8123" autocapitalize="off" autocorrect="off">
-          </div>
-          <div class="field">
-            <label>Access Token</label>
-            <input type="password" id="ha-token-input" placeholder="Paste the token from Step 2" autocomplete="off">
-          </div>
-          <button class="btn" id="ha-connect-btn" onclick="saveHa()">Connect</button>
-          <div class="msg" id="ha-msg"></div>
-          <div class="help-note">
-            Both are stored safely on the computer running {{BOT_NAME}}, never on the iPad. You only do this once.
-            To change later, open <a href="/settings">Settings &rarr; Home Assistant</a>.
-          </div>
-        </div>
-
-        <div id="ha-controls" style="display:none;">
-          <div class="ha-groups">
-            <div id="ha-power-group">
-              <div class="ha-group-title">&#128161; Lights &amp; Power</div>
-              <div class="ha-tiles" id="ha-power-tiles"></div>
-            </div>
-            <div id="ha-climate-group" style="display:none;">
-              <div class="ha-group-title">&#10052; Climate</div>
-              <div class="ha-tiles" id="ha-climate-tiles"></div>
-            </div>
-            <div id="ha-run-group" style="display:none;">
-              <div class="ha-group-title">&#127916; Scenes &amp; Routines</div>
-              <div class="ha-tiles" id="ha-run-tiles"></div>
-            </div>
-            <div id="ha-sensor-group" style="display:none;">
-              <div class="ha-group-title">&#128225; Sensors</div>
-              <div class="sensor-list" id="ha-sensors"></div>
-            </div>
-          </div>
-          <details class="fold">
-            <summary style="margin-top:0.7rem; display:inline-block;">Something wrong? Tap here for help</summary>
-            <div class="help-note" id="ha-help-text"></div>
-          </details>
-        </div>
-
-      </div>
-    </section>
 
   </div>
+
+  <div class="split h" id="split-ha"><span class="grip"></span></div>
+  <div class="split h" id="split-mid"><span class="grip"></span></div>
+  <div class="split v" id="split-col"><span class="grip"></span></div>
 </main>
 
 <div class="toast" id="toast"></div>
@@ -1052,6 +1227,23 @@
     toastTimer = setTimeout(function () { t.className = 'toast'; }, 4000);
   }
 
+  /* flash a stat number when its value changes */
+  function setStat(el, html, cls) {
+    if (!el || el.innerHTML === html) return;
+    el.innerHTML = html;
+    if (cls) el.className = cls;
+    el.classList.remove('flash');
+    void el.getBoundingClientRect();
+    el.classList.add('flash');
+  }
+
+  function pulseTile(tile) {
+    if (!tile) return;
+    tile.classList.remove('flash');
+    void tile.getBoundingClientRect();
+    tile.classList.add('flash');
+  }
+
   /* ---------- collapsible sections ---------- */
 
   var COLLAPSE_KEY = 'panel-collapsed-v2';
@@ -1061,29 +1253,219 @@
     catch (e) { return {}; }
   }
 
+  /* ---------- zoom (standalone web apps ignore pinch on iOS 12) ---------- */
+
+  var ZOOM_KEY = 'panel-zoom';
+
+  function getZoom() {
+    var z = parseFloat(window.localStorage.getItem(ZOOM_KEY) || '1');
+    return isNaN(z) ? 1 : z;
+  }
+
+  window.applyZoom = function (z) {
+    z = Math.round(Math.min(1.5, Math.max(0.7, z)) * 20) / 20;
+    var board = $('board');
+    if (Math.abs(z - 1) < 0.001) {
+      board.style.transform = '';
+      board.style.width = '';
+      board.style.height = '';
+    } else {
+      board.style.transform = 'scale(' + z + ')';
+      board.style.transformOrigin = '0 0';
+      board.style.width = (100 / z) + '%';
+      board.style.height = (100 / z) + '%';
+    }
+    try { window.localStorage.setItem(ZOOM_KEY, String(z)); } catch (e) {}
+    var el = $('zoom-pct');
+    if (el) el.textContent = Math.round(z * 100) + '%';
+    layoutSplitters();
+  };
+
+  window.zoomStep = function (dir) { applyZoom(getZoom() + dir * 0.05); };
+  window.zoomReset = function () { applyZoom(1); };
+
+  /* ---------- section sizes (drag the splitters) ---------- */
+
+  var SIZE_KEY = 'panel-sizes-v1';
+
+  function readSizes() {
+    try { return JSON.parse(window.localStorage.getItem(SIZE_KEY) || '{}') || {}; }
+    catch (e) { return {}; }
+  }
+
+  function saveSizes(s) {
+    try { window.localStorage.setItem(SIZE_KEY, JSON.stringify(s)); } catch (e) {}
+  }
+
+  var sizes = readSizes();
+
   function applyGrid() {
     var board = $('board');
     if (window.matchMedia && window.matchMedia('(max-width: 860px)').matches) {
       board.style.gridTemplateRows = '';
       board.style.gridTemplateColumns = '';
+      $('sec-ha').style.maxHeight = '';
       return;
     }
     var c = readCollapsed();
-    var r1 = c['sec-agents'] ? 'auto' : 'minmax(0, 1.35fr)';
-    var r2 = c['sec-output'] ? 'auto' : 'minmax(0, 1fr)';
-    board.style.gridTemplateRows = r1 + ' ' + r2 + ' auto';
+    var r1 = c['sec-ha'] ? 'auto' : (sizes.ha ? (sizes.ha * 100).toFixed(2) + '%' : 'auto');
+    var r2 = c['sec-agents'] ? 'auto' : (sizes.ag ? (sizes.ag * 100).toFixed(2) + '%' : 'minmax(0, 1.35fr)');
+    var r3 = c['sec-output'] ? 'auto' : 'minmax(0, 1fr)';
+    board.style.gridTemplateRows = r1 + ' ' + r2 + ' ' + r3;
+    if (sizes.col) {
+      board.style.gridTemplateColumns = 'minmax(0, ' + sizes.col.toFixed(3) + 'fr) minmax(290px, ' + (1 - sizes.col).toFixed(3) + 'fr)';
+    } else {
+      board.style.gridTemplateColumns = '';
+    }
+    $('sec-ha').style.maxHeight = sizes.ha ? 'none' : '';
   }
 
   window.toggleSection = function (id) {
     var el = $(id);
     if (!el) return;
-    el.classList.toggle('collapsed');
+    var body = el.querySelector('.sec-body');
+    var wasCollapsed = el.classList.contains('collapsed');
+
+    if (!wasCollapsed && body) {
+      // Fold: pin the exact current height first so the collapse animation
+      // starts from reality instead of a distant max-height (no dead time).
+      var h = body.getBoundingClientRect().height / getZoom();
+      if (h > 0) {
+        body.style.maxHeight = h.toFixed(1) + 'px';
+        void body.getBoundingClientRect();
+      }
+      el.classList.add('collapsed');
+      body.style.maxHeight = '0px';
+      setTimeout(function () { if (el.classList.contains('collapsed')) body.style.maxHeight = ''; }, 520);
+    } else {
+      if (body) body.style.maxHeight = '';
+      el.classList.remove('collapsed');
+    }
+
     var c = readCollapsed();
     c[id] = el.classList.contains('collapsed');
     try { window.localStorage.setItem(COLLAPSE_KEY, JSON.stringify(c)); } catch (e) {}
     applyGrid();
     if (id === 'sec-agents') renderAgents();
+    setTimeout(layoutSplitters, 520); // after the fold animation settles
   };
+
+  /* ---------- splitters: position + drag ---------- */
+
+  function isSmallScreen() {
+    return window.matchMedia && window.matchMedia('(max-width: 860px)').matches;
+  }
+
+  function layoutSplitters() {
+    if (isSmallScreen()) {
+      $('split-ha').classList.remove('on');
+      $('split-mid').classList.remove('on');
+      $('split-col').classList.remove('on');
+      return;
+    }
+    // splitters are absolutely positioned inside .main (their offset parent)
+    var hostR = document.querySelector('.main').getBoundingClientRect();
+    var haR = $('sec-ha').getBoundingClientRect();
+    var agR = $('sec-agents').getBoundingClientRect();
+    var opR = $('sec-output').getBoundingClientRect();
+    var c = readCollapsed();
+
+    var s = $('split-ha');
+    if (!c['sec-ha']) {
+      s.style.top = (haR.bottom - hostR.top) + 'px';
+      s.style.left = '0px';
+      s.style.width = hostR.width + 'px';
+      s.classList.add('on');
+    } else {
+      s.classList.remove('on');
+    }
+
+    s = $('split-mid');
+    if (!c['sec-agents'] && !c['sec-output']) {
+      s.style.top = (agR.bottom - hostR.top) + 'px';
+      s.style.left = '0px';
+      s.style.width = agR.width + 'px';
+      s.classList.add('on');
+    } else {
+      s.classList.remove('on');
+    }
+
+    s = $('split-col');
+    if (!c['sec-agents'] || !c['sec-output']) {
+      s.style.left = (agR.right - hostR.left) + 'px';
+      s.style.top = (agR.top - hostR.top) + 'px';
+      s.style.height = (opR.bottom - agR.top) + 'px';
+      s.classList.add('on');
+    } else {
+      s.classList.remove('on');
+    }
+  }
+
+  function addDrag(el, handlers) {
+    var active = false;
+    function begin(e, x, y) {
+      active = true;
+      el.classList.add('active');
+      if (handlers.begin) handlers.begin();
+      if (e.cancelable) e.preventDefault();
+    }
+    function move(x, y) {
+      if (active) handlers.move(x, y);
+    }
+    function end() {
+      if (!active) return;
+      active = false;
+      el.classList.remove('active');
+      if (handlers.end) handlers.end();
+    }
+    el.addEventListener('mousedown', function (e) { begin(e, e.clientX, e.clientY); });
+    document.addEventListener('mousemove', function (e) { move(e.clientX, e.clientY); });
+    document.addEventListener('mouseup', end);
+    el.addEventListener('touchstart', function (e) {
+      var t = e.touches[0];
+      begin(e, t.clientX, t.clientY);
+    }, { passive: false });
+    document.addEventListener('touchmove', function (e) {
+      if (!active) return;
+      if (e.cancelable) e.preventDefault();
+      var t = e.touches[0];
+      move(t.clientX, t.clientY);
+    }, { passive: false });
+    document.addEventListener('touchend', end);
+    document.addEventListener('touchcancel', end);
+  }
+
+  function clampFrac(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+  addDrag($('split-ha'), {
+    move: function (x, y) {
+      var r = $('board').getBoundingClientRect();
+      sizes.ha = clampFrac((y - r.top) / r.height, 0.12, 0.75);
+      applyGrid();
+      layoutSplitters();
+    },
+    end: function () { saveSizes(sizes); }
+  });
+
+  addDrag($('split-mid'), {
+    move: function (x, y) {
+      var r = $('board').getBoundingClientRect();
+      sizes.ag = clampFrac((y - r.top) / r.height, 0.2, 0.8);
+      applyGrid();
+      layoutSplitters();
+    },
+    end: function () { saveSizes(sizes); }
+  });
+
+  addDrag($('split-col'), {
+    move: function (x, y) {
+      var r = $('board').getBoundingClientRect();
+      sizes.col = clampFrac((x - r.left) / r.width, 0.3, 0.8);
+      applyGrid();
+      layoutSplitters();
+    },
+    end: function () { saveSizes(sizes); }
+  });
 
   (function restoreCollapsed() {
     var c = readCollapsed();
@@ -1091,6 +1473,8 @@
       if (c[id]) $(id).classList.add('collapsed');
     });
     applyGrid();
+    applyZoom(getZoom());
+    setTimeout(layoutSplitters, 150);
   })();
 
   /* ---------- clock ---------- */
@@ -1152,12 +1536,8 @@
       }).join('');
 
       setDot($('checks-dot'), allOk ? 'ok' : 'warn');
-      var healthEl = $('stat-health');
-      healthEl.textContent = allOk ? '100%' : Math.round(okCount / SERVICES.length * 100) + '%';
-      healthEl.className = 'stat-num ' + (allOk ? 'ok' : '');
-      $('stat-uptime').textContent = d.uptime || '--:--:--';
-      $('stat-uptime').classList.remove('pending');
-      $('stat-health').classList.remove('pending');
+      setStat($('stat-health'), allOk ? '100%' : Math.round(okCount / SERVICES.length * 100) + '%', 'stat-num' + (allOk ? ' ok' : ''));
+      setStat($('stat-uptime'), esc(d.uptime || '--:--:--'));
       $('side-meta').textContent = d.uptime ? 'up ' + d.uptime : '';
     }).catch(function () {
       renderSvcDots({ bot: {}, tailscale: {}, funnel: {}, venv: {}, credentials: {} });
@@ -1187,7 +1567,7 @@
       if (state === 'warning') gauge.classList.add('warning');
       if (state === 'critical') gauge.classList.add('critical');
       $('ctx-gauge-fill').style.strokeDashoffset = String(GAUGE_C * (1 - pct / 100));
-      $('ctx-gauge-num').textContent = Math.round(pct) + '%';
+      setStat($('ctx-gauge-num'), Math.round(pct) + '%');
     }).catch(function () {
       $('ctx-gauge-num').textContent = '--%';
     });
@@ -1225,8 +1605,10 @@
       }).join('');
     }
     var el = $('stat-tasks');
-    el.textContent = String(onCount);
-    el.classList.remove('pending');
+    if (el) {
+      if (el.textContent !== String(onCount)) setStat(el, String(onCount), 'stat-num');
+      el.classList.remove('pending');
+    }
   }
 
   var lastTasks = [];
@@ -1476,9 +1858,13 @@
     links.appendChild(line);
   }
 
+  var seenAgents = {};
+
   function nodeHTML(agentId, x, y, isRoot, age, evt) {
     var isActive = age < 30;
-    var nodeCls = 'agent-node ' + (isRoot ? 'orchestrator' : 'subagent') + (isActive ? ' active' : ' is-idle') + (selectedAgent === agentId ? ' selected' : '');
+    var isNew = !seenAgents[agentId];
+    seenAgents[agentId] = true;
+    var nodeCls = 'agent-node ' + (isRoot ? 'orchestrator' : 'subagent') + (isActive ? ' active' : ' is-idle') + (selectedAgent === agentId ? ' selected' : '') + (isNew ? ' enter' : '');
     var icon = isRoot ? '&#129302;' : '&#128126;';
     var statusWord = isActive ? 'Working' : 'Idle';
     var name = isRoot ? 'Orchestrator' : prettyAgentName(agentId);
@@ -1528,16 +1914,14 @@
     var parentByChild = snapshot.parentByChild;
     var ids = Object.keys(agents);
 
-    var agentsEl = $('stat-agents');
-    agentsEl.classList.remove('pending');
-
     if (ids.length === 0) {
       strip.innerHTML = '';
       links.innerHTML = '';
       emptyEl.style.display = 'flex';
       setDot($('agents-dot'), 'idle');
       $('agents-meta').textContent = '';
-      agentsEl.innerHTML = '0<span class="denom">/0</span>';
+      seenAgents = {};
+      setStat($('stat-agents'), '0<span class="denom">/0</span>', 'stat-num');
       return;
     }
     emptyEl.style.display = 'none';
@@ -1566,6 +1950,9 @@
     var rootAge = now - (root.last.ts || now);
     var html = [nodeHTML(rootId, rootPos.x, rootPos.y, true, rootAge, root.last)];
 
+    var currentIds = {};
+    currentIds[rootId] = true;
+
     var working = rootAge < 30 ? 1 : 0;
     var positions = layout.positions;
     for (var i = 0; i < children.length; i++) {
@@ -1576,15 +1963,20 @@
       var pos = positions[i];
       addLink(rootPos.x, rootPos.y, pos.x, pos.y, childAge < 30 || rootAge < 30);
       html.push(nodeHTML(childId, pos.x, pos.y, false, childAge, child.last));
+      currentIds[childId] = true;
     }
+
+    // forget agents that vanished so a later return pops in again
+    Object.keys(seenAgents).forEach(function (id) {
+      if (!currentIds[id]) delete seenAgents[id];
+    });
 
     strip.innerHTML = html.join('');
 
     var total = children.length + 1;
     setDot($('agents-dot'), working > 0 ? 'ok' : 'idle');
     $('agents-meta').textContent = total + (total === 1 ? ' agent' : ' agents');
-    agentsEl.innerHTML = working + '<span class="denom">/' + total + '</span>';
-    agentsEl.className = 'stat-num' + (working > 0 ? ' ok' : '');
+    setStat($('stat-agents'), working + '<span class="denom">/' + total + '</span>', 'stat-num' + (working > 0 ? ' ok' : ''));
   }
 
   strip.addEventListener('click', function (ev) {
@@ -1602,6 +1994,8 @@
 
   var selectedAgent = null;
   var followLive = true;
+  var lastBlockCount = 0;
+  var lastRenderAgent = null;
 
   window.setFollow = function (on) {
     followLive = on;
@@ -1685,6 +2079,10 @@
       selectedAgent = agents[0];
     }
     if (!byAgent[selectedAgent]) selectedAgent = agents[0];
+    if (selectedAgent !== lastRenderAgent) {
+      lastRenderAgent = selectedAgent;
+      lastBlockCount = 0; // animate all blocks once when switching agents
+    }
 
     var act = byAgent[selectedAgent];
     var streaming = act.streaming;
@@ -1708,11 +2106,13 @@
     var html = blocks.map(function (entry, i) {
       var last = (i === blocks.length - 1);
       var kind = KIND_LABELS[entry.kind] || entry.kind;
-      return '<div class="out-block ' + esc(entry.kind) + '">'
+      var enterCls = (i >= lastBlockCount) ? ' enter' : '';
+      return '<div class="out-block ' + esc(entry.kind) + enterCls + '">'
         + '<span class="out-kind ' + esc(entry.kind) + '">' + esc(kind) + '</span>'
         + '<div class="out-text">' + esc(trunc(entry.text, 4000)) + (last && streaming ? '<span class="caret"></span>' : '') + '</div>'
         + '</div>';
     }).join('');
+    lastBlockCount = blocks.length;
     box.innerHTML = html;
     if (atBottom) box.scrollTop = box.scrollHeight;
   }
@@ -1783,7 +2183,10 @@
   var resizeTimer = null;
   window.addEventListener('resize', function () {
     if (resizeTimer) clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(function () { applyGrid(); renderAgents(); }, 250);
+    resizeTimer = setTimeout(function () { applyGrid(); renderAgents(); layoutSplitters(); }, 250);
+  });
+  window.addEventListener('orientationchange', function () {
+    setTimeout(function () { applyGrid(); layoutSplitters(); }, 400);
   });
 
   /* ---------- Home Assistant ---------- */
@@ -1892,20 +2295,102 @@
     });
   }
 
-  function haTile(e) {
+  var COLOR_PRESETS = [
+    { h: 27, s: 92, css: 'hsl(27, 100%, 72%)', title: 'Warm' },
+    { h: 0, s: 0, css: 'hsl(0, 0%, 95%)', title: 'White' },
+    { h: 0, s: 85, css: 'hsl(0, 100%, 62%)', title: 'Red' },
+    { h: 30, s: 100, css: 'hsl(30, 100%, 60%)', title: 'Orange' },
+    { h: 55, s: 100, css: 'hsl(55, 100%, 60%)', title: 'Yellow' },
+    { h: 130, s: 90, css: 'hsl(130, 90%, 55%)', title: 'Green' },
+    { h: 190, s: 100, css: 'hsl(190, 100%, 55%)', title: 'Cyan' },
+    { h: 220, s: 100, css: 'hsl(220, 100%, 62%)', title: 'Blue' },
+    { h: 280, s: 100, css: 'hsl(280, 100%, 68%)', title: 'Purple' },
+    { h: 330, s: 90, css: 'hsl(330, 100%, 68%)', title: 'Pink' }
+  ];
+
+  function lightCapabilities(e) {
+    if (e.domain !== 'light') return null;
+    var a = e.attributes || {};
+    var feat = (typeof a.supported_features === 'number') ? a.supported_features : null;
+    var bright = a.brightness != null || (feat !== null && (feat & 1));
+    var color = !!(a.rgb_color || a.hs_color || (feat !== null && (feat & 16)));
+    var temp = a.color_temp != null || a.min_mireds != null || (feat !== null && (feat & 2));
+    if (!bright && !color && !temp) return null;
+    return { bright: bright, color: color, temp: temp, a: a };
+  }
+
+  function lightControls(e) {
+    var caps = lightCapabilities(e);
+    if (!caps) return '';
+    var a = caps.a;
+    var html = '<div class="t-controls">';
+    if (caps.bright) {
+      var pct = a.brightness != null ? Math.round(a.brightness / 255 * 100) : (e.state === 'on' ? 100 : 50);
+      html += '<input type="range" class="t-bright" min="1" max="100" value="' + pct + '"'
+        + ' data-entity="' + esc(e.entity_id) + '" aria-label="Brightness for ' + esc(e.name) + '">';
+    }
+    if (caps.color || caps.temp) {
+      html += '<div class="c-dots">';
+      if (caps.color) {
+        for (var i = 0; i < COLOR_PRESETS.length; i++) {
+          var c = COLOR_PRESETS[i];
+          html += '<button class="c-dot" style="background:' + c.css + '"'
+            + ' data-h="' + c.h + '" data-s="' + c.s + '"'
+            + ' title="' + esc(c.title) + '" aria-label="' + esc(c.title) + '"></button>';
+        }
+      }
+      if (caps.temp) {
+        // Warm ↔ cool white for bulbs that only do color temperature.
+        var minM = typeof a.min_mireds === 'number' ? a.min_mireds : 153;
+        var maxM = typeof a.max_mireds === 'number' ? a.max_mireds : 500;
+        var warm = Math.min(maxM, Math.max(minM, 400));
+        var cool = Math.max(minM, Math.min(maxM, 180));
+        html += '<button class="c-dot" style="background:hsl(30, 80%, 65%)" data-temp="' + warm + '" title="Warm white" aria-label="Warm white"></button>';
+        html += '<button class="c-dot" style="background:hsl(210, 60%, 85%)" data-temp="' + cool + '" title="Cool white" aria-label="Cool white"></button>';
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  function haTile(e, delay) {
     var isOn = e.state === 'on';
     var stateLabel = e.state === 'on' ? 'On' : (e.state === 'off' ? 'Off' : e.state);
     if (e.domain === 'climate' && e.attributes && e.attributes.current_temperature != null) {
       stateLabel = (e.state === 'off' ? 'Off · ' : e.state + ' · ') + e.attributes.current_temperature + '°';
     }
-    return '<button class="ha-tile' + (isOn ? ' on' : '') + '"' +
+    if (e.domain === 'light' && isOn && e.attributes && e.attributes.brightness != null) {
+      stateLabel = 'On · ' + Math.round(e.attributes.brightness / 255 * 100) + '%';
+    }
+    var style = delay ? ' style="animation-delay:' + delay + 'ms"' : '';
+    return '<div class="ha-tile enter' + (isOn ? ' on' : '') + '"' + style +
       ' data-domain="' + esc(e.domain) + '" data-entity="' + esc(e.entity_id) + '">' +
       '<span class="t-icon">' + haIcon(e.domain) + '</span>' +
       '<span class="t-name">' + esc(e.name) + '</span>' +
-      '<span class="t-state"><span class="sdot"></span>' + esc(stateLabel) + '</span></button>';
+      '<span class="t-state"><span class="sdot"></span>' + esc(stateLabel) + '</span>' +
+      lightControls(e) +
+      '</div>';
+  }
+
+  var lastHaSig = '';
+
+  function haSig(entities) {
+    var parts = [];
+    entities.forEach(function (e) {
+      parts.push(e.entity_id + ':' + e.state + ':' + (e.attributes && e.attributes.brightness != null ? e.attributes.brightness : ''));
+    });
+    return parts.join('|');
   }
 
   function renderHaEntities() {
+    var sig = haSig(haEntities);
+    if (sig === lastHaSig) return; // nothing changed; keep the DOM (and its animations) untouched
+    lastHaSig = sig;
+
+    var stagger = 0;
+    var nextDelay = function () { var d = stagger; stagger = Math.min(stagger + 22, 400); return d; };
+
     var power = [], climate = [], run = [], sensors = [];
     haEntities.forEach(function (e) {
       var d = haDomainOf(e);
@@ -1921,22 +2406,24 @@
     $('ha-sensor-group').style.display = sensors.length ? 'block' : 'none';
 
     $('ha-power-tiles').innerHTML = power.length
-      ? power.map(function (e) { return haTile(e); }).join('')
+      ? power.map(function (e) { return haTile(e, nextDelay()); }).join('')
       : '<div class="empty">No lights or switches found.</div>';
 
-    $('ha-climate-tiles').innerHTML = climate.map(function (e) { return haTile(e); }).join('');
+    $('ha-climate-tiles').innerHTML = climate.map(function (e) { return haTile(e, nextDelay()); }).join('');
     $('ha-run-tiles').innerHTML = run.map(function (e) {
-      return '<button class="ha-tile run-tile" data-domain="' + esc(e.domain) + '" data-entity="' + esc(e.entity_id) + '">' +
+      return '<div class="ha-tile run-tile enter" style="animation-delay:' + nextDelay() + 'ms" data-domain="' + esc(e.domain) + '" data-entity="' + esc(e.entity_id) + '">' +
         '<span class="t-icon">' + haIcon(e.domain) + '</span>' +
         '<span class="t-name">' + esc(e.name) + '</span>' +
-        '<span class="t-state"><span class="sdot"></span>&#9654; Run</span></button>';
+        '<span class="t-state"><span class="sdot"></span>&#9654; Run</span></div>';
     }).join('');
 
+    var sensorStagger = 0;
     var shown = sensors.slice(0, 40);
     $('ha-sensors').innerHTML = shown.map(function (e) {
       var unit = (e.attributes && e.attributes.unit_of_measurement) || '';
       var val = e.state === 'unavailable' ? '—' : e.state + (unit ? ' ' + unit : '');
-      return '<span class="sensor-chip">' + sensorIcon(e) + esc(e.name) + '<span class="val">' + esc(val) + '</span></span>';
+      var d = sensorStagger; sensorStagger = Math.min(sensorStagger + 14, 400);
+      return '<span class="sensor-chip enter" style="animation-delay:' + d + 'ms">' + sensorIcon(e) + esc(e.name) + '<span class="val">' + esc(val) + '</span></span>';
     }).join('') + (sensors.length > shown.length
       ? '<span class="sensor-chip">+' + (sensors.length - shown.length) + ' more</span>'
       : '');
@@ -1965,6 +2452,7 @@
     var domain = tile.getAttribute('data-domain');
     var entity = tile.getAttribute('data-entity');
     var isRun = tile.classList.contains('run-tile');
+    var wasOn = tile.classList.contains('on');
     tile.classList.add('busy');
 
     postJSON('/api/homeassistant/service', {
@@ -1974,7 +2462,14 @@
     }).then(function (d) {
       tile.classList.remove('busy');
       if (d.ok) {
-        if (isRun) toast('Ran ' + entity.split('.').slice(1).join('.'));
+        if (isRun) {
+          toast('Ran ' + entity.split('.').slice(1).join('.'));
+        } else {
+          tile.classList.toggle('on', !wasOn);
+          var st = tile.querySelector('.t-state');
+          if (st) st.innerHTML = '<span class="sdot"></span>' + (!wasOn ? 'On' : 'Off');
+        }
+        pulseTile(tile);
         setTimeout(loadHaStates, 700);
       } else {
         toast(d.error || 'Home Assistant could not do that.', true);
@@ -1985,10 +2480,99 @@
     });
   }
 
+  function tileOf(el) {
+    while (el && el !== document.body) {
+      if (el.classList && el.classList.contains('ha-tile')) return el;
+      el = el.parentNode;
+    }
+    return null;
+  }
+
+  function setTileState(tile, text, isOn) {
+    var st = tile.querySelector('.t-state');
+    if (st) st.innerHTML = '<span class="sdot"></span>' + esc(text);
+    if (isOn) tile.classList.add('on');
+  }
+
+  /* brightness slider: drag to dim, release confirms */
+  var brightTimers = {};
+
+  function sendBrightness(input) {
+    var n = parseInt(input.value, 10);
+    if (isNaN(n) || n < 1) n = 1;
+    var entity = input.getAttribute('data-entity');
+    var tile = tileOf(input);
+    if (tile) setTileState(tile, 'On · ' + n + '%', true);
+    postJSON('/api/homeassistant/service', {
+      domain: 'light',
+      service: 'turn_on',
+      entity_id: entity,
+      data: { brightness_pct: n }
+    }).then(function (d) {
+      if (!d.ok) toast(d.error || 'Could not change brightness.', true);
+    }).catch(function () {});
+  }
+
+  document.addEventListener('input', function (ev) {
+    var t = ev.target;
+    if (!t.classList || !t.classList.contains('t-bright')) return;
+    var tile = tileOf(t);
+    if (tile) setTileState(tile, 'On · ' + t.value + '%', true);
+    var entity = t.getAttribute('data-entity');
+    if (brightTimers[entity]) clearTimeout(brightTimers[entity]);
+    brightTimers[entity] = setTimeout(function () {
+      delete brightTimers[entity];
+      sendBrightness(t);
+    }, 400);
+  }, false);
+
+  document.addEventListener('change', function (ev) {
+    var t = ev.target;
+    if (!t.classList || !t.classList.contains('t-bright')) return;
+    var entity = t.getAttribute('data-entity');
+    if (brightTimers[entity]) { clearTimeout(brightTimers[entity]); delete brightTimers[entity]; }
+    sendBrightness(t);
+  }, false);
+
+  /* color dots */
+  function haColor(dot) {
+    var tile = tileOf(dot);
+    if (!tile) return;
+    var entity = tile.getAttribute('data-entity');
+    var data;
+    if (dot.getAttribute('data-temp')) {
+      data = { color_temp: parseInt(dot.getAttribute('data-temp'), 10) };
+    } else {
+      data = { hs_color: [parseFloat(dot.getAttribute('data-h')), parseFloat(dot.getAttribute('data-s'))] };
+    }
+    tile.classList.add('busy');
+    postJSON('/api/homeassistant/service', {
+      domain: 'light',
+      service: 'turn_on',
+      entity_id: entity,
+      data: data
+    }).then(function (d) {
+      tile.classList.remove('busy');
+      if (d.ok) {
+        setTileState(tile, 'On', true);
+        pulseTile(tile);
+        setTimeout(loadHaStates, 900);
+      } else {
+        toast(d.error || 'Could not change the color.', true);
+      }
+    }).catch(function () {
+      tile.classList.remove('busy');
+    });
+  }
+
   document.addEventListener('click', function (ev) {
     var t = ev.target;
     while (t && t !== document.body) {
-      if (t.classList && t.classList.contains('ha-tile')) { haTap(t); return; }
+      if (!t.classList) { t = t.parentNode; continue; }
+      if (t.classList.contains('c-dot')) { haColor(t); return; }
+      if (t.classList.contains('t-bright')) { return; }
+      if (t.classList.contains('t-controls')) { return; }
+      if (t.classList.contains('ha-tile')) { haTap(t); return; }
       t = t.parentNode;
     }
   });
@@ -2007,6 +2591,7 @@
   connectSSE();
   setInterval(function () { if (!document.hidden && !esOk) connectSSE(); }, 15000);
   setInterval(function () { if (!document.hidden) renderActivity(); }, 2000);
+  setInterval(function () { if (!document.hidden) layoutSplitters(); }, 2000);
   setInterval(function () { if (!document.hidden) tickWave(); }, WAVE_MS);
 
   renderHaStatus();

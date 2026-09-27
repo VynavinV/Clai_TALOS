@@ -437,9 +437,15 @@ def load_credentials():
 def get_client_ip(request):
     peername = request.transport.get_extra_info("peername")
     peer_ip = peername[0] if peername else "unknown"
-    forwarded = request.headers.get("X-Forwarded-For")
+    forwarded = request.headers.get("X-Forwarded-For", "")
     if forwarded and peer_ip in ("127.0.0.1", "::1", "localhost"):
-        return forwarded.split(",")[0].strip()
+        # A local reverse proxy (e.g. Tailscale Funnel) appends the real client
+        # IP as the last hop. Earlier entries are attacker-controlled, so only
+        # the last one is trustworthy — otherwise brute-force rate limiting can
+        # be evaded by sending a fake X-Forwarded-For with every request.
+        hops = [h.strip() for h in forwarded.split(",") if h.strip()]
+        if hops:
+            return hops[-1]
     return peer_ip
 
 
@@ -527,6 +533,74 @@ def is_rate_limited(ip):
     attempts = [t for t in attempts if now - t < LOCKOUT_SECONDS]
     login_attempts[ip] = attempts
     return len(attempts) >= MAX_ATTEMPTS
+
+
+# Second layer of brute-force protection keyed by account name, so an attacker
+# rotating source IPs still gets locked out.
+login_user_failures: dict[str, list[float]] = {}
+USER_LOCKOUT_ATTEMPTS = 20
+USER_LOCKOUT_WINDOW_S = 3600
+USER_LOCKOUT_S = 900
+
+
+def user_is_locked_out(username: str) -> bool:
+    now = time.time()
+    failures = [t for t in login_user_failures.get(username, []) if now - t < USER_LOCKOUT_WINDOW_S]
+    if failures:
+        login_user_failures[username] = failures
+    else:
+        login_user_failures.pop(username, None)
+    if len(failures) < USER_LOCKOUT_ATTEMPTS:
+        return False
+    newest = max(failures)
+    return now - newest < USER_LOCKOUT_S
+
+
+def record_user_failure(username: str) -> None:
+    if not username:
+        return
+    login_user_failures.setdefault(username, []).append(time.time())
+    # Cap: unauthenticated senders can spray random usernames, so the dict
+    # must not grow without bound. Keep only the freshest entries.
+    if len(login_user_failures) > 1000:
+        freshest = sorted(login_user_failures.items(), key=lambda kv: kv[1][-1], reverse=True)[:200]
+        login_user_failures.clear()
+        login_user_failures.update(freshest)
+
+
+def cleanup_auth_state() -> None:
+    """Drop expired sessions, CSRF tokens, and stale lockout counters.
+
+    Without this, long-running instances accumulate entries because expired
+    items are only removed lazily when re-validated.
+    """
+    now = time.time()
+    for token in [t for t, ts in csrf_tokens.items() if now - ts > CSRF_MAX_AGE]:
+        csrf_tokens.pop(token, None)
+    for token in [t for t, s in sessions.items() if now - s.get("created", 0) > SESSION_MAX_AGE]:
+        sessions.pop(token, None)
+    for ip in list(login_attempts):
+        recent = [t for t in login_attempts[ip] if now - t < LOCKOUT_SECONDS]
+        if recent:
+            login_attempts[ip] = recent
+        else:
+            login_attempts.pop(ip, None)
+    for user in list(login_user_failures):
+        recent = [t for t in login_user_failures[user] if now - t < USER_LOCKOUT_WINDOW_S]
+        if recent:
+            login_user_failures[user] = recent
+        else:
+            login_user_failures.pop(user, None)
+
+
+async def _auth_maintenance_loop(interval_s: int = 600) -> None:
+    """Periodically prune auth state so it cannot grow without bound."""
+    while True:
+        await asyncio.sleep(interval_s)
+        try:
+            cleanup_auth_state()
+        except Exception:
+            logger.exception("Auth state cleanup failed")
 
 
 def record_failed_attempt(ip, username=""):
@@ -2699,6 +2773,14 @@ async def handle_login(request):
     if not username or not password:
         return web.json_response({"error": "Username and password required."}, status=400)
 
+    # Account-level lockout survives IP rotation (botnets, proxies).
+    if user_is_locked_out(str(username)):
+        security_logger.warning(f"ACCOUNT_LOCKED username={username}")
+        return web.json_response(
+            {"error": "Too many failed attempts. Try again later."},
+            status=429,
+        )
+
     stored_user, stored_hash = load_credentials()
 
     if not stored_user or not stored_hash:
@@ -2714,9 +2796,13 @@ async def handle_login(request):
 
     if not user_match or not pass_match:
         record_failed_attempt(ip, username)
+        record_user_failure(str(username))
+        # Slow every failed attempt down a little beyond bcrypt's own cost.
+        await asyncio.sleep(0.6)
         return web.json_response({"error": "Invalid username or password."}, status=401)
 
     login_attempts.pop(ip, None)
+    login_user_failures.pop(str(username), None)
     log_successful_login(ip, username)
     session_token = create_session(username)
     response = web.json_response({"ok": True})
@@ -4051,6 +4137,14 @@ async def main():
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        if _is_secure(request):
+            response.headers["Strict-Transport-Security"] = "max-age=31536000"
+        # Pages carry session-scoped CSRF tokens and APIs return private data;
+        # never let a proxy or the browser cache them.
+        path = request.path
+        if not path.startswith("/static") and not path.startswith("/projects"):
+            response.headers["Cache-Control"] = "no-store"
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; script-src 'self' 'unsafe-inline'; "
             "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
@@ -4191,6 +4285,9 @@ async def main():
         print("Complete onboarding at the dashboard to connect Telegram.")
 
     cron_task = asyncio.create_task(cron_jobs.cron_loop(cron_stop))
+    auth_maintenance_task = asyncio.create_task(
+        _auth_maintenance_loop()
+    )
     warm_task = asyncio.create_task(
         ollama_setup.keep_warm_loop(warm_stop, _ollama_models_to_keep_warm)
     )
@@ -4202,6 +4299,7 @@ async def main():
     finally:
         cron_stop.set()
         cron_task.cancel()
+        auth_maintenance_task.cancel()
         warm_stop.set()
         warm_task.cancel()
         await _stop_telegram_runtime()

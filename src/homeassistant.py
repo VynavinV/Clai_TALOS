@@ -37,6 +37,12 @@ _KEEP_ATTRIBUTES = (
     "humidity",
     "hvac_mode",
     "brightness",
+    "hs_color",
+    "rgb_color",
+    "color_temp",
+    "min_mireds",
+    "max_mireds",
+    "supported_features",
     "battery_level",
 )
 
