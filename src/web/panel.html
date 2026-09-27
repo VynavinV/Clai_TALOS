@@ -11,10 +11,13 @@
 <link rel="apple-touch-icon" href="/static/clai-icon.png">
 <title>{{BOT_NAME}} — Panel</title>
 <style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Sora:wght@400;500;600;700&display=swap');
+
   :root {
     --bg-0: #050912;
     --bg-1: #0b1422;
     --surface-0: rgba(11, 18, 30, 0.76);
+    --surface-1: rgba(17, 28, 44, 0.9);
     --surface-2: rgba(255, 255, 255, 0.03);
     --stroke-soft: rgba(143, 217, 255, 0.16);
     --stroke-strong: rgba(143, 217, 255, 0.36);
@@ -28,297 +31,703 @@
     --ok: #42dfad;
     --radius-lg: 20px;
     --radius-md: 14px;
+    --topbar-h: 58px;
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
-
-  html { -webkit-text-size-adjust: 100%; }
+  html { -webkit-text-size-adjust: 100%; height: 100%; }
 
   body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Avenir Next', 'Segoe UI', sans-serif;
+    font-family: 'Sora', -apple-system, BlinkMacSystemFont, 'Avenir Next', sans-serif;
     background:
       radial-gradient(900px 620px at 87% -10%, rgba(86, 206, 255, 0.2), transparent 70%),
       radial-gradient(780px 520px at 6% -15%, rgba(85, 240, 203, 0.17), transparent 72%),
       linear-gradient(160deg, var(--bg-1), var(--bg-0));
     background-attachment: fixed;
     color: var(--text-0);
-    min-height: 100vh;
+    height: 100%;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
     -webkit-tap-highlight-color: transparent;
     -webkit-user-select: none;
     user-select: none;
   }
 
-  .topbar {
+  body::before {
+    content: '';
     position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    z-index: 20;
+    top: 0; left: 0; right: 0; bottom: 0;
+    pointer-events: none;
+    background-image:
+      linear-gradient(rgba(180, 220, 255, 0.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(180, 220, 255, 0.045) 1px, transparent 1px);
+    background-size: 30px 30px;
+    opacity: 0.45;
+    z-index: 0;
+  }
+
+  .aurora { position: fixed; top: -18%; left: -12%; width: 66vmin; height: 66vmin; border-radius: 50%; background: radial-gradient(circle, rgba(86, 206, 255, 0.13), transparent 65%); animation: drift 26s ease-in-out infinite alternate; pointer-events: none; z-index: 0; }
+  .aurora.a2 { left: auto; right: -14%; top: auto; bottom: -24%; background: radial-gradient(circle, rgba(85, 240, 203, 0.11), transparent 65%); animation-duration: 34s; }
+  @keyframes drift { from { transform: translate(0, 0) scale(1); } to { transform: translate(11vw, 7vh) scale(1.14); } }
+
+  .mono { font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; }
+
+  /* ---------- topbar ---------- */
+
+  .topbar {
+    position: relative;
+    z-index: 10;
     display: flex;
     align-items: center;
-    padding: 10px 16px;
-    padding-top: calc(10px + env(safe-area-inset-top));
-    background: linear-gradient(180deg, rgba(5, 9, 18, 0.96), rgba(5, 9, 18, 0.82));
+    height: var(--topbar-h);
+    padding: 0 1rem;
+    padding-top: env(safe-area-inset-top);
+    background: linear-gradient(180deg, rgba(6, 10, 20, 0.95), rgba(5, 9, 18, 0.86));
     border-bottom: 1px solid var(--stroke-soft);
     -webkit-backdrop-filter: blur(12px);
-  }
-  .topbar img { width: 34px; height: 34px; border-radius: 50%; border: 1px solid rgba(86, 206, 255, 0.45); }
-  .topbar .name { margin-left: 10px; font-size: 1rem; font-weight: 600; letter-spacing: 0.01em; }
-  .topbar .clock { margin-left: auto; text-align: right; }
-  .topbar .clock .time { font-size: 1.05rem; font-weight: 600; font-variant-numeric: tabular-nums; }
-  .topbar .clock .date { font-size: 0.68rem; color: var(--text-2); }
-
-  .live-badge {
-    display: inline-block;
-    margin-left: 12px;
-    padding: 4px 10px;
-    border-radius: 999px;
-    border: 1px solid rgba(66, 223, 173, 0.4);
-    background: rgba(66, 223, 173, 0.1);
-    color: var(--ok);
-    font-size: 0.66rem;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    vertical-align: middle;
-  }
-  .live-badge.off { border-color: rgba(255, 185, 105, 0.4); background: rgba(255, 185, 105, 0.1); color: var(--warn); }
-  .live-dot {
-    display: inline-block; width: 7px; height: 7px; border-radius: 50%;
-    background: currentColor; margin-right: 5px; vertical-align: 1px;
-    animation: pulse 1.6s ease-in-out infinite;
-  }
-  .live-badge.off .live-dot { animation: none; opacity: 0.4; }
-  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
-
-  .main {
-    padding: 86px 16px 32px;
-    padding-top: calc(86px + env(safe-area-inset-top));
-    max-width: 1220px;
-    margin: 0 auto;
+    backdrop-filter: blur(12px);
   }
 
-  .links {
+  .brand { display: flex; align-items: center; min-width: 0; }
+  .brand > * + * { margin-left: 0.7rem; }
+
+  .pulse-ring {
+    position: relative;
+    width: 42px;
+    height: 42px;
     display: flex;
-    flex-wrap: wrap;
-    margin: 0 0 18px -6px;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
   }
-  .links a {
-    display: inline-block;
-    padding: 8px 14px;
-    margin: 0 0 6px 6px;
-    border-radius: 999px;
-    border: 1px solid var(--stroke-soft);
-    background: var(--surface-2);
-    color: var(--text-1);
-    font-size: 0.8rem;
-    font-weight: 500;
-    text-decoration: none;
+  .pulse-ring::before,
+  .pulse-ring::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    border-radius: 50%;
+    border: 1px solid rgba(86, 206, 255, 0.45);
+    animation: pulse 2.5s ease-out infinite;
   }
-  .links a:active { background: rgba(86, 206, 255, 0.15); border-color: var(--stroke-strong); }
+  .pulse-ring::after { animation-delay: 1.15s; border-color: rgba(85, 240, 203, 0.55); }
+  @keyframes pulse {
+    0% { transform: scale(1); opacity: 0.65; }
+    100% { transform: scale(1.5); opacity: 0; }
+  }
+  .pulse-ring img {
+    width: 32px; height: 32px; border-radius: 50%;
+    border: 1px solid rgba(86, 206, 255, 0.5);
+    box-shadow: 0 0 18px rgba(86, 206, 255, 0.28);
+    position: relative; z-index: 1;
+  }
 
-  .grid {
+  .brand-name { font-size: 0.95rem; font-weight: 600; letter-spacing: 0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .svc-dots { display: flex; align-items: center; margin-left: 0.9rem; cursor: pointer; padding: 6px 2px; }
+  .svc-dots span { width: 7px; height: 7px; border-radius: 50%; margin-right: 4px; background: var(--text-2); opacity: 0.3; transition: all 0.3s ease; }
+  .svc-dots span.ok { background: var(--ok); opacity: 1; box-shadow: 0 0 7px rgba(66, 223, 173, 0.7); }
+  .svc-dots span.warn { background: var(--warn); opacity: 1; box-shadow: 0 0 7px rgba(255, 185, 105, 0.7); animation: pulse-dot 1.4s ease-in-out infinite; }
+  .svc-dots span.err { background: var(--danger); opacity: 1; box-shadow: 0 0 7px rgba(255, 111, 139, 0.7); }
+
+  .meta-pill {
+    font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700;
+    padding: 0.32rem 0.58rem; border-radius: 999px;
+    border: 1px solid rgba(86, 206, 255, 0.44); color: #c8f0ff; background: rgba(86, 206, 255, 0.14);
+    white-space: nowrap;
+  }
+  .meta-pill.off { color: #ffd9a3; border-color: rgba(255, 185, 105, 0.45); background: rgba(255, 185, 105, 0.1); }
+  .live-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: currentColor; margin-right: 5px; vertical-align: 1px; animation: pulse-dot 1.4s ease-in-out infinite; }
+  .meta-pill.off .live-dot { animation: none; opacity: 0.4; }
+  @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+  .topbar .pills { display: flex; align-items: center; margin-left: 0.7rem; }
+  .topbar .pills > * + * { margin-left: 0.45rem; }
+
+  .clock { margin-left: auto; text-align: right; flex-shrink: 0; }
+  .clock .time { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 1.28rem; font-weight: 700; letter-spacing: 0.03em; color: var(--text-0); text-shadow: 0 0 18px rgba(86, 206, 255, 0.35); }
+  .clock .date { font-size: 0.58rem; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.12em; }
+
+  .nav-links { display: flex; margin-left: 0.9rem; flex-shrink: 0; }
+  .nav-links > a + a { margin-left: 0.4rem; }
+  .nav-links a {
+    font-size: 0.72rem; font-weight: 500; color: var(--text-1); text-decoration: none;
+    padding: 0.4rem 0.66rem; border: 1px solid var(--stroke-soft); border-radius: 999px;
+    background: var(--surface-2); white-space: nowrap;
+  }
+  .nav-links a:active { border-color: var(--stroke-strong); color: #e2f4ff; }
+
+  /* ---------- board ---------- */
+
+  .main { flex: 1; min-height: 0; padding: 0.85rem; position: relative; z-index: 1; animation: rise-in 0.45s ease; }
+  @keyframes rise-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+  .board {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
-    grid-gap: 16px;
-    gap: 16px;
-    align-items: start;
+    grid-template-columns: minmax(0, 1.45fr) minmax(290px, 1fr);
+    grid-template-rows: minmax(0, 1.35fr) minmax(0, 1fr) auto;
+    grid-gap: 0.85rem;
+    gap: 0.85rem;
+    height: 100%;
+    min-height: 0;
   }
+  #sec-agents { grid-column: 1; grid-row: 1; min-height: 0; }
+  #sec-output { grid-column: 1; grid-row: 2; min-height: 0; }
+  #sec-side { grid-column: 2; grid-row: 1 / 3; min-height: 0; }
+  #sec-ha { grid-column: 1 / 3; grid-row: 3; min-height: 0; max-height: 34vh; display: flex; flex-direction: column; }
 
-  .card {
-    background: var(--surface-0);
+  /* ---------- sections ---------- */
+
+  .section {
+    background: linear-gradient(165deg, var(--surface-1), var(--surface-0));
     border: 1px solid var(--stroke-soft);
     border-radius: var(--radius-lg);
-    padding: 18px;
-    min-width: 0;
+    box-shadow: 0 14px 34px rgba(3, 10, 20, 0.32);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+    position: relative;
   }
-  .card.wide { grid-column: 1 / -1; }
-  .card-title {
+  .section::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 10%; right: 10%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(143, 217, 255, 0.4), transparent);
+    pointer-events: none;
+  }
+
+  .sec-head {
     display: flex;
     align-items: center;
-    font-size: 0.86rem;
-    font-weight: 600;
-    color: var(--text-1);
-    letter-spacing: 0.02em;
-    margin-bottom: 14px;
+    padding: 0.6rem 0.95rem;
+    cursor: pointer;
+    flex-shrink: 0;
+    min-height: 44px;
+    border-bottom: 1px solid rgba(143, 217, 255, 0.1);
   }
-  .card-title .dot { width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; flex: 0 0 auto; }
-  .dot.ok { background: var(--ok); box-shadow: 0 0 8px rgba(66, 223, 173, 0.5); }
-  .dot.warn { background: var(--warn); box-shadow: 0 0 8px rgba(255, 185, 105, 0.5); }
-  .dot.err { background: var(--danger); box-shadow: 0 0 8px rgba(255, 111, 139, 0.5); }
-  .dot.idle { background: var(--text-2); }
-  .card-title .meta { margin-left: auto; font-size: 0.68rem; font-weight: 400; color: var(--text-2); }
+  .sec-head > * + * { margin-left: 0.55rem; }
+  .sec-head:active { background: rgba(86, 206, 255, 0.06); }
 
-  .empty { color: var(--text-2); font-size: 0.85rem; padding: 12px 0; line-height: 1.5; }
+  .sec-icon { font-size: 0.9rem; line-height: 1; flex-shrink: 0; }
+  .sec-title { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-2); font-weight: 700; white-space: nowrap; }
 
-  /* System checks */
-  .check-row {
-    display: flex;
-    align-items: center;
-    padding: 10px 2px;
-    border-bottom: 1px solid rgba(143, 217, 255, 0.07);
-    font-size: 0.88rem;
-  }
-  .check-row:last-child { border-bottom: none; }
-  .check-row .dot { margin-right: 10px; flex: 0 0 auto; }
-  .check-row .detail { margin-left: auto; color: var(--text-2); font-size: 0.72rem; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .uptime-line { margin-top: 12px; font-size: 0.74rem; color: var(--text-2); }
+  .sec-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .sec-dot.ok { background: var(--ok); box-shadow: 0 0 8px rgba(66, 223, 173, 0.6); }
+  .sec-dot.warn { background: var(--warn); box-shadow: 0 0 8px rgba(255, 185, 105, 0.6); }
+  .sec-dot.err { background: var(--danger); box-shadow: 0 0 8px rgba(255, 111, 139, 0.6); }
+  .sec-dot.idle { background: var(--text-2); }
 
-  /* Agents */
-  .agent-row {
-    display: flex;
-    align-items: center;
-    padding: 10px 2px;
-    border-bottom: 1px solid rgba(143, 217, 255, 0.07);
-  }
-  .agent-row:last-child { border-bottom: none; }
-  .agent-avatar {
-    width: 34px; height: 34px; border-radius: 50%; flex: 0 0 auto;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 0.8rem; font-weight: 700;
-    border: 1px solid var(--stroke-strong);
-    background: rgba(86, 206, 255, 0.12); color: var(--accent);
-  }
-  .agent-avatar.sub { border-color: rgba(183, 148, 244, 0.5); background: rgba(183, 148, 244, 0.12); color: #b794f4; }
-  .agent-info { margin-left: 12px; min-width: 0; flex: 1; }
-  .agent-name { font-size: 0.86rem; font-weight: 600; }
-  .agent-current { font-size: 0.72rem; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }
-  .status-pill {
-    margin-left: 10px; flex: 0 0 auto;
-    padding: 4px 10px; border-radius: 999px; font-size: 0.66rem; font-weight: 600; letter-spacing: 0.04em;
-  }
-  .status-pill.working { background: rgba(66, 223, 173, 0.12); color: var(--ok); border: 1px solid rgba(66, 223, 173, 0.35); }
-  .status-pill.idle { background: rgba(123, 143, 168, 0.12); color: var(--text-2); border: 1px solid rgba(123, 143, 168, 0.3); }
+  .sec-meta { margin-left: auto; font-size: 0.64rem; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-  /* Tasks */
-  .task-row {
-    padding: 10px 2px;
-    border-bottom: 1px solid rgba(143, 217, 255, 0.07);
-  }
-  .task-row:last-child { border-bottom: none; }
-  .task-head { display: flex; align-items: center; font-size: 0.86rem; font-weight: 600; }
-  .task-sched { margin-left: auto; color: var(--text-2); font-size: 0.7rem; font-weight: 400; font-family: ui-monospace, Menlo, monospace; }
-  .task-sub { font-size: 0.72rem; color: var(--text-2); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .task-pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.6rem; font-weight: 700; letter-spacing: 0.05em; margin-left: 8px; }
-  .task-pill.on { background: rgba(66, 223, 173, 0.12); color: var(--ok); }
-  .task-pill.off { background: rgba(123, 143, 168, 0.15); color: var(--text-2); }
+  .chev { color: var(--text-2); font-size: 0.6rem; transition: transform 0.2s ease; flex-shrink: 0; }
+  .section.collapsed .chev { transform: rotate(-90deg); }
+  .section.collapsed .sec-head { border-bottom-color: transparent; }
+  .section.collapsed .sec-body { display: none !important; }
 
-  /* Model output */
-  .output-box {
-    background: rgba(4, 8, 16, 0.72);
-    border: 1px solid var(--stroke-soft);
-    border-radius: var(--radius-md);
-    padding: 12px;
-    font-family: ui-monospace, Menlo, monospace;
-    font-size: 0.76rem;
-    line-height: 1.6;
-    color: var(--text-1);
-    white-space: pre-wrap;
-    word-break: break-word;
+  .sec-body {
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
-    max-height: 210px;
+    padding: 0.8rem;
+    position: relative;
+  }
+  .sec-body.no-pad { padding: 0; }
+
+  /* ---------- agents web ---------- */
+
+  .agents-web {
+    position: relative;
+    height: 100%;
+    min-height: 180px;
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(143, 217, 255, 0.16);
+    background:
+      radial-gradient(circle at 22% 50%, rgba(86, 206, 255, 0.14), transparent 45%),
+      radial-gradient(circle at 82% 18%, rgba(85, 240, 203, 0.12), transparent 48%),
+      linear-gradient(165deg, rgba(10, 18, 32, 0.78), rgba(8, 14, 24, 0.72));
+    overflow: hidden;
+    isolation: isolate;
+  }
+  .agents-web::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background-image:
+      linear-gradient(rgba(143, 217, 255, 0.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(143, 217, 255, 0.06) 1px, transparent 1px);
+    background-size: 34px 34px;
+    opacity: 0.35;
+    z-index: 0;
+  }
+  .agents-web-links { position: absolute; top: 0; left: 0; right: 0; bottom: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; }
+  .agents-web-links line { stroke: rgba(143, 217, 255, 0.2); stroke-width: 1.3; stroke-linecap: round; }
+  .agents-web-links line.active { stroke: rgba(86, 206, 255, 0.5); filter: drop-shadow(0 0 4px rgba(86, 206, 255, 0.44)); }
+  .agents-web-stage { position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 2; pointer-events: none; }
+
+  .agent-node {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    width: 148px;
+    min-height: 74px;
+    padding: 0.55rem 0.58rem;
+    border-radius: 12px;
+    border: 1px solid rgba(143, 217, 255, 0.24);
+    background: linear-gradient(155deg, rgba(17, 29, 46, 0.92), rgba(11, 18, 31, 0.82));
+    box-shadow: 0 10px 22px rgba(3, 10, 20, 0.38);
+    overflow: hidden;
+    -webkit-backdrop-filter: blur(2px);
+    backdrop-filter: blur(2px);
+    pointer-events: auto;
+    cursor: pointer;
+  }
+  .agent-node::before {
+    content: '';
+    position: absolute;
+    width: 54px; height: 54px;
+    top: -22px; left: -18px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(86, 206, 255, 0.36), transparent 72%);
+    opacity: 0.45;
+    pointer-events: none;
+  }
+  .agent-node::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    opacity: 0;
+  }
+  .agent-node.active::after { opacity: 1; animation: shimmer 2s ease-in-out infinite; }
+  @keyframes shimmer { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+
+  .agent-node.subagent { z-index: 3; }
+  .agent-node.orchestrator {
+    width: 184px;
+    min-height: 90px;
+    border-color: rgba(86, 206, 255, 0.52);
+    background: linear-gradient(150deg, rgba(86, 206, 255, 0.2), rgba(13, 23, 38, 0.9));
+    box-shadow: 0 14px 28px rgba(6, 16, 30, 0.48);
+    z-index: 4;
+  }
+  .agent-node.is-idle { opacity: 0.84; }
+  .agent-node.selected { border-color: var(--accent-2); box-shadow: 0 0 0 1px rgba(85, 240, 203, 0.35), 0 14px 28px rgba(6, 16, 30, 0.48); }
+
+  .node-spin {
+    position: absolute;
+    top: -8px; left: 50%;
+    margin-left: -8px;
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    border-top-color: var(--accent);
+    border-right-color: rgba(86, 206, 255, 0.5);
+    animation: spin 1.1s linear infinite;
+    pointer-events: none;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .agent-node-head { display: flex; align-items: center; min-width: 0; margin-bottom: 0.24rem; }
+  .agent-node-head > * + * { margin-left: 0.42rem; }
+  .agent-node-icon {
+    width: 21px; height: 21px;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #f6fbff;
+    background: linear-gradient(135deg, rgba(139, 92, 246, 0.94), rgba(177, 151, 255, 0.92));
+    box-shadow: 0 0 10px rgba(139, 92, 246, 0.34), inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+    flex-shrink: 0;
+    line-height: 1;
+  }
+  .agent-node.orchestrator .agent-node-icon {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.95), rgba(86, 206, 255, 0.94));
+    box-shadow: 0 0 10px rgba(86, 206, 255, 0.34), inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+  }
+  .agent-node-name { font-size: 0.74rem; font-weight: 600; color: var(--text-0); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .agent-node-status {
+    display: flex; align-items: center;
+    font-size: 0.61rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.055em; color: #9ec2d8;
+  }
+  .agent-node-task {
+    margin-top: 0.26rem; font-size: 0.66rem; color: var(--text-2); line-height: 1.24;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .agent-node-task strong { color: var(--accent); font-weight: 600; }
+
+  .live-dot-sm { display: inline-block; width: 5px; height: 5px; border-radius: 50%; margin-right: 0.3rem; vertical-align: middle; }
+  .live-dot-sm.on { background: var(--ok); box-shadow: 0 0 6px rgba(66,223,173,0.6); animation: pulse-dot-sm 1.4s ease-in-out infinite; }
+  .live-dot-sm.off { background: var(--text-2); }
+  @keyframes pulse-dot-sm { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(0.8); } }
+
+  .agents-empty {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    padding: 0.7rem;
+    color: var(--text-2); font-size: 0.78rem;
+    z-index: 5; pointer-events: none;
+    text-align: center;
+  }
+  .agents-empty > * + * { margin-top: 0.5rem; }
+  .agents-empty .sleeping-icon { font-size: 2rem; opacity: 0.4; animation: breathe 3.5s ease-in-out infinite; }
+  @keyframes breathe { 0%, 100% { opacity: 0.3; transform: scale(1); } 50% { opacity: 0.6; transform: scale(1.08); } }
+
+  /* ---------- output panel ---------- */
+
+  .wave-strip {
+    display: flex;
+    align-items: flex-end;
+    height: 34px;
+    margin: 0.55rem 0.7rem 0;
+    padding: 0 0.55rem;
+    border-radius: 8px;
+    border: 1px solid rgba(143, 217, 255, 0.1);
+    background: rgba(0, 0, 0, 0.22);
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .wv-bar {
+    flex: 1;
+    max-width: 10px;
+    margin-right: 2px;
+    border-radius: 2px 2px 0 0;
+    background: linear-gradient(180deg, rgba(86, 206, 255, 0.75), rgba(86, 206, 255, 0.12));
+    min-height: 2px;
+    transition: height 0.5s ease;
+  }
+  .wv-bar.hot { background: linear-gradient(180deg, var(--accent-2), rgba(85, 240, 203, 0.15)); box-shadow: 0 0 6px rgba(85, 240, 203, 0.4); }
+
+  .out-tabs {
+    display: flex; align-items: center;
+    padding: 0.45rem 0.6rem 0;
+    overflow-x: auto; -webkit-overflow-scrolling: touch;
+    flex-shrink: 0;
+  }
+  .out-tabs > * + * { margin-left: 0.35rem; }
+  .out-tab {
+    display: inline-flex; align-items: center;
+    padding: 0.34rem 0.62rem;
+    border-radius: 999px;
+    border: 1px solid rgba(143, 217, 255, 0.2);
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--text-2);
+    font-family: inherit;
+    font-size: 0.68rem; font-weight: 600; letter-spacing: 0.02em;
+    white-space: nowrap; cursor: pointer; flex-shrink: 0;
+  }
+  .out-tab.active { color: #dff4ff; border-color: rgba(86, 206, 255, 0.5); background: rgba(86, 206, 255, 0.14); box-shadow: 0 0 12px rgba(86, 206, 255, 0.15); }
+  .out-tab .live-dot-sm { margin-right: 0; }
+  .out-tab > .live-dot-sm { margin-right: 0.3rem; }
+
+  .follow-btn {
+    margin-left: auto;
+    padding: 0.3rem 0.6rem;
+    border-radius: 999px;
+    border: 1px solid rgba(85, 240, 203, 0.42);
+    background: rgba(66, 223, 173, 0.14);
+    color: var(--accent-2);
+    font-family: inherit;
+    font-size: 0.6rem; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+    cursor: pointer; flex-shrink: 0;
+  }
+  .follow-btn.muted { border-color: var(--stroke-soft); background: var(--surface-2); color: var(--text-2); }
+
+  .out-box {
+    flex: 1; min-height: 0;
+    margin: 0.5rem 0.6rem;
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(143, 217, 255, 0.13);
+    background: rgba(0, 0, 0, 0.3);
+    font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+    font-size: 0.73rem;
+    line-height: 1.6;
+    color: var(--text-1);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 0.7rem 0.8rem;
     -webkit-user-select: text;
     user-select: text;
   }
-  .caret {
-    display: inline-block; width: 8px; height: 14px; background: var(--accent);
-    vertical-align: -2px; margin-left: 2px; animation: blink 0.9s step-end infinite;
+  .out-block {
+    border-left: 2px solid var(--accent);
+    padding-left: 0.55rem;
+    margin-bottom: 0.6rem;
+    animation: rise-in 0.3s ease;
   }
-  @keyframes blink { 50% { opacity: 0; } }
-  .feed-row {
-    display: flex;
-    align-items: baseline;
-    padding: 7px 0;
-    border-bottom: 1px solid rgba(143, 217, 255, 0.07);
-    font-size: 0.78rem;
+  .out-block.reasoning { border-left-color: #b794f4; }
+  .out-block.tool, .out-block.tool_args { border-left-color: var(--warn); }
+  .out-kind {
+    display: inline-block;
+    font-size: 0.56rem; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase;
+    color: var(--accent); background: rgba(86, 206, 255, 0.1);
+    border-radius: 5px; padding: 0.08rem 0.4rem; margin-bottom: 0.28rem;
   }
-  .feed-row:last-child { border-bottom: none; }
-  .feed-row .tag {
-    flex: 0 0 auto; margin-right: 8px;
-    font-size: 0.62rem; font-weight: 700; letter-spacing: 0.05em;
-    padding: 2px 7px; border-radius: 6px;
-    background: rgba(86, 206, 255, 0.1); color: var(--accent);
-  }
-  .feed-row .tag.error { background: rgba(255, 111, 139, 0.12); color: var(--danger); }
-  .feed-row .tag.done { background: rgba(66, 223, 173, 0.12); color: var(--ok); }
-  .feed-row .tag.tool, .feed-row .tag.command { background: rgba(255, 185, 105, 0.1); color: var(--warn); }
-  .feed-row .tag.spawn, .feed-row .tag.model { background: rgba(183, 148, 244, 0.12); color: #b794f4; }
-  .feed-row .txt { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-1); }
-  .feed-row .age { flex: 0 0 auto; margin-left: 8px; color: var(--text-2); font-size: 0.66rem; font-variant-numeric: tabular-nums; }
+  .out-kind.reasoning { color: #b794f4; background: rgba(183, 148, 244, 0.12); }
+  .out-kind.tool, .out-kind.tool_args { color: var(--warn); background: rgba(255, 185, 105, 0.1); }
+  .out-text { white-space: pre-wrap; word-break: break-word; }
 
-  /* Home Assistant */
-  .ha-status-line { display: flex; align-items: center; gap: 10px; font-size: 0.85rem; margin-bottom: 14px; flex-wrap: wrap; }
-  .ha-sub { font-size: 0.7rem; color: var(--text-2); }
-  .ha-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); grid-gap: 14px; gap: 14px; }
-  .ha-group-title { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em; color: var(--text-2); text-transform: uppercase; margin-bottom: 10px; }
-  .ha-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); grid-gap: 10px; gap: 10px; }
-  .ha-tile {
-    min-height: 74px;
+  .caret { display: inline-block; width: 7px; height: 13px; background: var(--accent); vertical-align: -2px; margin-left: 2px; animation: blink 0.9s step-end infinite; box-shadow: 0 0 8px rgba(86, 206, 255, 0.6); }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  .out-ticker {
+    display: flex; align-items: center;
+    padding: 0.4rem 0.85rem 0.5rem;
+    border-top: 1px solid rgba(143, 217, 255, 0.09);
+    font-size: 0.66rem; color: var(--text-2);
+    flex-shrink: 0; min-height: 30px;
+  }
+  .out-ticker > * + * { margin-left: 0.45rem; }
+  .out-ticker .tag {
+    font-size: 0.55rem; font-weight: 700; letter-spacing: 0.07em;
+    padding: 0.1rem 0.4rem; border-radius: 5px;
+    background: rgba(86, 206, 255, 0.1); color: var(--accent);
+    flex-shrink: 0; text-transform: uppercase;
+  }
+  .out-ticker .tag.error { background: rgba(255, 111, 139, 0.12); color: var(--danger); }
+  .out-ticker .tag.done { background: rgba(66, 223, 173, 0.12); color: var(--ok); }
+  .out-ticker .tag.tool, .out-ticker .tag.command { background: rgba(255, 185, 105, 0.1); color: var(--warn); }
+  .out-ticker .tag.spawn, .out-ticker .tag.model { background: rgba(183, 148, 244, 0.12); color: #b794f4; }
+  .out-ticker .txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .out-ticker .age { margin-left: auto; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+
+  /* ---------- right column: vitals ---------- */
+
+  #sec-side .sec-body { display: flex; flex-direction: column; }
+  #sec-side .sec-body > * + * { margin-top: 0.8rem; }
+
+  .vitals {
+    display: grid;
+    grid-template-columns: 108px minmax(0, 1fr);
+    grid-gap: 0.8rem;
+    gap: 0.8rem;
+    align-items: center;
+    padding: 0.75rem 0.85rem;
     border-radius: var(--radius-md);
-    border: 1px solid var(--stroke-soft);
-    background: var(--surface-2);
-    padding: 12px;
-    text-align: left;
-    color: var(--text-0);
-    font-family: inherit;
-    font-size: 0.82rem;
-    font-weight: 500;
+    border: 1px solid rgba(85, 240, 203, 0.28);
+    background: linear-gradient(155deg, rgba(85, 240, 203, 0.1), rgba(9, 18, 32, 0.78));
+  }
+
+  .gauge { width: 108px; height: 108px; display: block; }
+  .gauge .gauge-bg { fill: none; stroke: rgba(255, 255, 255, 0.09); stroke-width: 7; }
+  .gauge .gauge-fill {
+    fill: none;
+    stroke: var(--ok);
+    stroke-width: 7;
+    stroke-linecap: round;
+    stroke-dasharray: 213.6;
+    stroke-dashoffset: 213.6;
+    transform: rotate(-90deg);
+    transform-origin: 42px 42px;
+    transition: stroke-dashoffset 0.7s ease, stroke 0.4s ease;
+    filter: drop-shadow(0 0 5px rgba(66, 223, 173, 0.5));
+  }
+  .gauge.warning .gauge-fill { stroke: var(--warn); filter: drop-shadow(0 0 5px rgba(255, 185, 105, 0.5)); }
+  .gauge.critical .gauge-fill { stroke: var(--danger); filter: drop-shadow(0 0 5px rgba(255, 111, 139, 0.5)); }
+  .gauge .gauge-num { font-family: 'JetBrains Mono', monospace; font-size: 21px; font-weight: 700; fill: var(--text-0); text-anchor: middle; }
+  .gauge .gauge-label { font-family: 'Sora', sans-serif; font-size: 7px; font-weight: 700; letter-spacing: 1.6px; fill: var(--text-2); text-anchor: middle; }
+
+  .stat-grid { display: grid; grid-template-columns: 1fr 1fr; grid-gap: 0.55rem; gap: 0.55rem; }
+  .stat {
+    padding: 0.55rem 0.65rem;
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(143, 217, 255, 0.14);
+    background: rgba(255, 255, 255, 0.025);
+    min-width: 0;
+  }
+  .stat-num { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 1.22rem; font-weight: 700; color: var(--text-0); line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .stat-num .denom { font-size: 0.78rem; color: var(--text-2); font-weight: 500; }
+  .stat-num.ok { color: var(--ok); text-shadow: 0 0 14px rgba(66, 223, 173, 0.4); }
+  .stat-label { font-size: 0.57rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-2); margin-top: 0.25rem; }
+  .pending { animation: pulse-dot 1.2s ease-in-out infinite; }
+
+  /* ---------- system tiles ---------- */
+
+  .svc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); grid-gap: 0.55rem; gap: 0.55rem; }
+  .svc-tile {
+    position: relative;
     display: flex;
     flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 0.7rem 0.4rem 0.62rem;
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(143, 217, 255, 0.14);
+    background: rgba(255, 255, 255, 0.025);
+    overflow: hidden;
+  }
+  .svc-tile.ok { border-color: rgba(66, 223, 173, 0.32); }
+  .svc-tile.warn { border-color: rgba(255, 185, 105, 0.4); }
+  .svc-tile.err { border-color: rgba(255, 111, 139, 0.45); }
+  .svc-emoji { font-size: 1.35rem; line-height: 1; filter: drop-shadow(0 0 8px rgba(143, 217, 255, 0.3)); }
+  .svc-tile.ok .svc-emoji { filter: drop-shadow(0 0 8px rgba(66, 223, 173, 0.5)); }
+  .svc-tile.warn .svc-emoji { filter: drop-shadow(0 8px 8px rgba(255, 185, 105, 0.5)); animation: wobble 2.2s ease-in-out infinite; }
+  .svc-tile.err .svc-emoji { filter: drop-shadow(0 0 8px rgba(255, 111, 139, 0.5)); animation: pulse-dot 1.2s ease-in-out infinite; }
+  @keyframes wobble { 0%, 100% { transform: rotate(-6deg); } 50% { transform: rotate(6deg); } }
+  .svc-name { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-1); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .svc-tile > .svc-name { margin-top: 0.3rem; }
+  .svc-tile .svc-ring {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, currentColor, transparent);
+    opacity: 0.7;
+  }
+  .svc-tile.ok .svc-ring { color: var(--ok); }
+  .svc-tile.warn .svc-ring { color: var(--warn); }
+  .svc-tile.err .svc-ring { color: var(--danger); }
+
+  /* ---------- tasks ---------- */
+
+  .task-list { display: flex; flex-direction: column; }
+  .task-row {
+    display: flex; align-items: center;
+    padding: 0.5rem 0.1rem;
+    border-bottom: 1px solid rgba(143, 217, 255, 0.08);
+  }
+  .task-row > * + * { margin-left: 0.5rem; }
+  .task-row:last-child { border-bottom: none; }
+  .task-emoji { font-size: 0.95rem; flex-shrink: 0; line-height: 1; }
+  .task-name { font-size: 0.8rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .task-row.off .task-name { color: var(--text-2); }
+  .task-next { margin-left: auto; flex-shrink: 0; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.64rem; color: var(--accent); background: rgba(86, 206, 255, 0.08); border: 1px solid rgba(86, 206, 255, 0.22); padding: 0.16rem 0.5rem; border-radius: 999px; white-space: nowrap; }
+  .task-row.off .task-next { color: var(--text-2); background: none; border-color: rgba(255,255,255,0.1); }
+  .task-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: var(--ok); box-shadow: 0 0 6px rgba(66, 223, 173, 0.6); }
+  .task-row.off .task-dot { background: var(--text-2); box-shadow: none; }
+  .empty { color: var(--text-2); font-size: 0.76rem; padding: 0.7rem 0.1rem; line-height: 1.5; }
+
+  details.fold summary {
+    font-size: 0.62rem; color: var(--text-2); cursor: pointer;
+    letter-spacing: 0.1em; text-transform: uppercase; font-weight: 700;
+    list-style: none;
+  }
+  details.fold summary::-webkit-details-marker { display: none; }
+
+  /* ---------- Home Assistant ---------- */
+
+  .ha-status { display: flex; align-items: center; font-size: 0.76rem; color: var(--text-1); flex-wrap: wrap; }
+  .ha-status > * + * { margin-left: 0.55rem; }
+  .ha-status .err { color: var(--warn); line-height: 1.45; }
+  .ha-mini-btn {
+    margin-left: auto;
+    padding: 0.32rem 0.7rem;
+    border-radius: 999px;
+    border: 1px solid rgba(143, 217, 255, 0.3);
+    background: rgba(86, 206, 255, 0.1);
+    color: var(--accent);
+    font-family: inherit;
+    font-size: 0.68rem; font-weight: 600;
     cursor: pointer;
   }
-  .ha-tile:active { background: rgba(86, 206, 255, 0.14); }
-  .ha-tile .t-state { margin-top: auto; font-size: 0.68rem; color: var(--text-2); font-weight: 600; padding-top: 8px; }
-  .ha-tile.on { border-color: rgba(66, 223, 173, 0.5); background: rgba(66, 223, 173, 0.08); }
-  .ha-tile.on .t-state { color: var(--ok); }
-  .ha-tile.busy { opacity: 0.45; pointer-events: none; }
-  .ha-tile.run-tile .t-state { color: var(--accent); }
 
-  .sensor-list { display: flex; flex-wrap: wrap; margin: 0 -4px -8px 0; }
-  .sensor-chip {
-    display: inline-block;
-    margin: 0 6px 8px 0;
-    padding: 7px 12px;
-    border-radius: 999px;
-    border: 1px solid var(--stroke-soft);
-    background: var(--surface-2);
-    font-size: 0.75rem;
+  .ha-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); grid-gap: 0.75rem; gap: 0.75rem; align-items: start; }
+  .ha-group-title { font-size: 0.58rem; font-weight: 700; letter-spacing: 0.13em; color: var(--text-2); text-transform: uppercase; margin-bottom: 0.5rem; }
+  .ha-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); grid-gap: 0.5rem; gap: 0.5rem; }
+
+  .ha-tile {
+    position: relative;
+    width: 100%;
+    padding: 0.6rem 0.6rem 0.55rem;
+    background: linear-gradient(145deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
+    border: 1px solid rgba(143, 217, 255, 0.18);
+    border-radius: var(--radius-md);
     color: var(--text-1);
+    font-family: inherit;
+    font-size: 0.78rem;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    text-align: left;
+    min-height: 76px;
+    overflow: hidden;
+    transition: border-color 0.25s ease, box-shadow 0.25s ease;
   }
-  .sensor-chip .val { font-weight: 700; color: var(--text-0); margin-left: 6px; }
+  .ha-tile:active { border-color: rgba(86, 206, 255, 0.44); background: linear-gradient(145deg, rgba(86, 206, 255, 0.2), rgba(255, 255, 255, 0.04)); }
+  .ha-tile .t-icon {
+    font-size: 1.45rem;
+    line-height: 1;
+    margin-bottom: 0.4rem;
+    transition: all 0.25s ease;
+  }
+  .ha-tile .t-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; font-size: 0.74rem; }
+  .ha-tile .t-state {
+    margin-top: auto; padding-top: 0.45rem;
+    font-size: 0.58rem; font-weight: 700; letter-spacing: 0.09em;
+    color: var(--text-2); text-transform: uppercase;
+    display: flex; align-items: center;
+  }
+  .ha-tile .t-state .sdot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; margin-right: 0.3rem; flex-shrink: 0; }
+  .ha-tile.on {
+    border-color: rgba(66, 223, 173, 0.5);
+    background: linear-gradient(145deg, rgba(66, 223, 173, 0.13), rgba(255, 255, 255, 0.02));
+    box-shadow: 0 0 18px rgba(66, 223, 173, 0.12), inset 0 0 20px rgba(66, 223, 173, 0.05);
+  }
+  .ha-tile.on .t-icon { filter: drop-shadow(0 0 9px rgba(66, 223, 173, 0.7)); }
+  .ha-tile.on .t-state { color: var(--ok); }
+  .ha-tile.on::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--ok), transparent);
+    animation: shimmer 2.4s ease-in-out infinite;
+  }
+  .ha-tile.busy { opacity: 0.4; pointer-events: none; }
+  .ha-tile .t-temp { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 1rem; font-weight: 700; color: var(--text-0); }
 
-  /* Setup steps (grandma edition) */
+  .sensor-list { display: flex; flex-wrap: wrap; margin: 0 -4px -6px 0; }
+  .sensor-chip {
+    display: inline-flex; align-items: center;
+    margin: 0 5px 6px 0;
+    padding: 0.32rem 0.62rem;
+    border-radius: 999px;
+    border: 1px solid rgba(143, 217, 255, 0.16);
+    background: var(--surface-2);
+    font-size: 0.7rem;
+    color: var(--text-1);
+    white-space: nowrap;
+  }
+  .sensor-chip .val { font-weight: 700; color: var(--text-0); margin-left: 0.3rem; }
+
+  /* ---------- setup steps ---------- */
+
   .steps { counter-reset: step; }
-  .step { display: flex; margin-bottom: 16px; align-items: flex-start; }
+  .step { display: flex; margin-bottom: 0.85rem; align-items: flex-start; }
   .step-num {
     flex: 0 0 auto;
-    width: 30px; height: 30px; border-radius: 50%;
+    width: 28px; height: 28px; border-radius: 50%;
     border: 1px solid var(--stroke-strong);
     background: rgba(86, 206, 255, 0.12);
     color: var(--accent);
-    font-weight: 700; font-size: 0.85rem;
+    font-weight: 700; font-size: 0.8rem;
     display: flex; align-items: center; justify-content: center;
-    margin-right: 12px;
+    margin-right: 0.7rem;
   }
-  .step-body { font-size: 0.85rem; line-height: 1.55; color: var(--text-1); padding-top: 4px; }
+  .step-body { font-size: 0.78rem; line-height: 1.55; color: var(--text-1); padding-top: 0.15rem; }
   .step-body a { color: var(--accent); }
   .step-body code {
-    font-family: ui-monospace, Menlo, monospace; font-size: 0.78rem;
-    background: rgba(86, 206, 255, 0.08); padding: 1px 6px; border-radius: 6px;
+    font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.72rem;
+    background: rgba(86, 206, 255, 0.08); padding: 1px 5px; border-radius: 6px;
     word-break: break-all;
   }
 
-  .field { margin-bottom: 14px; }
-  .field label { display: block; font-size: 0.74rem; font-weight: 600; color: var(--text-2); margin-bottom: 6px; letter-spacing: 0.02em; }
+  .field { margin-bottom: 0.75rem; }
+  .field label { display: block; font-size: 0.64rem; font-weight: 700; color: var(--text-2); margin-bottom: 0.3rem; letter-spacing: 0.08em; text-transform: uppercase; }
   .field input {
     width: 100%;
-    padding: 14px;
-    border-radius: var(--radius-md);
-    border: 1px solid var(--stroke-soft);
+    padding: 0.7rem 0.8rem;
+    border-radius: 10px;
+    border: 1px solid rgba(143, 217, 255, 0.18);
     background: rgba(4, 8, 16, 0.6);
     color: var(--text-0);
     font-size: 16px;
-    font-family: ui-monospace, Menlo, monospace;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
     outline: none;
     -webkit-appearance: none;
     -webkit-user-select: text;
@@ -327,198 +736,260 @@
   .field input:focus { border-color: var(--stroke-strong); }
 
   .btn {
-    display: inline-block;
-    padding: 14px 22px;
-    border-radius: var(--radius-md);
-    border: 1px solid rgba(86, 206, 255, 0.45);
-    background: linear-gradient(90deg, rgba(86, 206, 255, 0.22), rgba(85, 240, 203, 0.14));
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 0.62rem 1.05rem;
+    border-radius: 10px;
+    border: 1px solid rgba(86, 206, 255, 0.35);
+    background: linear-gradient(145deg, rgba(86, 206, 255, 0.16), rgba(85, 240, 203, 0.08));
     color: var(--text-0);
-    font-size: 0.88rem;
-    font-weight: 600;
-    cursor: pointer;
-    min-height: 48px;
+    font-size: 0.78rem; font-weight: 600;
+    cursor: pointer; min-height: 44px; font-family: inherit;
   }
-  .btn:active { background: rgba(86, 206, 255, 0.35); }
-  .btn.ghost { background: var(--surface-2); border-color: var(--stroke-soft); color: var(--text-1); }
-  .btn.small { padding: 9px 14px; min-height: 38px; font-size: 0.76rem; }
+  .btn:active { background: rgba(86, 206, 255, 0.3); }
   .btn:disabled { opacity: 0.4; pointer-events: none; }
 
-  .msg { font-size: 0.8rem; margin-top: 10px; min-height: 1.2em; }
+  .msg { font-size: 0.74rem; margin-top: 0.6rem; min-height: 1.1em; }
   .msg.ok { color: var(--ok); }
   .msg.err { color: var(--danger); }
 
-  .help-note { font-size: 0.74rem; color: var(--text-2); line-height: 1.6; margin-top: 10px; }
+  .help-note { font-size: 0.68rem; color: var(--text-2); line-height: 1.55; margin-top: 0.6rem; }
   .help-note a { color: var(--accent); }
 
-  details.fold { margin-top: 18px; border-top: 1px solid var(--stroke-soft); padding-top: 14px; }
-  details.fold summary { font-size: 0.8rem; font-weight: 600; color: var(--text-1); cursor: pointer; list-style: none; }
-  details.fold summary::-webkit-details-marker { display: none; }
-  details.fold[open] summary { margin-bottom: 10px; }
-
   .toast {
-    position: fixed;
-    left: 50%;
-    bottom: 24px;
+    position: fixed; left: 50%; bottom: 18px;
     transform: translateX(-50%);
     z-index: 40;
     background: rgba(5, 9, 18, 0.95);
     border: 1px solid var(--stroke-strong);
     border-radius: 999px;
-    padding: 12px 20px;
-    font-size: 0.82rem;
-    color: var(--text-0);
+    padding: 0.6rem 1.05rem;
+    font-size: 0.76rem; color: var(--text-0);
     max-width: 90%;
     display: none;
   }
   .toast.show { display: block; }
   .toast.err { border-color: rgba(255, 111, 139, 0.5); color: var(--danger); }
 
-  @media (max-width: 480px) {
-    .grid { grid-template-columns: 1fr; }
-    .topbar .clock .date { display: none; }
+  @media (max-width: 860px) {
+    body { overflow: auto; }
+    .main { padding: 0.7rem; }
+    .board { display: block; height: auto; }
+    .section { margin-bottom: 0.8rem; }
+    #sec-agents .sec-body { height: 320px; }
+    #sec-ha { max-height: none; }
+    .sec-body { max-height: 60vh; }
+    .clock .date { display: none; }
+    .nav-links { display: none; }
   }
 </style>
 </head>
 <body>
+
+<div class="aurora"></div>
+<div class="aurora a2"></div>
+
 <div class="topbar">
-  <img src="/static/clai-icon.png" alt="">
-  <span class="name">{{BOT_NAME}}</span>
-  <span class="live-badge off" id="live-badge"><span class="live-dot"></span>LIVE</span>
-  <span class="clock">
+  <div class="brand">
+    <div class="pulse-ring"><img src="/static/clai-icon.png" alt=""></div>
+    <span class="brand-name">{{BOT_NAME}}</span>
+  </div>
+  <div class="svc-dots" id="svc-dots" title="System health"></div>
+  <div class="pills">
+    <span class="meta-pill off" id="live-badge"><span class="live-dot"></span>LIVE</span>
+  </div>
+  <div class="nav-links">
+    <a href="/dashboard">&#9632; Home</a>
+    <a href="/activity">&#9673; Activity</a>
+    <a href="/settings">&#9881; Settings</a>
+  </div>
+  <div class="clock">
     <div class="time" id="clock-time">--:--</div>
     <div class="date" id="clock-date"></div>
-  </span>
+  </div>
 </div>
 
 <main class="main">
-  <div class="links">
-    <a href="/dashboard">&#9632; Dashboard</a>
-    <a href="/activity">&#9673; Activity</a>
-    <a href="/static/chat.html">&#9993; Chat</a>
-    <a href="/settings">&#9881; Settings</a>
-  </div>
+  <div class="board" id="board">
 
-  <div class="grid">
-
-    <!-- System checks -->
-    <div class="card">
-      <div class="card-title"><span class="dot ok" id="checks-dot"></span>System Checks<span class="meta" id="uptime"></span></div>
-      <div id="checks"><div class="empty">Checking your assistant's health...</div></div>
-    </div>
-
-    <!-- Live agents -->
-    <div class="card">
-      <div class="card-title"><span class="dot idle" id="agents-dot"></span>Agents<span class="meta" id="agents-meta"></span></div>
-      <div id="agents"><div class="empty">No agents right now. Your assistant is resting. 😴</div></div>
-    </div>
-
-    <!-- Scheduled tasks -->
-    <div class="card">
-      <div class="card-title"><span class="dot idle" id="tasks-dot"></span>Scheduled Tasks</div>
-      <div id="tasks"><div class="empty">Checking scheduled tasks...</div></div>
-    </div>
-
-    <!-- Model output -->
-    <div class="card wide">
-      <div class="card-title"><span class="dot idle" id="output-dot"></span>Model Output<span class="meta" id="output-meta">waiting for activity</span></div>
-      <div class="output-box" id="output-box">Nothing yet. When your assistant starts thinking or writing, you'll see it here live.</div>
-      <div id="feed" style="margin-top:12px;"></div>
-    </div>
-
-    <!-- Home Assistant -->
-    <div class="card wide" id="ha-card">
-      <div class="card-title"><span class="dot idle" id="ha-dot"></span>Home Assistant<span class="meta" id="ha-meta"></span></div>
-
-      <div id="ha-status-line" class="ha-status-line" style="display:none;">
-        <span id="ha-status-text" class="ha-sub"></span>
-        <button class="btn ghost small" id="ha-retry" style="margin-left:auto;">Try Again</button>
+    <!-- Live Agents -->
+    <section class="section" id="sec-agents">
+      <div class="sec-head" onclick="toggleSection('sec-agents')">
+        <span class="sec-icon">&#129302;</span>
+        <span class="sec-dot idle" id="agents-dot"></span>
+        <span class="sec-title">Live Agents</span>
+        <span class="sec-meta" id="agents-meta"></span>
+        <span class="chev">&#9660;</span>
       </div>
-
-      <!-- Setup: shown when Home Assistant is not connected yet -->
-      <div id="ha-setup" style="display:none;">
-        <div class="steps">
-          <div class="step"><div class="step-num">1</div>
-            <div class="step-body">
-              Find your Home Assistant address. Open Home Assistant in Safari on this iPad and copy the
-              address from the bar at the top. It usually looks like
-              <code>http://homeassistant.local:8123</code>.<br>
-              <a href="https://www.home-assistant.io/getting-started/" target="_blank">What is Home Assistant?</a>
-            </div>
+      <div class="sec-body no-pad">
+        <div class="agents-web" id="agents-web">
+          <svg class="agents-web-links" id="agents-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg>
+          <div class="agents-web-stage" id="agents-strip"></div>
+          <div class="agents-empty" id="agents-empty">
+            <span class="sleeping-icon">&#128564;</span>
+            <span>No active agents right now</span>
           </div>
-          <div class="step"><div class="step-num">2</div>
-            <div class="step-body">
-              Make an access key. In Home Assistant, tap your profile picture (bottom left), then
-              <strong>Security</strong>, scroll to <strong>Long-lived access tokens</strong>, tap
-              <strong>Create Token</strong>, give it a name like "Panel", and copy the long code it shows you.<br>
-              <a href="https://www.home-assistant.io/docs/authentication/#long-lived-access-token" target="_blank">Step-by-step with pictures</a>
-            </div>
-          </div>
-          <div class="step"><div class="step-num">3</div>
-            <div class="step-body">
-              Paste both below and tap <strong>Connect</strong>. That's it — your lights, switches,
-              and sensors will appear on this page.
-            </div>
-          </div>
-        </div>
-        <div class="field">
-          <label>Home Assistant Address</label>
-          <input type="url" id="ha-url-input" placeholder="http://homeassistant.local:8123" autocapitalize="off" autocorrect="off">
-        </div>
-        <div class="field">
-          <label>Access Token</label>
-          <input type="password" id="ha-token-input" placeholder="Paste the token from Step 2" autocomplete="off">
-        </div>
-        <button class="btn" id="ha-connect-btn" onclick="saveHa()">Connect</button>
-        <div class="msg" id="ha-msg"></div>
-        <div class="help-note">
-          Both are stored safely on your computer running {{BOT_NAME}}, never on the iPad.
-          You only do this once. To change later, open <a href="/settings">Settings</a>.
         </div>
       </div>
+    </section>
 
-      <!-- Controls: shown when connected -->
-      <div id="ha-controls" style="display:none;">
-        <div class="ha-groups">
-          <div id="ha-power-group">
-            <div class="ha-group-title">Lights &amp; Power</div>
-            <div class="ha-tiles" id="ha-power-tiles"></div>
-          </div>
-          <div id="ha-climate-group" style="display:none;">
-            <div class="ha-group-title">Climate</div>
-            <div class="ha-tiles" id="ha-climate-tiles"></div>
-          </div>
-          <div id="ha-run-group" style="display:none;">
-            <div class="ha-group-title">Scenes &amp; Routines</div>
-            <div class="ha-tiles" id="ha-run-tiles"></div>
-          </div>
-          <div id="ha-sensor-group" style="display:none;">
-            <div class="ha-group-title">Sensors</div>
-            <div class="sensor-list" id="ha-sensors"></div>
+    <!-- Agent Output -->
+    <section class="section" id="sec-output">
+      <div class="sec-head" onclick="toggleSection('sec-output')">
+        <span class="sec-icon">&#128172;</span>
+        <span class="sec-dot idle" id="output-dot"></span>
+        <span class="sec-title">Agent Output</span>
+        <span class="sec-meta" id="output-meta">waiting for activity</span>
+        <span class="chev">&#9660;</span>
+      </div>
+      <div class="sec-body no-pad" style="display:flex; flex-direction:column;">
+        <div class="wave-strip" id="waveform" title="Activity over the last minute"></div>
+        <div class="out-tabs" id="out-tabs"></div>
+        <div class="out-box" id="out-box">Nothing yet. When your assistants start thinking or writing, their live output appears here — one tab per agent. Tap an agent in the graph above to watch it.</div>
+        <div class="out-ticker" id="out-ticker"><span class="txt">Recent activity will appear here.</span></div>
+      </div>
+    </section>
+
+    <!-- right column -->
+    <section class="section" id="sec-side">
+      <div class="sec-head" onclick="toggleSection('sec-side')">
+        <span class="sec-icon">&#128167;</span>
+        <span class="sec-dot ok" id="checks-dot"></span>
+        <span class="sec-title">Vitals</span>
+        <span class="sec-meta" id="side-meta"></span>
+        <span class="chev">&#9660;</span>
+      </div>
+      <div class="sec-body">
+
+        <div class="vitals">
+          <svg class="gauge" id="ctx-gauge" viewBox="0 0 84 84" aria-hidden="true">
+            <circle class="gauge-bg" cx="42" cy="42" r="34"></circle>
+            <circle class="gauge-fill" id="ctx-gauge-fill" cx="42" cy="42" r="34"></circle>
+            <text class="gauge-num" id="ctx-gauge-num" x="42" y="42">--%</text>
+            <text class="gauge-label" x="42" y="54">CONTEXT</text>
+          </svg>
+          <div class="stat-grid">
+            <div class="stat">
+              <div class="stat-num pending" id="stat-uptime">--:--:--</div>
+              <div class="stat-label">Time Running</div>
+            </div>
+            <div class="stat">
+              <div class="stat-num pending" id="stat-agents">0<span class="denom">/0</span></div>
+              <div class="stat-label">Agents Working</div>
+            </div>
+            <div class="stat">
+              <div class="stat-num pending" id="stat-tasks">0</div>
+              <div class="stat-label">Tasks On</div>
+            </div>
+            <div class="stat">
+              <div class="stat-num pending" id="stat-health">--</div>
+              <div class="stat-label">Health</div>
+            </div>
           </div>
         </div>
+
+        <div class="svc-grid" id="svc-grid"></div>
+
+        <div>
+          <div class="ha-group-title" style="margin-bottom:0.4rem;">&#9201; Scheduled Tasks</div>
+          <div class="task-list" id="tasks"><div class="empty">Checking scheduled tasks…</div></div>
+        </div>
+
         <details class="fold">
-          <summary>Something wrong? Tap here for help</summary>
-          <div class="help-note" id="ha-help-text"></div>
+          <summary>&#128241; Make this an app on this iPad</summary>
+          <div class="steps" style="margin-top:0.7rem;">
+            <div class="step"><div class="step-num">1</div><div class="step-body">Open this page in <strong>Safari</strong> (not inside another app).</div></div>
+            <div class="step"><div class="step-num">2</div><div class="step-body">Tap the <strong>Share</strong> button (square with an arrow pointing up) in the bar at the top.</div></div>
+            <div class="step"><div class="step-num">3</div><div class="step-body">Scroll down, tap <strong>Add to Home Screen</strong>, then <strong>Add</strong>. "Panel" now sits on your home screen and opens full screen.</div></div>
+          </div>
+          <div class="help-note">
+            Keep the iPad plugged in with Auto-Lock set to Never (Settings &rarr; Display &amp; Brightness &rarr; Auto-Lock)
+            for an always-on desk panel. Recovery and timeout settings live in <a href="/settings">Settings &rarr; Recovery &amp; Timeouts</a>.
+            Tap any panel header to open or close it.
+          </div>
         </details>
       </div>
-    </div>
+    </section>
 
-    <!-- iPad instructions -->
-    <div class="card wide">
-      <details class="fold" style="border-top:none;padding-top:0;margin-top:0;">
-        <summary>&#128241; Make this an app on your iPad (one time)</summary>
-        <div class="steps" style="margin-top:14px;">
-          <div class="step"><div class="step-num">1</div><div class="step-body">Open this page in <strong>Safari</strong> (not inside another app).</div></div>
-          <div class="step"><div class="step-num">2</div><div class="step-body">Tap the <strong>Share</strong> button (the square with an arrow pointing up) in the bar at the top.</div></div>
-          <div class="step"><div class="step-num">3</div><div class="step-body">Scroll down and tap <strong>Add to Home Screen</strong>, then <strong>Add</strong>.</div></div>
+    <!-- Home Assistant -->
+    <section class="section" id="sec-ha">
+      <div class="sec-head" onclick="toggleSection('sec-ha')">
+        <span class="sec-icon">&#127968;</span>
+        <span class="sec-dot idle" id="ha-dot"></span>
+        <span class="sec-title">Home Assistant</span>
+        <span class="sec-meta" id="ha-meta"></span>
+        <span class="chev">&#9660;</span>
+      </div>
+      <div class="sec-body">
+
+        <div class="ha-status" id="ha-status-line" style="display:none;">
+          <span id="ha-status-text"></span>
+          <button class="ha-mini-btn" id="ha-retry">Try Again</button>
         </div>
-        <div class="help-note">
-          Now "Panel" sits on your home screen like any app and opens full screen.
-          Keep it propped on a stand with the screen on for an always-on control panel.
-          Recovery and timeout settings live in <a href="/settings">Settings &rarr; Recovery &amp; Timeouts</a>.
+
+        <div id="ha-setup" style="display:none;">
+          <div class="steps">
+            <div class="step"><div class="step-num">1</div>
+              <div class="step-body">
+                Find your Home Assistant address. Open Home Assistant in Safari on this iPad and copy the address
+                from the bar at the top. It usually looks like <code>http://homeassistant.local:8123</code>.<br>
+                <a href="https://www.home-assistant.io/getting-started/" target="_blank">What is Home Assistant?</a>
+              </div>
+            </div>
+            <div class="step"><div class="step-num">2</div>
+              <div class="step-body">
+                Make an access key. In Home Assistant, tap your profile picture (bottom left), then <strong>Security</strong>,
+                scroll to <strong>Long-lived access tokens</strong>, tap <strong>Create Token</strong>, name it "Panel",
+                and copy the long code it shows.<br>
+                <a href="https://www.home-assistant.io/docs/authentication/#long-lived-access-token" target="_blank">Step-by-step with pictures</a>
+              </div>
+            </div>
+            <div class="step"><div class="step-num">3</div>
+              <div class="step-body">Paste both below and tap <strong>Connect</strong>. Your lights, switches, and sensors appear on this page.</div>
+            </div>
+          </div>
+          <div class="field">
+            <label>Home Assistant Address</label>
+            <input type="url" id="ha-url-input" placeholder="http://homeassistant.local:8123" autocapitalize="off" autocorrect="off">
+          </div>
+          <div class="field">
+            <label>Access Token</label>
+            <input type="password" id="ha-token-input" placeholder="Paste the token from Step 2" autocomplete="off">
+          </div>
+          <button class="btn" id="ha-connect-btn" onclick="saveHa()">Connect</button>
+          <div class="msg" id="ha-msg"></div>
+          <div class="help-note">
+            Both are stored safely on the computer running {{BOT_NAME}}, never on the iPad. You only do this once.
+            To change later, open <a href="/settings">Settings &rarr; Home Assistant</a>.
+          </div>
         </div>
-      </details>
-    </div>
+
+        <div id="ha-controls" style="display:none;">
+          <div class="ha-groups">
+            <div id="ha-power-group">
+              <div class="ha-group-title">&#128161; Lights &amp; Power</div>
+              <div class="ha-tiles" id="ha-power-tiles"></div>
+            </div>
+            <div id="ha-climate-group" style="display:none;">
+              <div class="ha-group-title">&#10052; Climate</div>
+              <div class="ha-tiles" id="ha-climate-tiles"></div>
+            </div>
+            <div id="ha-run-group" style="display:none;">
+              <div class="ha-group-title">&#127916; Scenes &amp; Routines</div>
+              <div class="ha-tiles" id="ha-run-tiles"></div>
+            </div>
+            <div id="ha-sensor-group" style="display:none;">
+              <div class="ha-group-title">&#128225; Sensors</div>
+              <div class="sensor-list" id="ha-sensors"></div>
+            </div>
+          </div>
+          <details class="fold">
+            <summary style="margin-top:0.7rem; display:inline-block;">Something wrong? Tap here for help</summary>
+            <div class="help-note" id="ha-help-text"></div>
+          </details>
+        </div>
+
+      </div>
+    </section>
 
   </div>
 </main>
@@ -531,14 +1002,7 @@
 
   var CSRF_META = document.querySelector('meta[name="csrf-token"]');
   var CSRF = CSRF_META ? CSRF_META.getAttribute('content') : '';
-
-  var events = [];
-  var transcripts = new Map();
-  var es = null;
-  var esOk = false;
   var toastTimer = null;
-
-  /* ---------- small helpers ---------- */
 
   function $(id) { return document.getElementById(id); }
 
@@ -588,7 +1052,46 @@
     toastTimer = setTimeout(function () { t.className = 'toast'; }, 4000);
   }
 
-  function setDot(el, cls) { el.className = 'dot ' + cls; }
+  /* ---------- collapsible sections ---------- */
+
+  var COLLAPSE_KEY = 'panel-collapsed-v2';
+
+  function readCollapsed() {
+    try { return JSON.parse(window.localStorage.getItem(COLLAPSE_KEY) || '{}') || {}; }
+    catch (e) { return {}; }
+  }
+
+  function applyGrid() {
+    var board = $('board');
+    if (window.matchMedia && window.matchMedia('(max-width: 860px)').matches) {
+      board.style.gridTemplateRows = '';
+      board.style.gridTemplateColumns = '';
+      return;
+    }
+    var c = readCollapsed();
+    var r1 = c['sec-agents'] ? 'auto' : 'minmax(0, 1.35fr)';
+    var r2 = c['sec-output'] ? 'auto' : 'minmax(0, 1fr)';
+    board.style.gridTemplateRows = r1 + ' ' + r2 + ' auto';
+  }
+
+  window.toggleSection = function (id) {
+    var el = $(id);
+    if (!el) return;
+    el.classList.toggle('collapsed');
+    var c = readCollapsed();
+    c[id] = el.classList.contains('collapsed');
+    try { window.localStorage.setItem(COLLAPSE_KEY, JSON.stringify(c)); } catch (e) {}
+    applyGrid();
+    if (id === 'sec-agents') renderAgents();
+  };
+
+  (function restoreCollapsed() {
+    var c = readCollapsed();
+    ['sec-agents', 'sec-output', 'sec-side', 'sec-ha'].forEach(function (id) {
+      if (c[id]) $(id).classList.add('collapsed');
+    });
+    applyGrid();
+  })();
 
   /* ---------- clock ---------- */
 
@@ -605,34 +1108,146 @@
 
   /* ---------- system checks ---------- */
 
-  var CHECK_LABELS = {
-    bot: 'Telegram Messages',
-    tailscale: 'Secure Remote Access',
-    funnel: 'Message Routing',
-    venv: 'Environment',
-    credentials: 'Saved Credentials'
-  };
+  var SERVICES = [
+    { id: 'bot', label: 'Telegram', icon: '&#128233;' },
+    { id: 'tailscale', label: 'Access', icon: '&#128737;' },
+    { id: 'funnel', label: 'Routing', icon: '&#128225;' },
+    { id: 'venv', label: 'Env', icon: '&#128230;' },
+    { id: 'credentials', label: 'Login', icon: '&#128273;' }
+  ];
+
+  function svcClass(ok, detail) {
+    if (ok) return 'ok';
+    if (detail === 'not configured' || detail === 'not installed' || detail === 'not created') return 'err';
+    return 'warn';
+  }
+
+  function renderSvcDots(states) {
+    var html = '';
+    SERVICES.forEach(function (s) {
+      var cls = svcClass(!!states[s.id].ok, states[s.id].detail);
+      html += '<span class="' + cls + '" title="' + esc(s.label) + ': ' + esc(states[s.id].detail || '') + '"></span>';
+    });
+    $('svc-dots').innerHTML = html;
+  }
 
   function loadChecks() {
     getJSON('/api/status').then(function (d) {
-      var html = '';
-      var allOk = true;
-      Object.keys(CHECK_LABELS).forEach(function (key) {
-        var item = d[key] || {};
-        if (!item.ok) allOk = false;
-        var cls = item.ok ? 'ok' : 'warn';
-        html += '<div class="check-row"><span class="dot ' + cls + '"></span>' + esc(CHECK_LABELS[key]) +
-          '<span class="detail">' + esc(trunc(item.detail || '', 40)) + '</span></div>';
-      });
-      $('checks').innerHTML = html;
+      var states = {};
+      SERVICES.forEach(function (s) { states[s.id] = d[s.id] || { ok: false, detail: 'unknown' }; });
+
+      renderSvcDots(states);
+
+      var okCount = SERVICES.filter(function (s) { return states[s.id].ok; }).length;
+      var allOk = okCount === SERVICES.length;
+
+      $('svc-grid').innerHTML = SERVICES.map(function (s) {
+        var st = states[s.id];
+        var cls = svcClass(st.ok, st.detail);
+        return '<div class="svc-tile ' + cls + '" title="' + esc(s.label) + ': ' + esc(st.detail || '') + '">'
+          + '<span class="svc-ring"></span>'
+          + '<span class="svc-emoji">' + s.icon + '</span>'
+          + '<span class="svc-name">' + esc(s.label) + '</span>'
+          + '</div>';
+      }).join('');
+
       setDot($('checks-dot'), allOk ? 'ok' : 'warn');
-      $('uptime').textContent = d.uptime ? ('up ' + d.uptime) : '';
+      var healthEl = $('stat-health');
+      healthEl.textContent = allOk ? '100%' : Math.round(okCount / SERVICES.length * 100) + '%';
+      healthEl.className = 'stat-num ' + (allOk ? 'ok' : '');
+      $('stat-uptime').textContent = d.uptime || '--:--:--';
+      $('stat-uptime').classList.remove('pending');
+      $('stat-health').classList.remove('pending');
+      $('side-meta').textContent = d.uptime ? 'up ' + d.uptime : '';
+    }).catch(function () {
+      renderSvcDots({ bot: {}, tailscale: {}, funnel: {}, venv: {}, credentials: {} });
+    });
+  }
+
+  $('svc-dots').addEventListener('click', function () {
+    var side = $('sec-side');
+    if (side.classList.contains('collapsed')) toggleSection('sec-side');
+    side.scrollIntoView && side.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  });
+
+  /* ---------- context gauge ---------- */
+
+  var GAUGE_C = 213.6;
+
+  function normalizeContextState(state) {
+    return (state === 'warning' || state === 'critical') ? state : 'safe';
+  }
+
+  function loadContext() {
+    getJSON('/api/context-usage').then(function (d) {
+      var state = normalizeContextState(String(d.state || 'safe'));
+      var pct = Math.max(0, Math.min(100, Number(d.percent || 0)));
+      var gauge = $('ctx-gauge');
+      gauge.classList.remove('warning', 'critical');
+      if (state === 'warning') gauge.classList.add('warning');
+      if (state === 'critical') gauge.classList.add('critical');
+      $('ctx-gauge-fill').style.strokeDashoffset = String(GAUGE_C * (1 - pct / 100));
+      $('ctx-gauge-num').textContent = Math.round(pct) + '%';
+    }).catch(function () {
+      $('ctx-gauge-num').textContent = '--%';
+    });
+  }
+
+  /* ---------- scheduled tasks ---------- */
+
+  function countdown(iso) {
+    if (!iso) return '—';
+    var t = Date.parse(iso);
+    if (isNaN(t)) return '—';
+    var diff = Math.floor((t - Date.now()) / 1000);
+    if (diff < 0) return 'now';
+    var h = Math.floor(diff / 3600);
+    var m = Math.floor((diff % 3600) / 60);
+    if (h > 0) return 'in ' + h + 'h ' + m + 'm';
+    if (m > 0) return 'in ' + m + 'm';
+    return 'in ' + diff + 's';
+  }
+
+  function renderTasks(tasks) {
+    var box = $('tasks');
+    var onCount = 0;
+    if (tasks.length === 0) {
+      box.innerHTML = '<div class="empty">No scheduled tasks yet. Ask your assistant things like "every morning at 8, give me the weather".</div>';
+    } else {
+      box.innerHTML = tasks.map(function (t) {
+        if (t.enabled) onCount++;
+        return '<div class="task-row' + (t.enabled ? '' : ' off') + '" title="' + esc(t.schedule) + (t.last_result ? ' · last: ' + esc(trunc(t.last_result, 80)) : '') + '">'
+          + '<span class="task-dot"></span>'
+          + '<span class="task-emoji">&#9201;</span>'
+          + '<span class="task-name">' + esc(t.name) + '</span>'
+          + '<span class="task-next">' + (t.enabled ? esc(countdown(t.next_run)) : 'OFF') + '</span>'
+          + '</div>';
+      }).join('');
+    }
+    var el = $('stat-tasks');
+    el.textContent = String(onCount);
+    el.classList.remove('pending');
+  }
+
+  var lastTasks = [];
+
+  function loadTasks() {
+    getJSON('/api/tasks').then(function (d) {
+      lastTasks = d.tasks || [];
+      renderTasks(lastTasks);
     }).catch(function () {});
   }
 
-  /* ---------- activity (agents + model output) ---------- */
+  /* ---------- activity ---------- */
+
+  var events = [];
+  var transcripts = new Map();
+  var es = null;
+  var esOk = false;
+  var MAX = 400;
 
   var FEED_TYPES = ['receive', 'thinking', 'model', 'tool', 'command', 'spawn', 'done', 'error', 'blocked', 'reasoning', 'result'];
+  var KIND_LABELS = { content: 'Model output', reasoning: 'Thinking', tool: 'Tool call', tool_args: 'Tool arguments' };
 
   function streamKey(evt) {
     var x = evt.extra || {};
@@ -644,7 +1259,7 @@
     var text = (evt.extra && evt.extra.text) || evt.detail || '';
     var entry = transcripts.get(key);
     if (!entry) {
-      entry = { key: key, agent: evt.agent, kind: (evt.extra && evt.extra.kind) || 'content', text: text, lastTs: evt.ts };
+      entry = { key: key, agent: evt.agent, kind: (evt.extra && evt.extra.kind) || 'content', text: text, ts: evt.ts, lastTs: evt.ts };
       transcripts.set(key, entry);
       return true;
     }
@@ -666,110 +1281,464 @@
     } else {
       events.push(evt);
     }
-    if (events.length > 400) {
-      events = events.slice(-400);
+    bumpWave();
+    if (events.length > MAX) {
+      events = events.slice(-MAX);
       rebuildTranscripts();
     }
   }
 
-  function renderAgents() {
-    var now = Date.now() / 1000;
-    var agents = {};
-    events.forEach(function (evt) {
-      var age = now - evt.ts;
-      if (age > 300 && !agents[evt.agent]) return;
-      if (!agents[evt.agent]) agents[evt.agent] = { id: evt.agent, lastEvent: evt };
-      if (evt.ts > agents[evt.agent].lastEvent.ts) agents[evt.agent].lastEvent = evt;
-    });
+  /* ---------- activity waveform ---------- */
 
-    var list = Object.keys(agents).map(function (k) { return agents[k]; })
-      .sort(function (a, b) { return b.lastEvent.ts - a.lastEvent.ts; });
+  var WAVE_BARS = 30;
+  var WAVE_MS = 2000;
+  var waveBuckets = [];
+  for (var wi = 0; wi < WAVE_BARS; wi++) waveBuckets.push(0);
 
-    var box = $('agents');
-    if (list.length === 0) {
-      box.innerHTML = '<div class="empty">No agents right now. Your assistant is resting. &#128564;</div>';
-      setDot($('agents-dot'), 'idle');
-      $('agents-meta').textContent = '';
-      return;
-    }
-
-    var working = 0;
-    var html = list.map(function (a) {
-      var age = now - a.lastEvent.ts;
-      var isActive = age < 30;
-      if (isActive) working++;
-      var isOrch = a.id === 'orchestrator';
-      var name = isOrch ? 'Orchestrator' : a.id.replace(/^sub-/, '');
-      name = name.charAt(0).toUpperCase() + name.slice(1);
-      var label = a.lastEvent.label || '';
-      var detail = trunc(a.lastEvent.detail || '', 48);
-      return '<div class="agent-row">' +
-        '<div class="agent-avatar' + (isOrch ? '' : ' sub') + '">' + (isOrch ? 'O' : 'S') + '</div>' +
-        '<div class="agent-info"><div class="agent-name">' + esc(name) + '</div>' +
-        '<div class="agent-current">' + esc(label) + (detail ? ' · ' + esc(detail) : '') + '</div></div>' +
-        '<span class="status-pill ' + (isActive ? 'working' : 'idle') + '">' + (isActive ? 'WORKING' : 'IDLE') + '</span>' +
-        '</div>';
-    }).join('');
-    box.innerHTML = html;
-    setDot($('agents-dot'), working > 0 ? 'ok' : 'idle');
-    $('agents-meta').textContent = list.length + (list.length === 1 ? ' agent' : ' agents');
+  function bumpWave() {
+    waveBuckets[waveBuckets.length - 1] += 1;
+    renderWave();
   }
 
-  function renderOutput() {
+  function tickWave() {
+    waveBuckets.shift();
+    waveBuckets.push(0);
+    renderWave();
+  }
+
+  function renderWave() {
+    var max = 1;
+    for (var i = 0; i < waveBuckets.length; i++) {
+      if (waveBuckets[i] > max) max = waveBuckets[i];
+    }
+    var html = '';
+    for (var j = 0; j < waveBuckets.length; j++) {
+      var h = Math.max(6, Math.round(waveBuckets[j] / max * 100));
+      var hot = j >= waveBuckets.length - 2 && waveBuckets[j] > 0;
+      html += '<span class="wv-bar' + (hot ? ' hot' : '') + '" style="height:' + h + '%"></span>';
+    }
+    $('waveform').innerHTML = html;
+  }
+  renderWave();
+
+  /* ---------- agents web (layout engine ported from dashboard) ---------- */
+
+  var SVG_NS = 'http://www.w3.org/2000/svg';
+  var graph = $('agents-web');
+  var strip = $('agents-strip');
+  var links = $('agents-links');
+  var emptyEl = $('agents-empty');
+
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+  function prettyAgentName(id) {
+    if (!id) return 'Unknown';
+    if (id === 'orchestrator') return 'Orchestrator';
+    return id.replace(/^sub-/, '').replace(/-/g, ' ');
+  }
+
+  function setDot(el, cls) { el.className = 'sec-dot ' + cls; }
+
+  function getNodeMetrics(w) {
+    var compact = w < 560;
+    return {
+      rootW: compact ? Math.min(168, w * 0.5) : clamp(w * 0.2, 150, 200),
+      rootH: compact ? 90 : 92,
+      childW: compact ? Math.min(134, w * 0.42) : clamp(w * 0.15, 118, 150),
+      childH: compact ? 82 : 80,
+      gap: compact ? 12 : 14
+    };
+  }
+
+  function keepInsideBounds(pos, bounds) {
+    pos.x = clamp(pos.x, bounds.minX, bounds.maxX);
+    pos.y = clamp(pos.y, bounds.minY, bounds.maxY);
+  }
+
+  function buildCompactGridTargets(count, root, bounds, metrics) {
+    var positions = [];
+    var cols = 2;
+    var startY = clamp(root.y + (metrics.rootH / 2) + (metrics.childH / 2) + 12, bounds.minY, bounds.maxY);
+    var rowGap = metrics.childH + 12;
+    var colGap = metrics.childW + 12;
+    for (var i = 0; i < count; i++) {
+      var row = Math.floor(i / cols);
+      var col = i % cols;
+      var x = (cols === 1) ? root.x : root.x + ((col === 0 ? -1 : 1) * (colGap / 2));
+      var y = startY + (row * rowGap);
+      positions.push({ x: x, y: y });
+      keepInsideBounds(positions[positions.length - 1], bounds);
+    }
+    return positions;
+  }
+
+  function buildRadialTargets(count, root, bounds, metrics) {
+    var ringCaps = [4, 6, 8, 10];
+    var positions = [];
+    var assigned = 0;
+    var ring = 0;
+    while (assigned < count) {
+      var capacity = ringCaps[ring] || 12;
+      var take = Math.min(capacity, count - assigned);
+      var rx = (metrics.rootW / 2) + (metrics.childW / 2) + 30 + (ring * (metrics.childW * 0.58));
+      var ry = (metrics.rootH / 2) + (metrics.childH / 2) + 24 + (ring * (metrics.childH * 0.82));
+      var offset = ring % 2 ? (Math.PI / Math.max(2, take)) : 0;
+      for (var i = 0; i < take; i++) {
+        var angle = ((Math.PI * 2 * i) / take) + offset;
+        var pos = { x: root.x + (Math.cos(angle) * rx), y: root.y + (Math.sin(angle) * ry) };
+        keepInsideBounds(pos, bounds);
+        positions.push(pos);
+      }
+      assigned += take;
+      ring += 1;
+    }
+    return positions;
+  }
+
+  function resolveCollisions(positions, targets, root, bounds, metrics) {
+    if (!positions.length) return positions;
+    for (var step = 0; step < 90; step++) {
+      for (var i = 0; i < positions.length; i++) {
+        var p = positions[i];
+        var t = targets[i] || p;
+        p.x += (t.x - p.x) * 0.07;
+        p.y += (t.y - p.y) * 0.07;
+        var dxr = p.x - root.x;
+        var dyr = p.y - root.y;
+        var overlapRootX = (metrics.rootW / 2 + metrics.childW / 2 + metrics.gap) - Math.abs(dxr);
+        var overlapRootY = (metrics.rootH / 2 + metrics.childH / 2 + metrics.gap) - Math.abs(dyr);
+        if (overlapRootX > 0 && overlapRootY > 0) {
+          if (overlapRootX < overlapRootY) {
+            p.x += (dxr >= 0 ? 1 : -1) * overlapRootX * 0.62;
+          } else {
+            p.y += (dyr >= 0 ? 1 : -1) * overlapRootY * 0.62;
+          }
+        }
+        keepInsideBounds(p, bounds);
+      }
+      for (var a = 0; a < positions.length; a++) {
+        for (var b = a + 1; b < positions.length; b++) {
+          var pa = positions[a];
+          var pb = positions[b];
+          var dx = pa.x - pb.x;
+          var dy = pa.y - pb.y;
+          var overlapX = (metrics.childW + metrics.gap) - Math.abs(dx);
+          var overlapY = (metrics.childH + metrics.gap) - Math.abs(dy);
+          if (overlapX > 0 && overlapY > 0) {
+            if (overlapX < overlapY) {
+              var sx = (dx === 0 ? (a % 2 === 0 ? 1 : -1) : (dx > 0 ? 1 : -1));
+              var pushX = overlapX * 0.5;
+              pa.x += sx * pushX;
+              pb.x -= sx * pushX;
+            } else {
+              var sy = (dy === 0 ? (a % 2 === 0 ? 1 : -1) : (dy > 0 ? 1 : -1));
+              var pushY = overlapY * 0.5;
+              pa.y += sy * pushY;
+              pb.y -= sy * pushY;
+            }
+            keepInsideBounds(pa, bounds);
+            keepInsideBounds(pb, bounds);
+          }
+        }
+      }
+    }
+    return positions;
+  }
+
+  function buildNodeLayout(count, w, h) {
+    var metrics = getNodeMetrics(w);
+    var padX = clamp(Math.round(w * 0.09), 32, 76);
+    var padY = clamp(Math.round(h * 0.12), 22, 56);
+    var root = { x: w / 2, y: clamp(h * 0.5, padY + (metrics.rootH / 2), h - padY - (metrics.rootH / 2)) };
+    var bounds = {
+      minX: padX + (metrics.childW / 2),
+      maxX: w - padX - (metrics.childW / 2),
+      minY: padY + (metrics.childH / 2),
+      maxY: h - padY - (metrics.childH / 2)
+    };
+    if (count <= 0) return { root: root, positions: [] };
+    var narrow = w < 500 || h < 230;
+    var targets = narrow
+      ? buildCompactGridTargets(count, root, bounds, metrics)
+      : buildRadialTargets(count, root, bounds, metrics);
+    var positions = targets.map(function (p) { return { x: p.x, y: p.y }; });
+    resolveCollisions(positions, targets, root, bounds, metrics);
+    return { root: root, positions: positions };
+  }
+
+  function addLink(x1, y1, x2, y2, isActive) {
+    var line = document.createElementNS(SVG_NS, 'line');
+    line.setAttribute('x1', x1.toFixed(1));
+    line.setAttribute('y1', y1.toFixed(1));
+    line.setAttribute('x2', x2.toFixed(1));
+    line.setAttribute('y2', y2.toFixed(1));
+    if (isActive) line.setAttribute('class', 'active');
+    links.appendChild(line);
+  }
+
+  function nodeHTML(agentId, x, y, isRoot, age, evt) {
+    var isActive = age < 30;
+    var nodeCls = 'agent-node ' + (isRoot ? 'orchestrator' : 'subagent') + (isActive ? ' active' : ' is-idle') + (selectedAgent === agentId ? ' selected' : '');
+    var icon = isRoot ? '&#129302;' : '&#128126;';
+    var statusWord = isActive ? 'Working' : 'Idle';
+    var name = isRoot ? 'Orchestrator' : prettyAgentName(agentId);
+    var label = trunc((evt && evt.label) || 'Thinking', 30);
+    var detail = trunc((evt && evt.detail) || 'Waiting for next task', 62);
+    var spin = (isRoot && isActive) ? '<span class="node-spin"></span>' : '';
+    return '<div class="' + nodeCls + '" style="left:' + x.toFixed(1) + 'px;top:' + y.toFixed(1) + 'px;" data-agent="' + esc(agentId) + '">' + spin
+      + '<div class="agent-node-head">'
+      + '<span class="agent-node-icon" aria-hidden="true">' + icon + '</span>'
+      + '<span class="agent-node-name">' + esc(name) + '</span>'
+      + '</div>'
+      + '<div class="agent-node-status"><span class="live-dot-sm ' + (isActive ? 'on' : 'off') + '"></span>' + statusWord + ' · ' + ago(evt && evt.ts || Date.now() / 1000) + '</div>'
+      + '<div class="agent-node-task"><strong>' + esc(label) + '</strong> ' + esc(detail) + '</div>'
+      + '</div>';
+  }
+
+  function snapshotAgents(now) {
+    var agents = {};
+    var parentByChild = {};
+    for (var i = 0; i < events.length; i++) {
+      var e = events[i];
+      if (!e || !e.agent || !e.ts) continue;
+      var age = now - e.ts;
+      if (age > 300 && !agents[e.agent]) continue;
+      if (!agents[e.agent] || e.ts > agents[e.agent].last.ts) {
+        agents[e.agent] = { id: e.agent, last: e };
+      }
+      var extra = e.extra || {};
+      if (extra.parent_agent && e.agent !== extra.parent_agent) {
+        parentByChild[e.agent] = String(extra.parent_agent);
+      }
+      if (e.type === 'spawn') {
+        var sid = extra.subagent_id ? String(extra.subagent_id) : '';
+        if (sid) parentByChild[sid] = e.agent;
+      }
+    }
+    return { agents: agents, parentByChild: parentByChild };
+  }
+
+  function renderAgents() {
+    if (!graph || !strip || !links || !emptyEl) return;
+    if ($('sec-agents').classList.contains('collapsed')) return;
+
     var now = Date.now() / 1000;
-    var newest = null;
-    transcripts.forEach(function (entry) {
-      if (!newest || entry.lastTs > newest.lastTs) newest = entry;
+    var snapshot = snapshotAgents(now);
+    var agents = snapshot.agents;
+    var parentByChild = snapshot.parentByChild;
+    var ids = Object.keys(agents);
+
+    var agentsEl = $('stat-agents');
+    agentsEl.classList.remove('pending');
+
+    if (ids.length === 0) {
+      strip.innerHTML = '';
+      links.innerHTML = '';
+      emptyEl.style.display = 'flex';
+      setDot($('agents-dot'), 'idle');
+      $('agents-meta').textContent = '';
+      agentsEl.innerHTML = '0<span class="denom">/0</span>';
+      return;
+    }
+    emptyEl.style.display = 'none';
+
+    var rootId = agents.orchestrator ? 'orchestrator' : ids[0];
+    var children = ids.filter(function (id) {
+      if (id === rootId) return false;
+      var parent = parentByChild[id];
+      if (!parent && id.indexOf('sub-') === 0) parent = rootId;
+      if (parent === rootId) return true;
+      return id.indexOf('sub-') === 0;
     });
+    children.sort(function (a, b) { return agents[b].last.ts - agents[a].last.ts; });
+    children = children.slice(0, 10);
 
-    var box = $('output-box');
-    var atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+    var rect = graph.getBoundingClientRect();
+    var w = Math.max(280, Math.round(rect.width || 280));
+    var h = Math.max(170, Math.round(rect.height || 170));
+    var layout = buildNodeLayout(children.length, w, h);
+    var rootPos = layout.root;
 
-    if (!newest || (now - newest.lastTs) > 180) {
+    links.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+    links.innerHTML = '';
+
+    var root = agents[rootId] || { id: rootId, last: { ts: now } };
+    var rootAge = now - (root.last.ts || now);
+    var html = [nodeHTML(rootId, rootPos.x, rootPos.y, true, rootAge, root.last)];
+
+    var working = rootAge < 30 ? 1 : 0;
+    var positions = layout.positions;
+    for (var i = 0; i < children.length; i++) {
+      var childId = children[i];
+      var child = agents[childId];
+      var childAge = now - (child.last.ts || now);
+      if (childAge < 30) working++;
+      var pos = positions[i];
+      addLink(rootPos.x, rootPos.y, pos.x, pos.y, childAge < 30 || rootAge < 30);
+      html.push(nodeHTML(childId, pos.x, pos.y, false, childAge, child.last));
+    }
+
+    strip.innerHTML = html.join('');
+
+    var total = children.length + 1;
+    setDot($('agents-dot'), working > 0 ? 'ok' : 'idle');
+    $('agents-meta').textContent = total + (total === 1 ? ' agent' : ' agents');
+    agentsEl.innerHTML = working + '<span class="denom">/' + total + '</span>';
+    agentsEl.className = 'stat-num' + (working > 0 ? ' ok' : '');
+  }
+
+  strip.addEventListener('click', function (ev) {
+    var node = ev.target;
+    while (node && node !== strip) {
+      if (node.classList && node.classList.contains('agent-node')) {
+        selectAgentOutput(node.getAttribute('data-agent'), false);
+        return;
+      }
+      node = node.parentNode;
+    }
+  });
+
+  /* ---------- per-agent output panel ---------- */
+
+  var selectedAgent = null;
+  var followLive = true;
+
+  window.setFollow = function (on) {
+    followLive = on;
+    renderTabs();
+    renderOutput();
+  };
+
+  function selectAgentOutput(agentId, auto) {
+    if (auto) {
+      if (!followLive) return;
+    } else {
+      followLive = false;
+    }
+    selectedAgent = agentId;
+    renderTabs();
+    renderOutput();
+  }
+
+  function agentActivity() {
+    var byAgent = {};
+    transcripts.forEach(function (entry) {
+      var a = byAgent[entry.agent];
+      if (!a || entry.lastTs > a.lastTs) {
+        byAgent[entry.agent] = { agent: entry.agent, lastTs: entry.lastTs, entry: entry };
+      }
+    });
+    var now = Date.now() / 1000;
+    Object.keys(byAgent).forEach(function (k) {
+      var a = byAgent[k];
+      a.streaming = (now - a.lastTs) < 4;
+      a.fresh = (now - a.lastTs) < 180;
+    });
+    return byAgent;
+  }
+
+  function renderTabs() {
+    var byAgent = agentActivity();
+    var agents = Object.keys(byAgent).filter(function (k) { return byAgent[k].fresh; })
+      .sort(function (a, b) { return byAgent[b].lastTs - byAgent[a].lastTs; });
+    if (agents.length === 0) {
+      $('out-tabs').innerHTML = '<button class="follow-btn" id="follow-btn">Follow live</button>';
+      var fb = $('out-tabs').querySelector('.follow-btn');
+      if (fb) fb.onclick = function () { setFollow(true); };
+      return;
+    }
+    var html = agents.map(function (id) {
+      var a = byAgent[id];
+      var cls = 'out-tab' + (id === selectedAgent ? ' active' : '');
+      return '<button class="' + cls + '" data-agent="' + esc(id) + '">'
+        + '<span class="live-dot-sm ' + (a.streaming ? 'on' : 'off') + '"></span>'
+        + esc(prettyAgentName(id)) + '</button>';
+    }).join('');
+    var fbCls = 'follow-btn' + (followLive ? '' : ' muted');
+    $('out-tabs').innerHTML = html + '<button class="' + fbCls + '" id="follow-btn">Follow live</button>';
+    var fb = $('out-tabs').querySelector('#follow-btn');
+    if (fb) fb.onclick = function () { setFollow(true); };
+  }
+
+  $('out-tabs').addEventListener('click', function (ev) {
+    var tab = ev.target;
+    while (tab && tab !== $('out-tabs')) {
+      if (tab.classList && tab.classList.contains('out-tab')) {
+        selectAgentOutput(tab.getAttribute('data-agent'), false);
+        return;
+      }
+      tab = tab.parentNode;
+    }
+  });
+
+  function renderOutput() {
+    var byAgent = agentActivity();
+    var agents = Object.keys(byAgent).filter(function (k) { return byAgent[k].fresh; })
+      .sort(function (a, b) { return byAgent[b].lastTs - byAgent[a].lastTs; });
+    if (agents.length === 0) {
       setDot($('output-dot'), 'idle');
       $('output-meta').textContent = 'waiting for activity';
       return;
     }
 
-    var streaming = (now - newest.lastTs) < 4;
-    setDot($('output-dot'), streaming ? 'ok' : 'idle');
-    $('output-meta').textContent = newest.agent + ' · ' + (streaming ? 'writing…' : ago(newest.lastTs));
-    box.textContent = newest.text;
-    if (streaming) {
-      var caret = document.createElement('span');
-      caret.className = 'caret';
-      box.appendChild(caret);
+    if (followLive && (selectedAgent === null || byAgent[selectedAgent] === undefined || !byAgent[selectedAgent].fresh)) {
+      selectedAgent = agents[0];
     }
+    if (!byAgent[selectedAgent]) selectedAgent = agents[0];
+
+    var act = byAgent[selectedAgent];
+    var streaming = act.streaming;
+    setDot($('output-dot'), streaming ? 'ok' : 'idle');
+    $('output-meta').textContent = prettyAgentName(selectedAgent) + ' · ' + (streaming ? 'writing…' : ago(act.lastTs));
+
+    var box = $('out-box');
+    var atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+
+    var blocks = [];
+    transcripts.forEach(function (entry) {
+      if (entry.agent === selectedAgent) blocks.push(entry);
+    });
+    blocks.sort(function (a, b) { return a.ts - b.ts; });
+
+    if (blocks.length === 0) {
+      box.textContent = 'No transcript yet for ' + prettyAgentName(selectedAgent) + '.';
+      return;
+    }
+
+    var html = blocks.map(function (entry, i) {
+      var last = (i === blocks.length - 1);
+      var kind = KIND_LABELS[entry.kind] || entry.kind;
+      return '<div class="out-block ' + esc(entry.kind) + '">'
+        + '<span class="out-kind ' + esc(entry.kind) + '">' + esc(kind) + '</span>'
+        + '<div class="out-text">' + esc(trunc(entry.text, 4000)) + (last && streaming ? '<span class="caret"></span>' : '') + '</div>'
+        + '</div>';
+    }).join('');
+    box.innerHTML = html;
     if (atBottom) box.scrollTop = box.scrollHeight;
   }
 
-  function renderFeed() {
-    var now = Date.now() / 1000;
-    var rows = [];
-    for (var i = events.length - 1; i >= 0 && rows.length < 14; i--) {
+  function renderTicker() {
+    var last = null;
+    for (var i = events.length - 1; i >= 0; i--) {
       var evt = events[i];
       if (evt.type === 'stream' || FEED_TYPES.indexOf(evt.type) === -1) continue;
-      rows.push(evt);
+      last = evt;
+      break;
     }
-    if (rows.length === 0) {
-      $('feed').innerHTML = '';
-      return;
-    }
-    var html = rows.map(function (evt) {
-      var label = evt.label || evt.type;
-      var detail = trunc((evt.detail || (evt.extra && evt.extra.text) || ''), 70);
-      return '<div class="feed-row">' +
-        '<span class="tag ' + esc(evt.type) + '">' + esc(evt.type.toUpperCase()) + '</span>' +
-        '<span class="txt">' + esc(label) + (detail ? ' — ' + esc(detail) : '') + '</span>' +
-        '<span class="age">' + ago(evt.ts) + '</span></div>';
-    }).join('');
-    $('feed').innerHTML = html;
+    if (!last) return;
+    var label = last.label || last.type;
+    var detail = trunc((last.detail || (last.extra && last.extra.text) || ''), 90);
+    $('out-ticker').innerHTML =
+      '<span class="tag ' + esc(last.type) + '">' + esc(last.type) + '</span>' +
+      '<span class="txt">' + esc(label) + (detail ? ' — ' + esc(detail) : '') + '</span>' +
+      '<span class="age">' + ago(last.ts) + '</span>';
   }
 
   function renderActivity() {
     renderAgents();
+    renderTabs();
     renderOutput();
-    renderFeed();
+    renderTicker();
   }
 
   function connectSSE() {
@@ -777,7 +1746,7 @@
     try { es = new EventSource('/api/activity/stream'); } catch (e) { return; }
     es.onopen = function () {
       esOk = true;
-      $('live-badge').className = 'live-badge';
+      $('live-badge').className = 'meta-pill';
     };
     es.onmessage = function (e) {
       try {
@@ -787,7 +1756,7 @@
     };
     es.onerror = function () {
       esOk = false;
-      $('live-badge').className = 'live-badge off';
+      $('live-badge').className = 'meta-pill off';
       if (es) { es.close(); es = null; }
       setTimeout(connectSSE, 5000);
     };
@@ -811,36 +1780,42 @@
     }).catch(function () {});
   }
 
-  /* ---------- scheduled tasks ---------- */
-
-  function loadTasks() {
-    getJSON('/api/tasks').then(function (d) {
-      var tasks = d.tasks || [];
-      var box = $('tasks');
-      if (tasks.length === 0) {
-        box.innerHTML = '<div class="empty">No scheduled tasks yet. Ask your assistant things like "every morning at 8, give me the weather".</div>';
-        setDot($('tasks-dot'), 'idle');
-        return;
-      }
-      setDot($('tasks-dot'), 'ok');
-      box.innerHTML = tasks.map(function (t) {
-        var sub = t.enabled
-          ? 'Next: ' + (t.next_run ? esc(t.next_run) : 'not scheduled') + (t.last_result ? ' · last: ' + esc(trunc(t.last_result, 40)) : '')
-          : (t.last_run ? 'Last ran: ' + esc(t.last_run) : 'Paused');
-        return '<div class="task-row">' +
-          '<div class="task-head">' + esc(t.name) +
-          '<span class="task-sched">' + esc(t.schedule) + '</span>' +
-          '<span class="task-pill ' + (t.enabled ? 'on' : 'off') + '">' + (t.enabled ? 'ON' : 'OFF') + '</span></div>' +
-          '<div class="task-sub">' + sub + '</div></div>';
-      }).join('');
-    }).catch(function () {});
-  }
+  var resizeTimer = null;
+  window.addEventListener('resize', function () {
+    if (resizeTimer) clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function () { applyGrid(); renderAgents(); }, 250);
+  });
 
   /* ---------- Home Assistant ---------- */
 
   var haEntities = [];
 
   function haDomainOf(e) { return (e.entity_id || '').split('.')[0]; }
+
+  function haIcon(domain) {
+    if (domain === 'light') return '&#128161;';
+    if (domain === 'switch') return '&#128268;';
+    if (domain === 'fan') return '&#127744;';
+    if (domain === 'humidifier') return '&#128167;';
+    if (domain === 'siren') return '🚨';
+    if (domain === 'input_boolean') return '&#11044;';
+    if (domain === 'climate') return '&#10052;';
+    if (domain === 'scene') return '&#127916;';
+    if (domain === 'script') return '&#9654;';
+    return '&#128241;';
+  }
+
+  function sensorIcon(e) {
+    var dc = (e.attributes && (e.attributes.device_class || e.attributes.unit_of_measurement)) || '';
+    if (typeof dc === 'string') {
+      if (dc.indexOf('temperature') !== -1) return '&#127777;';
+      if (dc.indexOf('humidity') !== -1) return '&#128167;';
+      if (dc.indexOf('battery') !== -1) return '&#128267;';
+      if (dc.indexOf('power') !== -1 || dc.indexOf('energy') !== -1) return '&#9889;';
+      if (dc.indexOf('°') !== -1) return '&#127777;';
+    }
+    return '&#128225;';
+  }
 
   function renderHaStatus() {
     getJSON('/api/homeassistant/status').then(function (d) {
@@ -866,7 +1841,7 @@
       }
       if (!d.ok) {
         $('ha-meta').textContent = 'problem';
-        $('ha-status-text').textContent = d.error || 'Home Assistant is not reachable right now.';
+        $('ha-status-text').innerHTML = '<span class="err">' + esc(d.error || 'Home Assistant is not reachable right now.') + '</span>';
         $('ha-help-text').innerHTML =
           esc(d.error || '') + '<br><br>Check Home Assistant is running, then tap "Try Again". ' +
           'To change the address or token, open <a href="/settings">Settings &rarr; Home Assistant</a>.';
@@ -895,15 +1870,14 @@
     if (!/^https?:\/\//.test(url)) { $('ha-msg').className = 'msg err'; $('ha-msg').textContent = 'The address should start with http:// (Step 1).'; return; }
 
     var payload = { HOMEASSISTANT_URL: url, HOMEASSISTANT_ENABLED: '1' };
-    // Don't resend the masked token the server showed us; only send a fresh one.
     if (token && token.indexOf('****') === -1) payload.HOMEASSISTANT_TOKEN = token;
 
     btn.disabled = true;
-    $('ha-msg').className = 'msg'; $('ha-msg').textContent = 'Connecting...';
+    $('ha-msg').className = 'msg'; $('ha-msg').textContent = 'Connecting…';
     postJSON('/api/settings', payload).then(function (d) {
       btn.disabled = false;
       if (d.ok || d.telegram) {
-        $('ha-msg').className = 'msg ok'; $('ha-msg').textContent = 'Saved. Checking the connection...';
+        $('ha-msg').className = 'msg ok'; $('ha-msg').textContent = 'Saved. Checking the connection…';
         $('ha-token-input').value = '';
         renderHaStatus();
       } else if (d.error) {
@@ -918,18 +1892,17 @@
     });
   }
 
-  function haTile(e, extraClass) {
+  function haTile(e) {
     var isOn = e.state === 'on';
-    var stateLabel = e.state;
-    if (isOn) stateLabel = 'ON';
-    else if (e.state === 'off') stateLabel = 'OFF';
+    var stateLabel = e.state === 'on' ? 'On' : (e.state === 'off' ? 'Off' : e.state);
     if (e.domain === 'climate' && e.attributes && e.attributes.current_temperature != null) {
-      stateLabel = (e.state === 'off' ? 'OFF · ' : e.state + ' · ') + e.attributes.current_temperature + '°';
+      stateLabel = (e.state === 'off' ? 'Off · ' : e.state + ' · ') + e.attributes.current_temperature + '°';
     }
-    return '<button class="ha-tile' + (isOn ? ' on' : '') + (extraClass || '') + '"' +
+    return '<button class="ha-tile' + (isOn ? ' on' : '') + '"' +
       ' data-domain="' + esc(e.domain) + '" data-entity="' + esc(e.entity_id) + '">' +
-      '<span>' + esc(e.name) + '</span>' +
-      '<span class="t-state">' + esc(stateLabel.toUpperCase()) + '</span></button>';
+      '<span class="t-icon">' + haIcon(e.domain) + '</span>' +
+      '<span class="t-name">' + esc(e.name) + '</span>' +
+      '<span class="t-state"><span class="sdot"></span>' + esc(stateLabel) + '</span></button>';
   }
 
   function renderHaEntities() {
@@ -954,14 +1927,16 @@
     $('ha-climate-tiles').innerHTML = climate.map(function (e) { return haTile(e); }).join('');
     $('ha-run-tiles').innerHTML = run.map(function (e) {
       return '<button class="ha-tile run-tile" data-domain="' + esc(e.domain) + '" data-entity="' + esc(e.entity_id) + '">' +
-        '<span>' + esc(e.name) + '</span><span class="t-state">RUN</span></button>';
+        '<span class="t-icon">' + haIcon(e.domain) + '</span>' +
+        '<span class="t-name">' + esc(e.name) + '</span>' +
+        '<span class="t-state"><span class="sdot"></span>&#9654; Run</span></button>';
     }).join('');
 
     var shown = sensors.slice(0, 40);
     $('ha-sensors').innerHTML = shown.map(function (e) {
       var unit = (e.attributes && e.attributes.unit_of_measurement) || '';
       var val = e.state === 'unavailable' ? '—' : e.state + (unit ? ' ' + unit : '');
-      return '<span class="sensor-chip">' + esc(e.name) + '<span class="val">' + esc(val) + '</span></span>';
+      return '<span class="sensor-chip">' + sensorIcon(e) + esc(e.name) + '<span class="val">' + esc(val) + '</span></span>';
     }).join('') + (sensors.length > shown.length
       ? '<span class="sensor-chip">+' + (sensors.length - shown.length) + ' more</span>'
       : '');
@@ -973,7 +1948,7 @@
         if (d.error) {
           $('ha-controls').style.display = 'none';
           $('ha-status-line').style.display = 'flex';
-          $('ha-status-text').textContent = d.error;
+          $('ha-status-text').innerHTML = '<span class="err">' + esc(d.error) + '</span>';
           setDot($('ha-dot'), 'err');
           $('ha-meta').textContent = 'problem';
         }
@@ -981,14 +1956,12 @@
       }
       haEntities = d.entities || [];
       setDot($('ha-dot'), 'ok');
+      $('ha-meta').textContent = 'connected · ' + haEntities.length + ' devices';
       renderHaEntities();
     }).catch(function () {});
   }
 
-  function haTap(ev) {
-    var tile = ev.target;
-    while (tile && tile !== document.body && !(tile.classList && tile.classList.contains('ha-tile'))) tile = tile.parentNode;
-    if (!tile || !tile.getAttribute) return;
+  function haTap(tile) {
     var domain = tile.getAttribute('data-domain');
     var entity = tile.getAttribute('data-entity');
     var isRun = tile.classList.contains('run-tile');
@@ -1012,30 +1985,33 @@
     });
   }
 
+  document.addEventListener('click', function (ev) {
+    var t = ev.target;
+    while (t && t !== document.body) {
+      if (t.classList && t.classList.contains('ha-tile')) { haTap(t); return; }
+      t = t.parentNode;
+    }
+  });
+
   /* ---------- boot ---------- */
 
   loadChecks();
   setInterval(function () { if (!document.hidden) loadChecks(); }, 30000);
-
+  loadContext();
+  setInterval(function () { if (!document.hidden) loadContext(); }, 30000);
   loadTasks();
   setInterval(function () { if (!document.hidden) loadTasks(); }, 30000);
+  setInterval(function () { if (!document.hidden) renderTasks(lastTasks); }, 30000); // refresh countdowns
 
   loadHistory();
   connectSSE();
   setInterval(function () { if (!document.hidden && !esOk) connectSSE(); }, 15000);
   setInterval(function () { if (!document.hidden) renderActivity(); }, 2000);
+  setInterval(function () { if (!document.hidden) tickWave(); }, WAVE_MS);
 
   renderHaStatus();
   setInterval(function () { if (!document.hidden) renderHaStatus(); }, 45000);
   setInterval(function () { if (!document.hidden && $('ha-controls').style.display !== 'none') loadHaStates(); }, 15000);
-
-  document.addEventListener('click', function (ev) {
-    var t = ev.target;
-    while (t && t !== document.body) {
-      if (t.classList && (t.classList.contains('ha-tile'))) { haTap({ target: t }); return; }
-      t = t.parentNode;
-    }
-  });
 
   $('ha-retry').onclick = function () { renderHaStatus(); };
 })();
