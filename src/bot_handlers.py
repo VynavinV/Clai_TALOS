@@ -30,6 +30,7 @@ HELP_TEXT = (
     "- Subagent spawning for complex tasks\n\n"
     "Commands:\n"
     "/start - Start or restart\n"
+    "/stop - Stop the job I'm currently running\n"
     "/model - Change AI model\n"
     "/speed - Set response speed (quick|fast|normal)\n"
     "/reasoning - Toggle deep reasoning (on|off)\n"
@@ -44,6 +45,7 @@ logger = logging.getLogger("talos.handlers")
 _whisper_model = None
 _chat_send_locks: dict[int, asyncio.Lock] = {}
 _user_process_locks: dict[int, asyncio.Lock] = {}
+_active_run_tasks: dict[int, asyncio.Task] = {}
 
 _STREAM_MIN_CHARS = max(60, int(os.getenv("TALOS_STREAM_MIN_CHARS", "120")))
 _STREAM_MAX_EDITS = max(4, int(os.getenv("TALOS_STREAM_MAX_EDITS", "18")))
@@ -772,16 +774,32 @@ async def _safe_send(chat, text: str, locked: bool = False) -> bool:
     return True
 
 
+async def cmd_stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    uid = update.effective_user.id
+    task = _active_run_tasks.get(uid)
+    if task is None or task.done():
+        await update.message.reply_text("Nothing is running right now.")
+        return
+    task.cancel()
+    await update.message.reply_text("Stopping the current job...")
+
+
 async def _run_with_user_lock(user_id: int, chat, runner_coro):
     lock = _get_user_process_lock(user_id)
     if lock.locked():
         await _safe_send(chat, "Another request is still running. I queued this one and will respond next.")
 
     async with lock:
+        runner_task = asyncio.ensure_future(runner_coro())
+        _active_run_tasks[user_id] = runner_task
         typing_task = asyncio.create_task(_typing_loop(chat))
         try:
-            await runner_coro()
+            await runner_task
+        except asyncio.CancelledError:
+            await _safe_send(chat, "Stopped. Send a new message whenever you're ready.")
         finally:
+            if _active_run_tasks.get(user_id) is runner_task:
+                _active_run_tasks.pop(user_id, None)
             typing_task.cancel()
             try:
                 await typing_task
@@ -948,6 +966,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("stop", cmd_stop))
     app.add_handler(CommandHandler("model", cmd_model))
     app.add_handler(CommandHandler("speed", cmd_speed))
     app.add_handler(CommandHandler("reasoning", cmd_reasoning))

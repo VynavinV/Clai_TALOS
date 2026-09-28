@@ -478,12 +478,16 @@ def _tools_to_openai(tools: list[dict] | None) -> list[dict] | None:
 # ---------------------------------------------------------------------------
 
 _STREAM_SINK: ContextVar[Any] = ContextVar("talos_stream_sink", default=None)
+_STREAM_ACTIVITY: ContextVar[dict | None] = ContextVar("talos_stream_activity", default=None)
 
 
 async def _emit_delta(kind: str, text: str) -> None:
     """Push a streamed fragment to the sink installed by `call_model`, if any."""
     if not text:
         return
+    activity = _STREAM_ACTIVITY.get()
+    if activity is not None:
+        activity["ts"] = time.monotonic()
     sink = _STREAM_SINK.get()
     if sink is None:
         return
@@ -1153,6 +1157,9 @@ async def call_other(
         "model": model_id,
         "messages": messages,
     }
+    effort = os.getenv("OTHER_REASONING_EFFORT", "").strip()
+    if effort:
+        kwargs["reasoning_effort"] = effort
     if tools:
         kwargs["tools"] = _tools_to_openai(tools)
         kwargs["tool_choice"] = "auto"
@@ -1538,6 +1545,34 @@ def _model_timeout_for_speed(speed_mode: str, provider: str = "") -> int:
         return max(30, min(base, 85))
     return base
 
+async def _wait_for_model_call(coro, idle_timeout: int):
+    """Await a model call, timing out only when tokens stop arriving.
+
+    Every streamed delta refreshes the deadline, so a model that is actively
+    thinking or writing is never cut off mid-stream. A call that produces no
+    output at all is capped at one idle window, same as the old fixed deadline.
+    """
+    task = asyncio.ensure_future(coro)
+    try:
+        while True:
+            activity = _STREAM_ACTIVITY.get() or {}
+            elapsed = time.monotonic() - float(activity.get("ts", 0.0) or 0.0)
+            remaining = idle_timeout - elapsed
+            if remaining <= 0:
+                task.cancel()
+                raise asyncio.TimeoutError()
+            try:
+                return await asyncio.wait_for(asyncio.shield(task), timeout=remaining)
+            except asyncio.TimeoutError:
+                if task.done():
+                    return task.result()
+                continue
+    except BaseException:
+        if not task.done():
+            task.cancel()
+        raise
+
+
 async def call_model(
     model: str,
     messages: list[dict],
@@ -1569,9 +1604,10 @@ async def call_model(
 
     runtime_profile = _normalize_runtime_profile(speed_mode=speed_mode, reasoning_enabled=reasoning_enabled)
     sink_token = _STREAM_SINK.set(on_delta)
+    activity_token = _STREAM_ACTIVITY.set({"ts": time.monotonic()})
     try:
         timeout = _model_timeout_for_speed(runtime_profile["speed_mode"], provider)
-        return await asyncio.wait_for(caller(model_id, messages, tools, runtime_profile), timeout=timeout)
+        return await _wait_for_model_call(caller(model_id, messages, tools, runtime_profile), timeout)
     except asyncio.TimeoutError:
         logger.error(
             f"{provider} call timed out after {timeout}s for model {model_id} "
@@ -1600,6 +1636,7 @@ async def call_model(
         return {"content": f"Error communicating with {provider}: {e}", "tool_calls": [], "message": None}
     finally:
         _STREAM_SINK.reset(sink_token)
+        _STREAM_ACTIVITY.reset(activity_token)
 
 
 async def _try_fallback(

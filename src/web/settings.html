@@ -452,7 +452,7 @@
       </div>
     </div>
     <div class="sub-fields" id="orchestrator-timeout-fields">
-      <div class="form-group"><label>Stop jobs after (seconds)</label><input type="text" id="orchestrator-timeout" placeholder="1800" inputmode="numeric"><div class="form-hint">The overall time limit for one request, no matter how many rounds it uses. Default 1800 (30 minutes).</div></div>
+      <div class="form-group"><label>Stop jobs after (seconds)</label><input type="text" id="orchestrator-timeout" placeholder="1800" inputmode="numeric"><div class="form-hint">How long a job may go with no progress before it's stopped. Active work (new tokens, running tools) resets this, so a job that's still thinking or acting is never cut off. Default 1800 (30 minutes).</div></div>
       <div class="form-group"><label>Helper timeout (seconds)</label><input type="text" id="subagent-timeout" placeholder="900" inputmode="numeric"><div class="form-hint">The time limit for each sub-helper the main assistant spawns. Default 900 (15 minutes).</div></div>
     </div>
   </div>
@@ -653,6 +653,11 @@ function renderProviderPanels() {
         + '<button class="model-override-btn" onclick="toggleModelOverride(\'model-other\')" title="Type model name manually">&#9998;</button>'
         + '</div>'
         + '<div class="form-hint">Pick from your endpoint, or use the pencil button to type any model name it serves.</div>'
+        + '</div>'
+        + '<div class="form-group">'
+        + '<label>Reasoning Effort</label>'
+        + '<input type="text" id="other-reasoning-effort" placeholder="Model default (off)" value="' + _olAttr(_otherAdvanced.OTHER_REASONING_EFFORT || '') + '" autocomplete="off" spellcheck="false">'
+        + '<div class="form-hint">How hard the model thinks before answering, sent as reasoning_effort. Common values: minimal, low, medium, high. Leave empty to use the model default and not send anything.</div>'
         + '</div>'
         + '</div>';
       return;
@@ -1174,6 +1179,7 @@ function getModelValue(selectId) {
 var _currentMainModel = '';
 var _ollamaModel = '';
 var _ollamaAdvanced = {};
+var _otherAdvanced = {};
 
 function _olAttr(v) {
   return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
@@ -1235,6 +1241,9 @@ async function loadSettings() {
 
     _currentMainModel = d.MAIN_MODEL || '';
     _ollamaModel = d.OLLAMA_MODEL || '';
+    _otherAdvanced = {
+      OTHER_REASONING_EFFORT: d.OTHER_REASONING_EFFORT || ''
+    };
     _baseUrlValues.other = d.OTHER_BASE_URL || '';
     _ollamaAdvanced = {
       OLLAMA_NUM_CTX: d.OLLAMA_NUM_CTX || '',
@@ -1758,6 +1767,7 @@ async function saveSettings() {
     MISTRAL_BASE_URL: (document.getElementById('mistral-base-url') || {}).value || _baseUrlValues.mistral || '',
     OLLAMA_BASE_URL: (document.getElementById('ollama-base-url') || {}).value || _baseUrlValues.ollama || '',
     OTHER_BASE_URL: (document.getElementById('other-base-url') || {}).value || _baseUrlValues.other || '',
+    OTHER_REASONING_EFFORT: (document.getElementById('other-reasoning-effort') || {}).value || _otherAdvanced.OTHER_REASONING_EFFORT || '',
     OLLAMA_MODEL: (document.getElementById('ollama-model-name') || {}).value || _ollamaModel || '',
     OLLAMA_NUM_CTX: (document.getElementById('ollama-num-ctx') || {}).value || _ollamaAdvanced.OLLAMA_NUM_CTX || '',
     OLLAMA_TEMPERATURE: (document.getElementById('ollama-temperature') || {}).value || _ollamaAdvanced.OLLAMA_TEMPERATURE || '',

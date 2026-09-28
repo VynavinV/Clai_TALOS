@@ -180,8 +180,6 @@ async def process_message(user_id: int, text: str, send_func, model_override: st
             interrupt_queue=interrupt_queue,
             model_override=model_override,
         )
-        await _cancel_task(watchdog_task)
-        await _cancel_task(watcher_task)
         if AI.was_already_sent(reply):
             # The agent answered through send_telegram_message; the user has it.
             logger.info("Final reply already delivered via message tool; not resending")
@@ -193,10 +191,11 @@ async def process_message(user_id: int, text: str, send_func, model_override: st
                 "I could not produce a usable final response for that request. Please try again or split it into smaller steps.",
             )
     except Exception as error:
-        await _cancel_task(watchdog_task)
-        await _cancel_task(watcher_task)
         failure = _format_failure_message(error)
         await _send_with_optional_voice(send_func, f"Execution failed. {failure}")
+    finally:
+        await _cancel_task(watchdog_task)
+        await _cancel_task(watcher_task)
 
 
 async def process_image_message(user_id: int, text: str, image_b64: str, send_func) -> None:
@@ -234,14 +233,13 @@ async def process_image_message(user_id: int, text: str, image_b64: str, send_fu
             image_b64=image_b64,
             send_func=tracked_send,
         )
-        await _cancel_task(watchdog_task)
-        await _cancel_task(watcher_task)
         if reply and reply.strip():
             await _send_with_optional_voice(send_func, f"Execution complete. {reply}")
         else:
             await _send_with_optional_voice(send_func, "Execution complete but no summary was generated.")
     except Exception as error:
-        await _cancel_task(watchdog_task)
-        await _cancel_task(watcher_task)
         failure = _format_failure_message(error)
         await _send_with_optional_voice(send_func, f"Execution failed. {failure}")
+    finally:
+        await _cancel_task(watchdog_task)
+        await _cancel_task(watcher_task)

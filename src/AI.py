@@ -2382,8 +2382,9 @@ async def _execute_tool_call(
                 _with_activity_meta({"role": role, "task": task, "subagent_id": subagent_id, "parent_agent": _agent_id}),
             )
             wall_timeout = max(30, min(int(_MAX_SUBAGENT_WALL_TIMEOUT_S), 86400))
+            sub_activity = {"start": time.monotonic(), "last": time.monotonic()}
             try:
-                result = await asyncio.wait_for(
+                result = await _wait_for_agent(
                     _run_subagent(
                         user_id,
                         role,
@@ -2392,8 +2393,10 @@ async def _execute_tool_call(
                         _build_subagent_send_func(send_func),
                         _agent_id=subagent_id,
                         _parent_agent_id=_agent_id,
+                        activity_state=sub_activity,
                     ),
-                    timeout=wall_timeout,
+                    wall_timeout,
+                    sub_activity,
                 )
                 await _t.emit(
                     "done",
@@ -2689,6 +2692,36 @@ def _parse_text_tool_calls(content: str) -> tuple[list[dict], str]:
     return parsed, remaining.strip()
 
 
+async def _wait_for_agent(coro, timeout: int | None, activity: dict):
+    """Await an agent run with an idle timeout instead of a wall clock.
+
+    The deadline resets whenever the run makes progress — new tokens streaming
+    in, a tool finishing, a new round starting — so an agent that is actively
+    thinking or working is never cut off mid-stream. It only stops when
+    nothing has happened for `timeout` seconds.
+    """
+    if timeout is None:
+        return await coro
+    task = asyncio.ensure_future(coro)
+    try:
+        while True:
+            elapsed = time.monotonic() - float(activity.get("last", activity["start"]))
+            remaining = timeout - elapsed
+            if remaining <= 0:
+                task.cancel()
+                raise asyncio.TimeoutError()
+            try:
+                return await asyncio.wait_for(asyncio.shield(task), timeout=remaining)
+            except asyncio.TimeoutError:
+                if task.done():
+                    return task.result()
+                continue
+    except BaseException:
+        if not task.done():
+            task.cancel()
+        raise
+
+
 async def _run_agent(
     model: str,
     prompt: str,
@@ -2704,6 +2737,7 @@ async def _run_agent(
     interrupt_queue: asyncio.Queue | None = None,
     speed_mode: str = "normal",
     reasoning_enabled: bool = True,
+    activity_state: dict | None = None,
     _agent_id: str = "orchestrator",
     _parent_agent_id: str | None = None,
 ) -> str:
@@ -2761,6 +2795,10 @@ async def _run_agent(
             payload.setdefault("parent_agent", _parent_agent_id)
         return payload
 
+    def _touch_activity() -> None:
+        if activity_state is not None:
+            activity_state["last"] = time.monotonic()
+
     def _make_stream_sink(round_no: int):
         """Batch model deltas into activity events so the UI can render them live."""
         tracker = activity_tracker.get_tracker()
@@ -2790,6 +2828,7 @@ async def _run_agent(
             )
 
         async def _sink(kind: str, text: str) -> None:
+            _touch_activity()
             buffers.setdefault(kind, []).append(text)
             await _flush(kind)
 
@@ -2855,6 +2894,7 @@ async def _run_agent(
                 messages.append(msg)
 
         await _t.emit("thinking", _agent_id, "Thinking", f"Round {_ + 1}/{max_rounds} — calling model {model_id}", _with_activity_meta())
+        _touch_activity()
 
         t0 = time.monotonic()
         sink = _make_stream_sink(_ + 1)
@@ -3017,6 +3057,7 @@ async def _run_agent(
                 _agent_id=_agent_id,
                 _parent_agent_id=_parent_agent_id,
             )
+            _touch_activity()
         
         if subagent_calls:
             async def _do_subagent(tc):
@@ -3028,6 +3069,7 @@ async def _run_agent(
                     _agent_id=_agent_id,
                     _parent_agent_id=_parent_agent_id,
                 )
+                _touch_activity()
                 return tc["id"], r
 
             gathered = await asyncio.gather(
@@ -3184,6 +3226,7 @@ async def _run_subagent(
     task: str,
     context: str = "",
     send_func: SendFunc | None = None,
+    activity_state: dict | None = None,
     _agent_id: str = "subagent",
     _parent_agent_id: str | None = None,
 ) -> str:
@@ -3204,6 +3247,7 @@ async def _run_subagent(
         max_calls_per_round=subagent_calls,
         speed_mode=speed_mode,
         reasoning_enabled=reasoning_enabled,
+        activity_state=activity_state,
         _agent_id=_agent_id,
         _parent_agent_id=_parent_agent_id,
     )
@@ -3288,6 +3332,7 @@ async def respond(
     base_model = model_override or db.get_model(user_id)
     model = base_model if model_override else _pick_runtime_model(base_model, speed_mode)
     agent_rounds, agent_calls, orchestrator_timeout = _agent_limits_for_speed(speed_mode)
+    run_activity = {"start": time.monotonic(), "last": time.monotonic()}
     history = db.get_history(user_id)
     system = _build_system(user_id, text)
     
@@ -3357,7 +3402,7 @@ Here is my re-analysis of the image based on the new question:
 Based on this analysis and the user's current request, proceed with any tasks needed."""
         
         try:
-            reply = await asyncio.wait_for(
+            reply = await _wait_for_agent(
                 _run_agent(
                     model, agent_prompt,
                     system=system,
@@ -3371,8 +3416,10 @@ Based on this analysis and the user's current request, proceed with any tasks ne
                     interrupt_queue=interrupt_queue,
                     speed_mode=speed_mode,
                     reasoning_enabled=reasoning_enabled,
+                    activity_state=run_activity,
                 ),
-                timeout=orchestrator_timeout,
+                orchestrator_timeout,
+                run_activity,
             )
         except asyncio.TimeoutError:
             reply = (
@@ -3387,7 +3434,7 @@ Based on this analysis and the user's current request, proceed with any tasks ne
             reply = image_analysis
     else:
         try:
-            reply = await asyncio.wait_for(
+            reply = await _wait_for_agent(
                 _run_agent(
                     model, text,
                     system=system,
@@ -3401,8 +3448,10 @@ Based on this analysis and the user's current request, proceed with any tasks ne
                     interrupt_queue=interrupt_queue,
                     speed_mode=speed_mode,
                     reasoning_enabled=reasoning_enabled,
+                    activity_state=run_activity,
                 ),
-                timeout=orchestrator_timeout,
+                orchestrator_timeout,
+                run_activity,
             )
         except asyncio.TimeoutError:
             reply = (
@@ -3424,6 +3473,7 @@ async def respond_with_image(user_id: int, text: str, image_b64: str, send_func:
     speed_mode = db.get_speed_mode(user_id)
     reasoning_enabled = db.get_reasoning_enabled(user_id)
     agent_rounds, agent_calls, orchestrator_timeout = _agent_limits_for_speed(speed_mode)
+    run_activity = {"start": time.monotonic(), "last": time.monotonic()}
 
     vision_model = db.get_image_model(user_id)
     base_main_model = db.get_model(user_id)
@@ -3477,7 +3527,7 @@ Here is my analysis of the image:
 
 Based on this analysis and the user's request, proceed with any tasks needed. If the user is asking for something to be created or done, use the available tools to accomplish it."""
         
-        reply = await asyncio.wait_for(
+        reply = await _wait_for_agent(
             _run_agent(
                 main_model, agent_prompt,
                 system=system,
@@ -3489,8 +3539,10 @@ Based on this analysis and the user's request, proceed with any tasks needed. If
                 max_calls_per_round=agent_calls,
                 speed_mode=speed_mode,
                 reasoning_enabled=reasoning_enabled,
+                activity_state=run_activity,
             ),
-            timeout=orchestrator_timeout,
+            orchestrator_timeout,
+            run_activity,
         )
     except asyncio.TimeoutError:
         reply = (

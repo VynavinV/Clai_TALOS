@@ -200,6 +200,7 @@ async def _post_init(application: Application) -> None:
     """Set bot commands so they appear in Telegram's / autocomplete menu."""
     commands = [
         BotCommand("start", "Start or restart the bot"),
+        BotCommand("stop", "Stop the current job"),
         BotCommand("model", "Change AI model"),
         BotCommand("speed", "Set response speed (quick|fast|normal)"),
         BotCommand("reasoning", "Toggle deep reasoning (on|off)"),
@@ -2942,6 +2943,7 @@ async def handle_api_settings_get(request):
         "OLLAMA_BASE_URL": env_vars.get("OLLAMA_BASE_URL", "http://localhost:11434/v1"),
         "OTHER_BASE_URL": env_vars.get("OTHER_BASE_URL", ""),
         "OTHER_TIMEOUT_S": env_vars.get("OTHER_TIMEOUT_S", ""),
+        "OTHER_REASONING_EFFORT": env_vars.get("OTHER_REASONING_EFFORT", ""),
         "OLLAMA_MODEL": env_vars.get("OLLAMA_MODEL", ""),
         "OLLAMA_NUM_CTX": env_vars.get("OLLAMA_NUM_CTX", ""),
         "OLLAMA_TEMPERATURE": env_vars.get("OLLAMA_TEMPERATURE", ""),
@@ -3121,6 +3123,7 @@ async def handle_api_settings_post(request):
         "PIPER_VOICE", "CLIENT_BASE_URL", "NVIDIA_BASE_URL", "CEREBRAS_BASE_URL", "GROQ_BASE_URL", "QWEN_BASE_URL", "OPENROUTER_BASE_URL", "MISTRAL_BASE_URL", "OLLAMA_BASE_URL", "OTHER_BASE_URL", "OLLAMA_MODEL",
         "OLLAMA_NUM_CTX", "OLLAMA_TEMPERATURE", "OLLAMA_MAX_TOKENS", "OLLAMA_KEEP_ALIVE", "OLLAMA_KEEP_WARM", "OLLAMA_TIMEOUT_S",
         "OTHER_TIMEOUT_S",
+        "OTHER_REASONING_EFFORT",
         "OTA_CHANNEL", "TALOS_LAZY_TOOLS",
         "CLAISTORE_GITHUB_REPO", "CLAISTORE_GITHUB_TOKEN", "CLAISTORE_GITHUB_BRANCH",
         "HOMEASSISTANT_URL", "HOMEASSISTANT_TOKEN",
