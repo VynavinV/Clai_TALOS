@@ -379,16 +379,43 @@
 
   <div class="section">
     <div class="section-title">Safety Limits (Advanced)</div>
-    <div class="form-group"><label>Maximum Helper Rounds</label><input type="text" id="max-tool-rounds" placeholder="5" inputmode="numeric"></div>
-    <div class="form-group"><label>Maximum Actions Per Round</label><input type="text" id="max-tool-calls-per-round" placeholder="20" inputmode="numeric"></div>
-    <div class="form-group"><label>Command Timeout (seconds)</label><input type="text" id="max-command-timeout" placeholder="120" inputmode="numeric"></div>
-    <div class="form-group"><label>Maximum Workflow Steps</label><input type="text" id="max-workflow-steps" placeholder="12" inputmode="numeric"></div>
-    <div class="form-group"><label>Sub-helper Rounds</label><input type="text" id="max-subagent-tool-rounds" placeholder="5" inputmode="numeric"></div>
-    <div class="form-group"><label>Sub-helper Actions Per Round</label><input type="text" id="max-subagent-tool-calls-per-round" placeholder="15" inputmode="numeric"></div>
+    <div class="form-hint" style="margin-bottom:0.9rem;">
+      These caps stop runaway jobs. One "round" is a single think-act-check cycle: the model reasons, runs its tools (commands, searches, etc.), then looks at the results and decides what to do next. If the assistant ever says it "ran out of processing rounds", raise the rounds settings here.
+    </div>
+    <div class="form-group">
+      <label>Main Assistant Rounds</label>
+      <input type="text" id="max-tool-rounds" placeholder="40" inputmode="numeric">
+      <div class="form-hint">How many think-act-check cycles the main assistant may run before it must give you its answer. Default 40.</div>
+    </div>
+    <div class="form-group">
+      <label>Actions Per Round (Main)</label>
+      <input type="text" id="max-tool-calls-per-round" placeholder="30" inputmode="numeric">
+      <div class="form-hint">How many tool calls can be packed into one round. Default 30.</div>
+    </div>
+    <div class="form-group">
+      <label>Command Timeout (seconds)</label>
+      <input type="text" id="max-command-timeout" placeholder="300" inputmode="numeric">
+      <div class="form-hint">The longest a single terminal command may run before it gets stopped. Default 300.</div>
+    </div>
+    <div class="form-group">
+      <label>Workflow Steps</label>
+      <input type="text" id="max-workflow-steps" placeholder="30" inputmode="numeric">
+      <div class="form-hint">Maximum number of steps allowed in one workflow run. Default 30.</div>
+    </div>
+    <div class="form-group">
+      <label>Sub-helper Rounds</label>
+      <input type="text" id="max-subagent-tool-rounds" placeholder="20" inputmode="numeric">
+      <div class="form-hint">Same as Main Assistant Rounds, but for the sub-helpers the assistant spawns to work on side tasks. Default 20.</div>
+    </div>
+    <div class="form-group">
+      <label>Actions Per Round (Sub-helper)</label>
+      <input type="text" id="max-subagent-tool-calls-per-round" placeholder="25" inputmode="numeric">
+      <div class="form-hint">Tool calls a sub-helper may pack into one round. Default 25.</div>
+    </div>
     <div class="form-group">
       <label>Auto Tidy Threshold (characters)</label>
-      <input type="text" id="max-context-chars" placeholder="120000" inputmode="numeric">
-      <div class="form-hint">If chat history gets too long, TALOS tidies it automatically and keeps going.</div>
+      <input type="text" id="max-context-chars" placeholder="200000" inputmode="numeric">
+      <div class="form-hint">If chat history gets too long, TALOS tidies it automatically and keeps going. Default 200000.</div>
     </div>
     <div class="form-group">
       <label>Current Memory Usage</label>
@@ -425,8 +452,8 @@
       </div>
     </div>
     <div class="sub-fields" id="orchestrator-timeout-fields">
-      <div class="form-group"><label>Stop jobs after (seconds)</label><input type="text" id="orchestrator-timeout" placeholder="300" inputmode="numeric"><div class="form-hint">The overall limit for one request. Default 300 (5 minutes).</div></div>
-      <div class="form-group"><label>Helper timeout (seconds)</label><input type="text" id="subagent-timeout" placeholder="180" inputmode="numeric"><div class="form-hint">The limit for each sub-helper the main assistant spawns. Default 180 (3 minutes).</div></div>
+      <div class="form-group"><label>Stop jobs after (seconds)</label><input type="text" id="orchestrator-timeout" placeholder="1800" inputmode="numeric"><div class="form-hint">The overall time limit for one request, no matter how many rounds it uses. Default 1800 (30 minutes).</div></div>
+      <div class="form-group"><label>Helper timeout (seconds)</label><input type="text" id="subagent-timeout" placeholder="900" inputmode="numeric"><div class="form-hint">The time limit for each sub-helper the main assistant spawns. Default 900 (15 minutes).</div></div>
     </div>
   </div>
 
@@ -1169,13 +1196,13 @@ async function loadSettings() {
     document.getElementById('himalaya-bin').value = d.HIMALAYA_BIN || '';
     document.getElementById('himalaya-config').value = d.HIMALAYA_CONFIG || '';
     document.getElementById('himalaya-default-account').value = d.HIMALAYA_DEFAULT_ACCOUNT || '';
-    document.getElementById('max-tool-rounds').value = d.MAX_TOOL_ROUNDS || '5';
-    document.getElementById('max-tool-calls-per-round').value = d.MAX_TOOL_CALLS_PER_ROUND || '20';
-    document.getElementById('max-command-timeout').value = d.MAX_COMMAND_TIMEOUT || '120';
-    document.getElementById('max-workflow-steps').value = d.MAX_WORKFLOW_STEPS || '12';
-    document.getElementById('max-subagent-tool-rounds').value = d.MAX_SUBAGENT_TOOL_ROUNDS || '5';
-    document.getElementById('max-subagent-tool-calls-per-round').value = d.MAX_SUBAGENT_TOOL_CALLS_PER_ROUND || '15';
-    document.getElementById('max-context-chars').value = d.MAX_CONTEXT_CHARS || '120000';
+    document.getElementById('max-tool-rounds').value = d.MAX_TOOL_ROUNDS || '40';
+    document.getElementById('max-tool-calls-per-round').value = d.MAX_TOOL_CALLS_PER_ROUND || '30';
+    document.getElementById('max-command-timeout').value = d.MAX_COMMAND_TIMEOUT || '300';
+    document.getElementById('max-workflow-steps').value = d.MAX_WORKFLOW_STEPS || '30';
+    document.getElementById('max-subagent-tool-rounds').value = d.MAX_SUBAGENT_TOOL_ROUNDS || '20';
+    document.getElementById('max-subagent-tool-calls-per-round').value = d.MAX_SUBAGENT_TOOL_CALLS_PER_ROUND || '25';
+    document.getElementById('max-context-chars').value = d.MAX_CONTEXT_CHARS || '200000';
     document.getElementById('ha-url').value = d.HOMEASSISTANT_URL || '';
     document.getElementById('ha-token').value = d.HOMEASSISTANT_TOKEN || '';
     document.getElementById('ha-enabled').checked = (d.HOMEASSISTANT_ENABLED || '1') !== '0';
@@ -1184,8 +1211,8 @@ async function loadSettings() {
     document.getElementById('stuck-interval').value = d.TALOS_STUCK_CHECK_INTERVAL_S || '10';
     document.getElementById('stuck-max').value = d.TALOS_STUCK_MAX_INTERVENTIONS || '2';
     document.getElementById('orchestrator-timeout-enabled').checked = (d.ORCHESTRATOR_TIMEOUT_ENABLED || '1') !== '0';
-    document.getElementById('orchestrator-timeout').value = d.MAX_ORCHESTRATOR_WALL_TIMEOUT_S || '300';
-    document.getElementById('subagent-timeout').value = d.MAX_SUBAGENT_WALL_TIMEOUT_S || '180';
+    document.getElementById('orchestrator-timeout').value = d.MAX_ORCHESTRATOR_WALL_TIMEOUT_S || '1800';
+    document.getElementById('subagent-timeout').value = d.MAX_SUBAGENT_WALL_TIMEOUT_S || '900';
     updateToggleDim();
     loadHomeAssistantStatus();
     var otaChannel = String(d.OTA_CHANNEL || 'stable').toLowerCase();

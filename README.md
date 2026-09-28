@@ -736,19 +736,19 @@ Requests are proxied through the TALOS server, so the token never reaches the br
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MAX_TOOL_ROUNDS` | `5` | Max function-call rounds per response |
-| `MAX_TOOL_CALLS_PER_ROUND` | `20` | Cap tool calls in a single round |
-| `MAX_COMMAND_TIMEOUT` | `120` | Max seconds for command tools |
-| `MAX_WORKFLOW_STEPS` | `12` | Cap workflow step count |
-| `MAX_ORCHESTRATOR_WALL_TIMEOUT_S` | `300` | Wall-clock budget for orchestrator run |
+| `MAX_TOOL_ROUNDS` | `40` | Max think-act-check rounds per response |
+| `MAX_TOOL_CALLS_PER_ROUND` | `30` | Cap tool calls in a single round |
+| `MAX_COMMAND_TIMEOUT` | `300` | Max seconds for command tools |
+| `MAX_WORKFLOW_STEPS` | `30` | Cap workflow step count |
+| `MAX_ORCHESTRATOR_WALL_TIMEOUT_S` | `1800` | Wall-clock budget for orchestrator run |
 | `ORCHESTRATOR_TIMEOUT_ENABLED` | `1` | `0` disables the processing timeout entirely |
-| `MAX_SUBAGENT_TOOL_ROUNDS` | `5` | Subagent tool rounds cap |
-| `MAX_SUBAGENT_TOOL_CALLS_PER_ROUND` | `15` | Subagent calls per round cap |
-| `MAX_SUBAGENT_WALL_TIMEOUT_S` | `180` | Subagent wall-clock budget |
+| `MAX_SUBAGENT_TOOL_ROUNDS` | `20` | Subagent tool rounds cap |
+| `MAX_SUBAGENT_TOOL_CALLS_PER_ROUND` | `25` | Subagent calls per round cap |
+| `MAX_SUBAGENT_WALL_TIMEOUT_S` | `900` | Subagent wall-clock budget |
 | `SUBAGENT_MAX_TELEGRAM_MESSAGES` | `3` | Max subagent update messages |
 | `SUBAGENT_MAX_TELEGRAM_MESSAGE_CHARS` | `260` | Max chars per subagent update |
 | `SUBAGENT_MIN_UPDATE_INTERVAL_S` | `30` | Min spacing between subagent updates |
-| `MAX_CONTEXT_CHARS` | `120000` | Context threshold shown in dashboard |
+| `MAX_CONTEXT_CHARS` | `200000` | Context threshold shown in dashboard |
 
 ### Recovery watchdog (autoinject)
 

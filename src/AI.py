@@ -44,14 +44,14 @@ _tools_guide_cache: str | None = None
 
 _MODELS = model_router.get_all_model_aliases()
 
-_MAX_TOOL_ROUNDS = int(os.getenv("MAX_TOOL_ROUNDS", "5"))
-_MAX_TOOL_CALLS_PER_ROUND = int(os.getenv("MAX_TOOL_CALLS_PER_ROUND", "20"))
-_MAX_COMMAND_TIMEOUT = int(os.getenv("MAX_COMMAND_TIMEOUT", "120"))
-_MAX_WORKFLOW_STEPS = int(os.getenv("MAX_WORKFLOW_STEPS", "12"))
-_MAX_ORCHESTRATOR_WALL_TIMEOUT_S = int(os.getenv("MAX_ORCHESTRATOR_WALL_TIMEOUT_S", "300"))
-_MAX_SUBAGENT_TOOL_ROUNDS = int(os.getenv("MAX_SUBAGENT_TOOL_ROUNDS", "5"))
-_MAX_SUBAGENT_TOOL_CALLS_PER_ROUND = int(os.getenv("MAX_SUBAGENT_TOOL_CALLS_PER_ROUND", "15"))
-_MAX_SUBAGENT_WALL_TIMEOUT_S = int(os.getenv("MAX_SUBAGENT_WALL_TIMEOUT_S", "180"))
+_MAX_TOOL_ROUNDS = int(os.getenv("MAX_TOOL_ROUNDS", "40"))
+_MAX_TOOL_CALLS_PER_ROUND = int(os.getenv("MAX_TOOL_CALLS_PER_ROUND", "30"))
+_MAX_COMMAND_TIMEOUT = int(os.getenv("MAX_COMMAND_TIMEOUT", "300"))
+_MAX_WORKFLOW_STEPS = int(os.getenv("MAX_WORKFLOW_STEPS", "30"))
+_MAX_ORCHESTRATOR_WALL_TIMEOUT_S = int(os.getenv("MAX_ORCHESTRATOR_WALL_TIMEOUT_S", "1800"))
+_MAX_SUBAGENT_TOOL_ROUNDS = int(os.getenv("MAX_SUBAGENT_TOOL_ROUNDS", "20"))
+_MAX_SUBAGENT_TOOL_CALLS_PER_ROUND = int(os.getenv("MAX_SUBAGENT_TOOL_CALLS_PER_ROUND", "25"))
+_MAX_SUBAGENT_WALL_TIMEOUT_S = int(os.getenv("MAX_SUBAGENT_WALL_TIMEOUT_S", "900"))
 _SUBAGENT_MAX_TELEGRAM_MESSAGES = int(os.getenv("SUBAGENT_MAX_TELEGRAM_MESSAGES", "3"))
 _SUBAGENT_MAX_TELEGRAM_MESSAGE_CHARS = int(os.getenv("SUBAGENT_MAX_TELEGRAM_MESSAGE_CHARS", "260"))
 _SUBAGENT_MIN_UPDATE_INTERVAL_S = float(os.getenv("SUBAGENT_MIN_UPDATE_INTERVAL_S", "30"))
@@ -83,41 +83,17 @@ def _pick_runtime_model(base_model: str, speed_mode: str) -> str:
 
 
 def _agent_limits_for_speed(speed_mode: str) -> tuple[int, int, int | None]:
-    mode = _normalize_speed_mode(speed_mode)
     rounds = max(1, _MAX_TOOL_ROUNDS)
     calls = max(1, _MAX_TOOL_CALLS_PER_ROUND)
     if os.getenv("ORCHESTRATOR_TIMEOUT_ENABLED", "1") == "0":
         timeout = None  # Read live from env so Settings changes apply without a restart.
     else:
-        timeout = max(60, min(int(_MAX_ORCHESTRATOR_WALL_TIMEOUT_S), 1800))
-
-    if mode == "quick":
-        return (
-            max(1, min(rounds, 2)),
-            max(1, min(calls, 8)),
-            max(60, min(timeout, 120)),
-        )
-
-    if mode == "fast":
-        return (
-            max(1, min(rounds, 3)),
-            max(1, min(calls, 12)),
-            max(60, min(timeout, 180)),
-        )
-
+        timeout = max(60, min(int(_MAX_ORCHESTRATOR_WALL_TIMEOUT_S), 86400))
     return rounds, calls, timeout
 
 
 def _subagent_limits_for_speed(speed_mode: str) -> tuple[int, int]:
-    mode = _normalize_speed_mode(speed_mode)
-    rounds = max(1, _MAX_SUBAGENT_TOOL_ROUNDS)
-    calls = max(1, _MAX_SUBAGENT_TOOL_CALLS_PER_ROUND)
-
-    if mode == "quick":
-        return max(1, min(rounds, 2)), max(1, min(calls, 6))
-    if mode == "fast":
-        return max(1, min(rounds, 3)), max(1, min(calls, 10))
-    return rounds, calls
+    return max(1, _MAX_SUBAGENT_TOOL_ROUNDS), max(1, _MAX_SUBAGENT_TOOL_CALLS_PER_ROUND)
 
 
 def reload_clients():
@@ -130,14 +106,14 @@ def reload_clients():
     _tools_guide_cache = None
     model_router.reload_clients()
     load_dotenv(dotenv_path=app_paths.env_file_path(), override=True)
-    _MAX_TOOL_ROUNDS = int(os.getenv("MAX_TOOL_ROUNDS", "5"))
-    _MAX_TOOL_CALLS_PER_ROUND = int(os.getenv("MAX_TOOL_CALLS_PER_ROUND", "20"))
-    _MAX_COMMAND_TIMEOUT = int(os.getenv("MAX_COMMAND_TIMEOUT", "120"))
-    _MAX_WORKFLOW_STEPS = int(os.getenv("MAX_WORKFLOW_STEPS", "12"))
-    _MAX_ORCHESTRATOR_WALL_TIMEOUT_S = int(os.getenv("MAX_ORCHESTRATOR_WALL_TIMEOUT_S", "300"))
-    _MAX_SUBAGENT_TOOL_ROUNDS = int(os.getenv("MAX_SUBAGENT_TOOL_ROUNDS", "5"))
-    _MAX_SUBAGENT_TOOL_CALLS_PER_ROUND = int(os.getenv("MAX_SUBAGENT_TOOL_CALLS_PER_ROUND", "15"))
-    _MAX_SUBAGENT_WALL_TIMEOUT_S = int(os.getenv("MAX_SUBAGENT_WALL_TIMEOUT_S", "180"))
+    _MAX_TOOL_ROUNDS = int(os.getenv("MAX_TOOL_ROUNDS", "40"))
+    _MAX_TOOL_CALLS_PER_ROUND = int(os.getenv("MAX_TOOL_CALLS_PER_ROUND", "30"))
+    _MAX_COMMAND_TIMEOUT = int(os.getenv("MAX_COMMAND_TIMEOUT", "300"))
+    _MAX_WORKFLOW_STEPS = int(os.getenv("MAX_WORKFLOW_STEPS", "30"))
+    _MAX_ORCHESTRATOR_WALL_TIMEOUT_S = int(os.getenv("MAX_ORCHESTRATOR_WALL_TIMEOUT_S", "1800"))
+    _MAX_SUBAGENT_TOOL_ROUNDS = int(os.getenv("MAX_SUBAGENT_TOOL_ROUNDS", "20"))
+    _MAX_SUBAGENT_TOOL_CALLS_PER_ROUND = int(os.getenv("MAX_SUBAGENT_TOOL_CALLS_PER_ROUND", "25"))
+    _MAX_SUBAGENT_WALL_TIMEOUT_S = int(os.getenv("MAX_SUBAGENT_WALL_TIMEOUT_S", "900"))
     _SUBAGENT_MAX_TELEGRAM_MESSAGES = int(os.getenv("SUBAGENT_MAX_TELEGRAM_MESSAGES", "3"))
     _SUBAGENT_MAX_TELEGRAM_MESSAGE_CHARS = int(os.getenv("SUBAGENT_MAX_TELEGRAM_MESSAGE_CHARS", "260"))
     _SUBAGENT_MIN_UPDATE_INTERVAL_S = float(os.getenv("SUBAGENT_MIN_UPDATE_INTERVAL_S", "30"))
@@ -2405,7 +2381,7 @@ async def _execute_tool_call(
                 f"{role}: {task[:100]}",
                 _with_activity_meta({"role": role, "task": task, "subagent_id": subagent_id, "parent_agent": _agent_id}),
             )
-            wall_timeout = max(30, min(int(_MAX_SUBAGENT_WALL_TIMEOUT_S), 900))
+            wall_timeout = max(30, min(int(_MAX_SUBAGENT_WALL_TIMEOUT_S), 86400))
             try:
                 result = await asyncio.wait_for(
                     _run_subagent(
