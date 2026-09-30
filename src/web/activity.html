@@ -526,6 +526,19 @@ function showEventDetail(eventId) {
   }
 }
 
+// Transcripts expire by age, not by replaying the events array: `events`
+// only holds the FIRST event of each stream key, so a replay-based rebuild
+// would collapse a live transcript back to its first chunk (or delete it
+// once its anchor event is trimmed out) while the model is still writing.
+const TRANSCRIPT_TTL_S = 1800;
+
+function expireTranscripts() {
+  const cutoff = Date.now() / 1000 - TRANSCRIPT_TTL_S;
+  for (const entry of transcripts.values()) {
+    if (entry.lastTs < cutoff) transcripts.delete(entry.key);
+  }
+}
+
 function addEvent(evt) {
   if (evt.type === 'stream') {
     const { isNew } = ingestStream(evt);
@@ -537,7 +550,7 @@ function addEvent(evt) {
   }
   if (events.length > 500) {
     events = events.slice(-500);
-    rebuildTranscripts();
+    expireTranscripts();
   }
   renderTimeline();
   renderAgentCards();

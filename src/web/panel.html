@@ -1308,6 +1308,14 @@
     return s.length > n ? s.slice(0, n) + '…' : s;
   }
 
+  /* Keep the END of long transcripts: streaming text keeps arriving at the
+     end, so truncating the head would freeze the box once a block passes
+     the cap while the model is still writing. */
+  function tail(s, n) {
+    s = s || '';
+    return s.length > n ? '…' + s.slice(-n) : s;
+  }
+
   function ago(ts) {
     var age = Math.max(0, Math.floor(Date.now() / 1000 - ts));
     if (age < 5) return 'just now';
@@ -1758,11 +1766,19 @@
     return false;
   }
 
-  function rebuildTranscripts() {
-    transcripts.clear();
-    events.forEach(function (evt) {
-      if (evt.type === 'stream') ingestStream(evt);
+  // Transcripts expire by age, not by replaying the events array: `events`
+  // only holds the FIRST event of each stream key, so a replay-based rebuild
+  // would collapse a live transcript back to its first chunk (or delete it
+  // once its anchor event is trimmed out) while the model is still writing.
+  var TRANSCRIPT_TTL_S = 1800;
+
+  function expireTranscripts() {
+    var cutoff = Date.now() / 1000 - TRANSCRIPT_TTL_S;
+    var stale = [];
+    transcripts.forEach(function (entry) {
+      if (entry.lastTs < cutoff) stale.push(entry.key);
     });
+    for (var i = 0; i < stale.length; i++) transcripts.delete(stale[i]);
   }
 
   function addEvent(evt) {
@@ -1774,7 +1790,7 @@
     bumpWave();
     if (events.length > MAX) {
       events = events.slice(-MAX);
-      rebuildTranscripts();
+      expireTranscripts();
     }
   }
 
@@ -2217,7 +2233,7 @@
       var enterCls = (i >= lastBlockCount) ? ' enter' : '';
       return '<div class="out-block ' + esc(entry.kind) + enterCls + '">'
         + '<span class="out-kind ' + esc(entry.kind) + '">' + esc(kind) + '</span>'
-        + '<div class="out-text">' + esc(trunc(entry.text, 4000)) + (last && streaming ? '<span class="caret"></span>' : '') + '</div>'
+        + '<div class="out-text">' + esc(tail(entry.text, 4000)) + (last && streaming ? '<span class="caret"></span>' : '') + '</div>'
         + '</div>';
     }).join('');
     lastBlockCount = blocks.length;
@@ -2286,13 +2302,12 @@
       if (!Array.isArray(data)) return;
       events = [];
       transcripts.clear();
-      var seen = new Set();
+      // Feed every stream chunk through addEvent so transcripts accumulate
+      // the full text. addEvent itself keeps only the first event of each
+      // stream key in `events`, so the timeline stays deduped; skipping
+      // continuation chunks here would leave every block showing only its
+      // first fragment after a page reload.
       data.forEach(function (evt) {
-        if (evt.type === 'stream') {
-          var key = streamKey(evt);
-          if (seen.has(key)) return;
-          seen.add(key);
-        }
         addEvent(evt);
       });
       renderActivity();
