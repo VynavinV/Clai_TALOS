@@ -28,8 +28,10 @@ import model_router
 import browser_automation
 import google_integration
 import email_tools
+import homeassistant
 import pa_system
 import activity_tracker
+import interrupt_hub
 
 app_paths.ensure_runtime_dirs()
 load_dotenv(dotenv_path=app_paths.env_file_path())
@@ -55,6 +57,22 @@ _MAX_SUBAGENT_WALL_TIMEOUT_S = int(os.getenv("MAX_SUBAGENT_WALL_TIMEOUT_S", "900
 _SUBAGENT_MAX_TELEGRAM_MESSAGES = int(os.getenv("SUBAGENT_MAX_TELEGRAM_MESSAGES", "3"))
 _SUBAGENT_MAX_TELEGRAM_MESSAGE_CHARS = int(os.getenv("SUBAGENT_MAX_TELEGRAM_MESSAGE_CHARS", "260"))
 _SUBAGENT_MIN_UPDATE_INTERVAL_S = float(os.getenv("SUBAGENT_MIN_UPDATE_INTERVAL_S", "30"))
+
+# --- Long-running task knobs ------------------------------------------------
+# A single tool result this big is truncated before it enters the run's
+# context. Big file reads / command dumps are what actually kill long tasks:
+# the model drowns in its own output long before it runs out of rounds.
+_MAX_TOOL_RESULT_CHARS = int(os.getenv("MAX_TOOL_RESULT_CHARS", "12000"))
+# When the run's accumulated context passes this, older tool results are
+# compacted (kept as short stubs) so the run can keep going indefinitely.
+_MAX_RUN_CONTEXT_CHARS = int(os.getenv("MAX_RUN_CONTEXT_CHARS", "160000"))
+# How many fresh round budgets an agent earns by making progress. With
+# MAX_TOOL_ROUNDS=40 and 6 continuations, a productive task gets up to 280
+# rounds instead of dying at 40 with "break the task into smaller pieces".
+_MAX_TASK_CONTINUATIONS = int(os.getenv("MAX_TASK_CONTINUATIONS", "6"))
+# Concurrent background subagents the orchestrator may have in flight.
+_BACKGROUND_SUBAGENT_MAX = int(os.getenv("BACKGROUND_SUBAGENT_MAX", "4"))
+
 _VALID_SPEED_MODES = {"quick", "fast", "normal"}
 
 SendFunc = Callable[..., Awaitable[None]]
@@ -103,6 +121,7 @@ def reload_clients():
     global _MAX_SUBAGENT_TOOL_ROUNDS, _MAX_SUBAGENT_TOOL_CALLS_PER_ROUND, _MAX_SUBAGENT_WALL_TIMEOUT_S
     global _SUBAGENT_MAX_TELEGRAM_MESSAGES, _SUBAGENT_MAX_TELEGRAM_MESSAGE_CHARS, _SUBAGENT_MIN_UPDATE_INTERVAL_S
     global _MAX_AGENT_TELEGRAM_MESSAGES, _MAX_IDENTICAL_TOOL_CALLS, _MAX_STALLED_ROUNDS
+    global _MAX_TOOL_RESULT_CHARS, _MAX_RUN_CONTEXT_CHARS, _MAX_TASK_CONTINUATIONS, _BACKGROUND_SUBAGENT_MAX
     _tools_guide_cache = None
     model_router.reload_clients()
     load_dotenv(dotenv_path=app_paths.env_file_path(), override=True)
@@ -114,10 +133,14 @@ def reload_clients():
     _MAX_SUBAGENT_TOOL_ROUNDS = int(os.getenv("MAX_SUBAGENT_TOOL_ROUNDS", "20"))
     _MAX_SUBAGENT_TOOL_CALLS_PER_ROUND = int(os.getenv("MAX_SUBAGENT_TOOL_CALLS_PER_ROUND", "25"))
     _MAX_SUBAGENT_WALL_TIMEOUT_S = int(os.getenv("MAX_SUBAGENT_WALL_TIMEOUT_S", "900"))
+    _MAX_TOOL_RESULT_CHARS = int(os.getenv("MAX_TOOL_RESULT_CHARS", "12000"))
+    _MAX_RUN_CONTEXT_CHARS = int(os.getenv("MAX_RUN_CONTEXT_CHARS", "160000"))
+    _MAX_TASK_CONTINUATIONS = int(os.getenv("MAX_TASK_CONTINUATIONS", "6"))
+    _BACKGROUND_SUBAGENT_MAX = int(os.getenv("BACKGROUND_SUBAGENT_MAX", "4"))
     _SUBAGENT_MAX_TELEGRAM_MESSAGES = int(os.getenv("SUBAGENT_MAX_TELEGRAM_MESSAGES", "3"))
     _SUBAGENT_MAX_TELEGRAM_MESSAGE_CHARS = int(os.getenv("SUBAGENT_MAX_TELEGRAM_MESSAGE_CHARS", "260"))
     _SUBAGENT_MIN_UPDATE_INTERVAL_S = float(os.getenv("SUBAGENT_MIN_UPDATE_INTERVAL_S", "30"))
-    _MAX_AGENT_TELEGRAM_MESSAGES = int(os.getenv("MAX_AGENT_TELEGRAM_MESSAGES", "5"))
+    _MAX_AGENT_TELEGRAM_MESSAGES = int(os.getenv("MAX_AGENT_TELEGRAM_MESSAGES", "8"))
     _MAX_IDENTICAL_TOOL_CALLS = int(os.getenv("MAX_IDENTICAL_TOOL_CALLS", "1"))
     _MAX_STALLED_ROUNDS = int(os.getenv("MAX_STALLED_ROUNDS", "2"))
 
@@ -220,13 +243,24 @@ def _build_system(user_id: int, current_message: str = "", include_memories: boo
         "Do not return a plan-only final reply like 'let me' or 'I will'. "
         "For browser tasks, stay in the current tab unless the user explicitly asks for new tabs/windows. "
         "You can spawn multiple subagents in a single response - they will run in PARALLEL. "
+        "For LONG-RUNNING subtasks (over ~15 minutes), spawn subagents with background=true so they "
+        "run detached while you continue; their results are delivered to you when they finish. "
         "After all subagents complete, synthesize their results into a final coherent response. "
         "Keep the user informed: if spawning subagents, tell the user what you're delegating and why.\n\n"
+        "LONG TASKS: You are built to run for as long as a task needs. If you use your whole round "
+        "budget while still making progress you will be granted continuations automatically — keep "
+        "working, do not restart or summarize prematurely. To avoid drowning in your own output: "
+        "re-run tools with narrower parameters rather than dumping huge outputs, and prefer writing "
+        "big results to files. If the user sends a new message mid-task you will receive it between "
+        "rounds — adjust course, do not queue it for later.\n\n"
         "CRITICAL — Answering vs. messaging:\n"
         "Your final plain-text response is already delivered to the user. send_telegram_message is ONLY for "
         "progress updates during long multi-step work — it is not how you answer.\n"
         "1. For a question you can answer directly, just write the answer as text. Call NO tools.\n"
-        "2. Never send the same message twice, and never send more than a couple of updates per turn.\n"
+        "2. Never send the same message twice. For anything longer than a few minutes of work, keep the "
+        "user posted: one short update at each real milestone (or roughly every 10 minutes on long tasks) "
+        "saying what is done and what is next. A short 'X finished, starting Y' beats silence — the user "
+        "cannot see your tool calls.\n"
         "3. Never invent work that was not requested. If the user asked a question, answer it — "
         "do not create projects, files, or demos they did not ask for.\n"
         "4. When you have nothing new to do, stop calling tools and write your final answer.\n\n"
@@ -265,7 +299,8 @@ def _build_subagent_system(user_id: int, role: str, task: str, context: str = ""
         "IMPORTANT: You have access to send_telegram_message for concise status updates only.\n"
         "Rules:\n"
         "1. Send at most one brief start update and one completion update\n"
-        "2. Send one extra progress update only for a milestone, blocker, key decision, or long silence\n"
+        "2. For LONG tasks, send one short update at each real milestone (or roughly every 10 minutes) — "
+        "the user cannot see your tool calls and needs to know you are alive and what is happening\n"
         "3. Never stream per-step logs, repeated narration, raw transcripts, or generic 'still working' spam\n"
         "4. Keep each update short (one paragraph, max ~240 chars)\n"
         "Write updates in clean plain English with complete sentences. Avoid random or unusual characters.\n"
@@ -300,7 +335,7 @@ def _build_subagent_system(user_id: int, role: str, task: str, context: str = ""
     return "\n\n".join(parts) if parts else None
 
 
-_MAX_AGENT_TELEGRAM_MESSAGES = int(os.getenv("MAX_AGENT_TELEGRAM_MESSAGES", "5"))
+_MAX_AGENT_TELEGRAM_MESSAGES = int(os.getenv("MAX_AGENT_TELEGRAM_MESSAGES", "8"))
 _MAX_IDENTICAL_TOOL_CALLS = int(os.getenv("MAX_IDENTICAL_TOOL_CALLS", "1"))
 _MAX_STALLED_ROUNDS = int(os.getenv("MAX_STALLED_ROUNDS", "2"))
 _MAX_EMPTY_ROUNDS = int(os.getenv("MAX_EMPTY_ROUNDS", "2"))
@@ -318,6 +353,7 @@ _REPEATABLE_TOOLS = {
     "list_projects",
     "list_tools",
     "get_memories",
+    "subagent_status",
 }
 
 
@@ -394,6 +430,70 @@ def _tool_result_is_failure(result_text: str) -> bool:
     return False
 
 
+def _estimate_messages_chars(messages: list[dict]) -> int:
+    """Rough content size of a message list, used for context budgeting."""
+    total = 0
+    for m in messages:
+        total += len(str(m.get("content") or "")) + 64
+        for tc in m.get("tool_calls") or []:
+            if isinstance(tc, dict):
+                total += len(str(tc.get("function", {}).get("arguments") or ""))
+    return total
+
+
+def _truncate_tool_result(result_text: str, cap: int | None = None) -> str:
+    """Clamp a tool result before it enters the run's context.
+
+    Long command output and file dumps are the usual context killers on
+    multi-hour tasks. The model keeps the head (enough to act on) and is told
+    how to get the rest if it actually needs it.
+    """
+    limit = _MAX_TOOL_RESULT_CHARS if cap is None else cap
+    text = str(result_text or "")
+    if len(text) <= limit:
+        return text
+    return (
+        text[:limit]
+        + f"\n\n[truncated at {limit} chars — the full output is longer. "
+        "If you need more of it, re-run the tool with narrower parameters, or "
+        "write it to a file and read the part you need with read_file offset/limit.]"
+    )
+
+
+def _compact_run_context(messages: list[dict], keep_recent: int = 12) -> bool:
+    """Shrink old tool results once a run's context grows past the budget.
+
+    Deterministic (no model call): the system prompt, user/assistant messages,
+    and the most recent tool results are preserved verbatim; older tool results
+    become short stubs. Lets an agent run for hours without drowning in its own
+    earlier output. Returns True when compaction changed anything.
+    """
+    if _estimate_messages_chars(messages) <= _MAX_RUN_CONTEXT_CHARS:
+        return False
+
+    tool_indexes = [
+        i for i, m in enumerate(messages)
+        if m.get("role") == "tool" and len(str(m.get("content") or "")) > 600
+    ]
+    for i in tool_indexes[:-keep_recent] if keep_recent else tool_indexes:
+        content = str(messages[i].get("content") or "")
+        messages[i] = {
+            **messages[i],
+            "content": (
+                content[:300].rstrip()
+                + "\n...[older result compacted to save context — if you need it "
+                "again, re-run that tool or read the file it produced]"
+            ),
+        }
+    return True
+
+
+# Long-running subagents spawned with background=true live here until they
+# finish. Results are pushed into the parent run's interrupt queue when the
+# orchestrator is still alive, or sent straight to the user otherwise.
+_BACKGROUND_SUBAGENTS: dict[str, dict] = {}
+
+
 class _LoopGuard:
     """Stops a model from burning its rounds repeating itself.
 
@@ -407,9 +507,19 @@ class _LoopGuard:
         self._call_counts: dict[str, int] = {}
         self._sent_messages: set[str] = set()
         self._telegram_sends = 0
-        self._max_telegram = max(1, min(int(_MAX_AGENT_TELEGRAM_MESSAGES), 20)) if is_orchestrator else 10**6
+        self._max_telegram = max(1, min(int(_MAX_AGENT_TELEGRAM_MESSAGES), 50)) if is_orchestrator else 10**6
         self._max_identical = max(1, min(int(_MAX_IDENTICAL_TOOL_CALLS), 10))
         self.stalled_rounds = 0
+
+    def grant_messages(self, extra: int) -> None:
+        """Raise the per-turn Telegram message budget.
+
+        Long tasks earn a little more messaging headroom every time they
+        continue past a round budget: a two-hour job that can only message
+        the user a handful of times total feels silent, which is worse than
+        an occasional extra progress line.
+        """
+        self._max_telegram = min(self._max_telegram + max(0, int(extra)), 60)
 
     def check(self, tool_name: str, tool_args: dict) -> str | None:
         """Return a blocking tool result, or None to let the call through."""
@@ -708,13 +818,28 @@ async def _capture_browser_screenshot(path: str | None = None, full_page: bool =
     return {"ok": True, "path": screenshot_path}
 
 
-def _build_subagent_send_func(send_func: SendFunc | None) -> SendFunc | None:
+def _subagent_message_budget(long_running: bool = False) -> tuple[int, float, int]:
+    """(max_messages, min_interval_s, max_chars) for a subagent's user updates.
+
+    A subagent that runs for hours must be able to keep the user posted at
+    milestones; the short-task budget (a couple of updates) would leave them
+    silent for most of the run.
+    """
+    if long_running:
+        max_messages = max(8, min(int(_SUBAGENT_MAX_TELEGRAM_MESSAGES), 16))
+        min_interval = 30.0
+    else:
+        max_messages = max(1, min(int(_SUBAGENT_MAX_TELEGRAM_MESSAGES), 6))
+        min_interval = max(0.0, min(float(_SUBAGENT_MIN_UPDATE_INTERVAL_S), 120.0))
+    max_chars = max(80, min(int(_SUBAGENT_MAX_TELEGRAM_MESSAGE_CHARS), 1000))
+    return max_messages, min_interval, max_chars
+
+
+def _build_subagent_send_func(send_func: SendFunc | None, long_running: bool = False) -> SendFunc | None:
     if send_func is None:
         return None
 
-    max_messages = max(1, min(int(_SUBAGENT_MAX_TELEGRAM_MESSAGES), 6))
-    max_chars = max(80, min(int(_SUBAGENT_MAX_TELEGRAM_MESSAGE_CHARS), 1000))
-    min_interval = max(0.0, min(float(_SUBAGENT_MIN_UPDATE_INTERVAL_S), 120.0))
+    max_messages, min_interval, max_chars = _subagent_message_budget(long_running)
 
     sent_count = 0
     last_sent_at = 0.0
@@ -993,15 +1118,46 @@ def _get_all_tools(include_subagent: bool = True, include_telegram: bool = False
                 "name": "google_execute",
                 "description": (
                     "Execute a Google ecosystem action. Works directly via Google APIs (no Apps Script needed). "
-                    "Supports: calendar.list_events, calendar.create_event, calendar.list_calendars, "
+                    "Supports: calendar.list_events, calendar.create_event, calendar.get_event, calendar.update_event, "
+                    "calendar.delete_event, calendar.list_calendars, "
                     "drive.list_files, drive.get_file, drive.export_file, sheets.get_values, sheets.append_row. "
                     "If GOOGLE_APPS_SCRIPT_URL is configured, any custom action is forwarded to the Apps Script."
                 ),
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "action": {"type": "string", "description": "Action name, e.g. 'calendar.list_events', 'calendar.create_event', 'drive.list_files', 'sheets.get_values'"},
+                        "action": {"type": "string", "description": "Action name, e.g. 'calendar.list_events', 'calendar.create_event', 'calendar.delete_event', 'drive.list_files', 'sheets.get_values'"},
                         "payload": {"type": "object", "description": "Action payload object"}
+                    },
+                    "required": ["action"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "homeassistant_execute",
+                "description": (
+                    "Control and read the user's Home Assistant smart home. Actions: "
+                    "status (connection check), list_entities (compact list of all sensors/devices, "
+                    "filterable by domain e.g. 'light' or by free-text search), get_state (full state "
+                    "of one entity), call_service (control a device, e.g. light/turn_on, climate/set_temperature, "
+                    "cover/open_cover, media_player/play_media, automation/trigger). "
+                    "Always discover the exact entity_id with list_entities first."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "action": {
+                            "type": "string",
+                            "enum": ["status", "list_entities", "get_state", "call_service"],
+                            "description": "What to do",
+                        },
+                        "domain": {"type": "string", "description": "list_entities: filter by domain (light, switch, sensor, climate, cover, ...). call_service: service domain, e.g. 'light'"},
+                        "search": {"type": "string", "description": "list_entities: free-text filter matched against entity_id and friendly name"},
+                        "entity_id": {"type": "string", "description": "get_state / call_service: the entity, e.g. 'light.kitchen'"},
+                        "service": {"type": "string", "description": "call_service: service name, e.g. 'turn_on', 'toggle', 'set_temperature'"},
+                        "data": {"type": "object", "description": "call_service: extra service data, e.g. {\"brightness\": 200, \"temperature\": 21}"}
                     },
                     "required": ["action"]
                 }
@@ -1544,18 +1700,39 @@ def _get_all_tools(include_subagent: bool = True, include_telegram: bool = False
             "function": {
                 "name": "spawn_subagent",
                 "description": (
-                    "Delegate a focused task to a bounded subagent that can message the user "
-                    "directly on Telegram. Multiple spawn_subagent calls in one response run "
-                    "in PARALLEL. Use for research, planning, review, or execution subtasks."
+                    "Delegate a task to a subagent that can message the user directly on "
+                    "Telegram. Multiple spawn_subagent calls in one response run in PARALLEL. "
+                    "Use for research, planning, review, or execution subtasks. Use "
+                    "background=true for LONG-RUNNING subtasks (over ~15 minutes): the subagent "
+                    "keeps working while you continue other work, its result is delivered to "
+                    "you when it finishes, and you can check on it with subagent_status."
                 ),
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "role": {"type": "string", "description": "Short role label: researcher, planner, reviewer, executor, etc."},
                         "task": {"type": "string", "description": "The specific task to delegate"},
-                        "context": {"type": "string", "description": "Extra context or constraints"}
+                        "context": {"type": "string", "description": "Extra context or constraints"},
+                        "background": {"type": "boolean", "description": "Run detached: return immediately and get the result later (default false). Use for long tasks."},
+                        "timeout_s": {"type": "number", "description": "Idle timeout in seconds for this subagent (default from settings, max 86400). Long-running subagents should set e.g. 3600."}
                     },
                     "required": ["task"]
+                }
+            }
+        })
+        tools.append({
+            "type": "function",
+            "function": {
+                "name": "subagent_status",
+                "description": (
+                    "Check on background subagents spawned with background=true. Returns each "
+                    "one's state (running/done/failed/timeout) and result summary."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "subagent_id": {"type": "string", "description": "Optional: only report this subagent"}
+                    }
                 }
             }
         })
@@ -1705,6 +1882,7 @@ _TOOL_CATEGORIES: dict[str, tuple[str, tuple[str, ...]]] = {
     ),
     "custom_tools": ("build and manage your own tools", ("create_tool", "delete_tool", "list_dynamic_tools")),
     "assistant": ("PA system and model preferences", ("pa_system", "set_model_prefs")),
+    "smart_home": ("control the user's Home Assistant smart home", ("homeassistant_execute",)),
 }
 
 _LOAD_TOOLS_NAME = "load_tools"
@@ -1794,6 +1972,7 @@ async def _execute_tool_call(
     allow_subagent: bool = True,
     _agent_id: str = "orchestrator",
     _parent_agent_id: str | None = None,
+    _interrupt_queue: asyncio.Queue | None = None,
 ) -> str:
     global _tools_guide_cache
     _t = activity_tracker.get_tracker()
@@ -2017,6 +2196,36 @@ async def _execute_tool_call(
 
             result = await google_integration.execute_apps_script(action=action, payload=payload)
             return json.dumps(result, indent=2)
+
+        elif tool_name == "homeassistant_execute":
+            action = str(tool_args.get("action", "")).strip().lower()
+            if not action:
+                return json.dumps({"error": "action is required"}, indent=2)
+            if action == "status":
+                return json.dumps(await homeassistant.get_status(), indent=2)
+            if action == "list_entities":
+                result = await homeassistant.list_entities_compact(
+                    domain=str(tool_args.get("domain", "") or ""),
+                    search=str(tool_args.get("search", "") or ""),
+                )
+                return json.dumps(result, indent=2)
+            if action == "get_state":
+                entity_id = str(tool_args.get("entity_id", "") or "").strip()
+                if not entity_id:
+                    return json.dumps({"error": "entity_id is required for get_state"}, indent=2)
+                return json.dumps(await homeassistant.get_entity_state(entity_id), indent=2)
+            if action == "call_service":
+                domain = str(tool_args.get("domain", "") or "").strip()
+                service = str(tool_args.get("service", "") or "").strip()
+                entity_id = str(tool_args.get("entity_id", "") or "").strip()
+                if not domain or not service or not entity_id:
+                    return json.dumps({"error": "domain, service, and entity_id are required for call_service"}, indent=2)
+                data = tool_args.get("data")
+                result = await homeassistant.call_service(domain, service, entity_id, data if isinstance(data, dict) else None)
+                if result.get("ok"):
+                    result["note"] = "Command sent to Home Assistant. Use get_state to verify the result if it matters."
+                return json.dumps(result, indent=2)
+            return json.dumps({"error": f"Unknown action: {action}. Use status, list_entities, get_state, or call_service."}, indent=2)
 
         elif tool_name == "email_execute":
             action = str(tool_args.get("action", "")).strip()
@@ -2373,65 +2582,202 @@ async def _execute_tool_call(
             ctx = str(tool_args.get("context", "")).strip()
             if not task:
                 return json.dumps({"error": "No task provided"})
-            subagent_id = f"sub-{role}-{id(task) % 10000}"
+
+            background_raw = tool_args.get("background", False)
+            if isinstance(background_raw, bool):
+                background = background_raw
+            else:
+                background = str(background_raw).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+            timeout_raw = tool_args.get("timeout_s")
+            try:
+                timeout_s = int(timeout_raw) if timeout_raw is not None else None
+            except (TypeError, ValueError):
+                timeout_s = None
+            if timeout_s is not None:
+                timeout_s = max(30, min(timeout_s, 86400))
+
+            subagent_id = f"sub-{role}-{uuid.uuid4().hex[:6]}"
             await _t.emit(
                 "spawn",
                 _agent_id,
                 "Spawning subagent",
                 f"{role}: {task[:100]}",
-                _with_activity_meta({"role": role, "task": task, "subagent_id": subagent_id, "parent_agent": _agent_id}),
+                _with_activity_meta({"role": role, "task": task, "subagent_id": subagent_id, "parent_agent": _agent_id, "background": background}),
             )
-            wall_timeout = max(30, min(int(_MAX_SUBAGENT_WALL_TIMEOUT_S), 86400))
+            wall_timeout = timeout_s if timeout_s is not None else max(30, min(int(_MAX_SUBAGENT_WALL_TIMEOUT_S), 86400))
             sub_activity = {"start": time.monotonic(), "last": time.monotonic()}
-            try:
-                result = await _wait_for_agent(
-                    _run_subagent(
-                        user_id,
-                        role,
-                        task,
-                        ctx,
-                        _build_subagent_send_func(send_func),
-                        _agent_id=subagent_id,
-                        _parent_agent_id=_agent_id,
-                        activity_state=sub_activity,
-                    ),
-                    wall_timeout,
-                    sub_activity,
-                )
-                await _t.emit(
-                    "done",
-                    subagent_id,
-                    "Subagent finished",
-                    f"{role}: {task[:80]}",
-                    _with_activity_meta({"duration_ms": round((time.monotonic() - _tool_t0) * 1000), "role": role, "subagent_id": subagent_id, "parent_agent": _agent_id}),
-                )
-            except asyncio.TimeoutError:
-                await _t.emit(
-                    "error",
-                    subagent_id,
-                    "Subagent timed out",
-                    f"{role}: {task[:80]} after {wall_timeout}s",
-                    _with_activity_meta({"role": role, "subagent_id": subagent_id, "timeout_s": wall_timeout, "parent_agent": _agent_id}),
-                )
-                if send_func:
-                    try:
-                        await _send_via_send_func(
-                            send_func,
-                            f"Subagent timeout after {wall_timeout}s while working on '{task[:120]}'. "
-                            f"Stopping now with failure instead of hanging. [{role}]"
-                        )
-                    except Exception:
-                        pass
+            entry = {
+                "id": subagent_id,
+                "role": role,
+                "task": task,
+                "status": "running",
+                "started_at": time.time(),
+                "result": None,
+                "error": None,
+                "parent_agent": _agent_id,
+            }
+
+            async def _run_and_record() -> str:
+                try:
+                    result = await _wait_for_agent(
+                        _run_subagent(
+                            user_id,
+                            role,
+                            task,
+                            ctx,
+                            _build_subagent_send_func(send_func, long_running=wall_timeout >= 1800),
+                            _agent_id=subagent_id,
+                            _parent_agent_id=_agent_id,
+                            activity_state=sub_activity,
+                        ),
+                        wall_timeout,
+                        sub_activity,
+                    )
+                    entry["status"] = "done"
+                    entry["result"] = result
+                    await _t.emit(
+                        "done",
+                        subagent_id,
+                        "Subagent finished",
+                        f"{role}: {task[:80]}",
+                        _with_activity_meta({"duration_ms": round((time.monotonic() - _tool_t0) * 1000), "role": role, "subagent_id": subagent_id, "parent_agent": _agent_id}),
+                    )
+                except asyncio.TimeoutError:
+                    entry["status"] = "timeout"
+                    entry["error"] = f"Subagent idle timeout after {wall_timeout}s."
+                    await _t.emit(
+                        "error",
+                        subagent_id,
+                        "Subagent timed out",
+                        f"{role}: {task[:80]} after {wall_timeout}s",
+                        _with_activity_meta({"role": role, "subagent_id": subagent_id, "timeout_s": wall_timeout, "parent_agent": _agent_id}),
+                    )
+                    if send_func:
+                        try:
+                            await _send_via_send_func(
+                                send_func,
+                                f"Subagent timed out after {wall_timeout}s while working on '{task[:120]}'. "
+                                f"Stopping now with failure instead of hanging. [{role}]"
+                            )
+                        except Exception:
+                            pass
+                    return json.dumps(
+                        {
+                            "error": "Subagent timed out",
+                            "role": role,
+                            "timeout_s": wall_timeout,
+                            "task": task,
+                        },
+                        indent=2,
+                    )
+                except asyncio.CancelledError:
+                    entry["status"] = "cancelled"
+                    raise
+                except Exception as exc:
+                    entry["status"] = "failed"
+                    entry["error"] = str(exc)
+                    logger.exception(f"Background subagent {subagent_id} crashed")
+                    return json.dumps({"error": f"Subagent failed: {exc}", "role": role, "task": task}, indent=2)
+                return result
+
+            if background:
+                # Long-running detached subagent: return immediately, keep
+                # working elsewhere. When it finishes, the result is pushed
+                # into this run's interrupt queue (delivered between rounds)
+                # and, if the parent run already ended, straight to the user.
+                running = [e for e in _BACKGROUND_SUBAGENTS.values() if e.get("status") == "running"]
+                if len(running) >= max(1, _BACKGROUND_SUBAGENT_MAX):
+                    return json.dumps(
+                        {
+                            "error": "too_many_background_subagents",
+                            "limit": max(1, _BACKGROUND_SUBAGENT_MAX),
+                            "running": [e["id"] for e in running],
+                            "instruction": "Wait for one to finish (check subagent_status) or run this task in the foreground.",
+                        },
+                        indent=2,
+                    )
+                # Same dict object _run_and_record mutates, so status/result
+                # updates are visible through the registry.
+                _BACKGROUND_SUBAGENTS[subagent_id] = entry
+
+                async def _background_runner() -> None:
+                    result_json = await _run_and_record()
+                    payload = {
+                        "text": (
+                            f"Background subagent [{role}] finished task: {task[:200]}\n"
+                            f"Result: {str(entry.get('result') or result_json)[:3000]}"
+                        ),
+                        "source": "subagent",
+                    }
+                    if interrupt_hub.queue_is_live(_interrupt_queue):
+                        try:
+                            _interrupt_queue.put_nowait(payload)
+                        except asyncio.QueueFull:
+                            pass
+                    elif send_func is not None and entry.get("status") == "done":
+                        # Parent run already ended; make sure the user sees it.
+                        try:
+                            await _send_via_send_func(
+                                send_func,
+                                f"Background subagent finished.\n\nTask: {task[:300]}\n\nResult: {str(entry.get('result'))[:3000]}\n[{role}]",
+                            )
+                        except Exception:
+                            pass
+                    # Opportunistic cleanup: keep the registry bounded.
+                    finished = [
+                        k for k, e in _BACKGROUND_SUBAGENTS.items()
+                        if e.get("status") in {"done", "failed", "timeout", "cancelled"}
+                        and time.time() - float(e.get("started_at") or 0) > 3600
+                    ]
+                    for k in finished[:20]:
+                        _BACKGROUND_SUBAGENTS.pop(k, None)
+
+                asyncio.create_task(_background_runner())
                 return json.dumps(
                     {
-                        "error": "Subagent timed out",
-                        "role": role,
+                        "ok": True,
+                        "subagent_id": subagent_id,
+                        "background": True,
+                        "status": "running",
                         "timeout_s": wall_timeout,
-                        "task": task,
+                        "instruction": (
+                            "The subagent is now running detached and will keep the user updated on "
+                            "Telegram. Continue other work. Its final result will be delivered to you "
+                            "automatically when it finishes; you can also call subagent_status to check."
+                        ),
                     },
                     indent=2,
                 )
+
+            result = await _run_and_record()
             return json.dumps({"role": role, "task": task, "result": result}, indent=2)
+
+        elif tool_name == "subagent_status":
+            wanted = str(tool_args.get("subagent_id", "") or "").strip()
+            entries = [
+                e for e in _BACKGROUND_SUBAGENTS.values()
+                if not wanted or e.get("id") == wanted
+            ]
+            if not entries:
+                return json.dumps({"ok": True, "subagents": [], "note": "No background subagents on record. Foreground subagents are not tracked here."}, indent=2)
+            running = sum(1 for e in entries if e.get("status") == "running")
+            report = []
+            for e in sorted(entries, key=lambda x: float(x.get("started_at") or 0)):
+                item = {
+                    "subagent_id": e["id"],
+                    "role": e.get("role", ""),
+                    "task": str(e.get("task", ""))[:200],
+                    "status": e.get("status", "unknown"),
+                    "elapsed_s": int(time.time() - float(e.get("started_at") or 0)),
+                }
+                if e.get("status") == "running":
+                    report.append(item)
+                    continue
+                summary = str(e.get("result") or e.get("error") or "")
+                item["summary"] = summary[:1500]
+                report.append(item)
+            return json.dumps({"ok": True, "running": running, "subagents": report}, indent=2)
 
         elif tool_name == "read_tool_guide":
             name = str(tool_args.get("tool_name", "")).strip()
@@ -2722,6 +3068,52 @@ async def _wait_for_agent(coro, timeout: int | None, activity: dict):
         raise
 
 
+def _build_interruption_message(items: list[dict]) -> dict | None:
+    """Turn drained interrupt-queue items into one user-role message.
+
+    Handles the three sources that can arrive mid-run: new user text (sent
+    while the agent was working), watchdog recovery interventions, and
+    finished background-subagent results.
+    """
+    if not items:
+        return None
+    user_texts = [i.get("text", "") for i in items if i.get("source") not in {"stuck_watchdog", "subagent"}]
+    system_texts = [i.get("text", "") for i in items if i.get("source") == "stuck_watchdog"]
+    subagent_texts = [i.get("text", "") for i in items if i.get("source") == "subagent"]
+
+    parts = []
+    if user_texts:
+        combined = "\n".join(f"- {t}" for t in user_texts)
+        parts.append(
+            "[USER INTERRUPTION] The user sent new message(s) while you were working:\n\n"
+            f"{combined}\n\n"
+            "Decide: adjust current task, send updated instructions to subagents, "
+            "cancel and pivot, or acknowledge and continue."
+        )
+    if system_texts:
+        combined = "\n".join(f"- {t}" for t in system_texts)
+        parts.append(
+            "[SYSTEM INTERVENTION] The watchdog detected you have been stuck with no progress. "
+            "You MUST stop waiting on whatever is hung and try a different approach immediately. "
+            "Do not ignore this.\n\n"
+            f"{combined}"
+        )
+    if subagent_texts:
+        combined = "\n".join(f"- {t}" for t in subagent_texts)
+        parts.append(
+            "[SUBAGENT RESULT] A background subagent finished while you were working:\n\n"
+            f"{combined}\n\n"
+            "Incorporate this result into your work and your final answer."
+        )
+
+    if not parts:
+        return None
+    return {
+        "role": "user",
+        "content": "\n\n".join(parts),
+    }
+
+
 async def _run_agent(
     model: str,
     prompt: str,
@@ -2853,322 +3245,345 @@ async def _run_agent(
             interrupt_event.clear()
         return items
 
-    def _build_interruption_message(items: list[dict]) -> dict | None:
-        if not items:
-            return None
-        user_texts = [i.get("text", "") for i in items if i.get("source") != "stuck_watchdog"]
-        system_texts = [i.get("text", "") for i in items if i.get("source") == "stuck_watchdog"]
-
-        parts = []
-        if user_texts:
-            combined = "\n".join(f"- {t}" for t in user_texts)
-            parts.append(
-                "[USER INTERRUPTION] The user sent new message(s) while you were working:\n\n"
-                f"{combined}\n\n"
-                "Decide: adjust current task, send updated instructions to subagents, "
-                "cancel and pivot, or acknowledge and continue."
-            )
-        if system_texts:
-            combined = "\n".join(f"- {t}" for t in system_texts)
-            parts.append(
-                "[SYSTEM INTERVENTION] The watchdog detected you have been stuck with no progress. "
-                "You MUST stop waiting on whatever is hung and try a different approach immediately. "
-                "Do not ignore this.\n\n"
-                f"{combined}"
-            )
-
-        if not parts:
-            return None
-        return {
-            "role": "user",
-            "content": "\n\n".join(parts),
-        }
-
     _t = activity_tracker.get_tracker()
 
-    for _ in range(max_rounds):
-        interrupts = _drain_interrupts()
-        if interrupts:
-            msg = _build_interruption_message(interrupts)
-            if msg:
-                messages.append(msg)
+    # --- Long-run continuation -------------------------------------------------
+    # The inner loop is one "budget" of rounds. A run that exhausts its budget
+    # while still making progress earns a fresh one (up to
+    # _MAX_TASK_CONTINUATIONS) instead of being cut off mid-task. Only stalled
+    # or finished runs fall through to wrap-up.
+    continuations_used = 0
+    round_no = 0
+    last_round_useful = False
+    give_up = False
 
-        await _t.emit("thinking", _agent_id, "Thinking", f"Round {_ + 1}/{max_rounds} — calling model {model_id}", _with_activity_meta())
-        _touch_activity()
+    while True:
+        for _ in range(max_rounds):
+            round_no += 1
+            interrupts = _drain_interrupts()
+            if interrupts:
+                msg = _build_interruption_message(interrupts)
+                if msg:
+                    messages.append(msg)
 
-        t0 = time.monotonic()
-        sink = _make_stream_sink(_ + 1)
-        try:
-            response = await model_router.call_model(
-                model_id,
-                messages,
-                tools,
-                speed_mode=speed_mode,
-                reasoning_enabled=reasoning_enabled,
-                on_delta=sink,
-                user_id=user_id,
-            )
-        finally:
-            await sink.finish()
-        elapsed = (time.monotonic() - t0) * 1000
-
-        reasoning_text = str(response.get("reasoning") or "")
-        if reasoning_text.strip():
-            await _t.emit(
-                "reasoning", _agent_id, "Reasoning", reasoning_text[:300],
-                _with_activity_meta({"text": reasoning_text[:_STREAM_MAX_EVENT_CHARS], "model": model_id}),
-            )
-
-        tool_calls = response.get("tool_calls", [])
-        content_text = response.get("content", "")
-        text_tools = None
-
-        if not tool_calls:
-            text_tools, cleaned_content = _parse_text_tool_calls(content_text)
-            if text_tools:
-                tool_calls = text_tools
-                content_text = cleaned_content
-                logger.warning(f"Model emitted {len(text_tools)} tool call(s) as text, intercepted and routing to execution")
-                messages.append({"role": "assistant", "content": content_text})
-            elif not str(content_text).strip() and empty_rounds < _MAX_EMPTY_ROUNDS:
-                # Reasoning models sometimes spend the whole turn inside their
-                # thinking block and stop without writing an answer. Ask once
-                # rather than handing the user an empty reply.
-                empty_rounds += 1
-                logger.warning(
-                    f"{model_id} returned no content and no tool calls; nudging "
-                    f"(attempt {empty_rounds}/{_MAX_EMPTY_ROUNDS})"
-                )
-                await _t.emit(
-                    "thinking", _agent_id, "Empty response",
-                    f"Model wrote nothing — retrying ({empty_rounds}/{_MAX_EMPTY_ROUNDS})",
-                    _with_activity_meta({"duration_ms": round(elapsed), "model": model_id}),
-                )
-                messages.append({
-                    "role": "user",
-                    "content": (
-                        "[SYSTEM] Your last turn produced no output at all. Write your answer "
-                        "to the user now as plain text, or call a tool if you still need "
-                        "information first. Do not end your turn empty again."
-                    ),
-                })
-                continue
-            else:
-                await _t.emit(
-                    "done", _agent_id, "Responded", f"Final answer in {elapsed:.0f}ms",
-                    _with_activity_meta({"duration_ms": round(elapsed), "text": str(content_text)[:_STREAM_MAX_EVENT_CHARS]}),
-                )
-                interrupt_texts = _drain_interrupts()
-                if interrupt_texts:
-                    msg = _build_interruption_message(interrupt_texts)
-                    if msg:
-                        messages.append(response.get("message", {"role": "assistant", "content": response.get("content", "")}))
-                        messages.append(msg)
-                        continue
-                return _sanitize_response(response.get("content", "I could not generate a response right now."))
-        
-        if not text_tools:
-            messages.append(response["message"])
-        
-        tool_calls = tool_calls[:max_calls_per_round]
-        
-        if tool_calls:
-            names = [tc["name"] for tc in tool_calls]
-            await _t.emit("model", _agent_id, "Model decided", f"{len(tool_calls)} tool(s): {', '.join(names)}", _with_activity_meta({"duration_ms": round(elapsed), "model": model_id}))
-
-        # Refuse repeats before executing anything: a model stuck in a loop gets
-        # told to change course instead of re-running the same side effect.
-        results: dict[str, str] = {}
-        allowed_calls = []
-        for tc in tool_calls:
-            blocked = guard.check(tc["name"], tc["arguments"] if isinstance(tc["arguments"], dict) else {})
-            if blocked is None:
-                allowed_calls.append(tc)
-                continue
-            results[tc["id"]] = blocked
-            logger.warning(f"Loop guard blocked repeated call to {tc['name']} by {_agent_id}")
-            await _t.emit(
-                "blocked", _agent_id, "Repeat blocked", f"Skipped duplicate {tc['name']} call",
-                _with_activity_meta({"tool": tc["name"], "detail": blocked}),
-            )
-
-        subagent_calls = [tc for tc in allowed_calls if tc["name"] == "spawn_subagent"]
-        other_calls = [tc for tc in allowed_calls if tc["name"] != "spawn_subagent"]
-
-        tools_dirty = False
-
-        def _load_categories(names) -> list[str]:
-            """Mark categories loaded; returns the ones that were new."""
-            nonlocal tools_dirty
-            added = []
-            for raw in names or []:
-                category = str(raw).strip().lower()
-                if category in _TOOL_CATEGORIES and category not in loaded_categories:
-                    loaded_categories.add(category)
-                    added.append(category)
-            if added:
-                tools_dirty = True
-            return added
-
-        for tc in other_calls:
-            if lazy_tools and tc["name"] == _LOAD_TOOLS_NAME:
-                args = tc["arguments"] if isinstance(tc["arguments"], dict) else {}
-                requested = args.get("categories") or []
-                if isinstance(requested, str):
-                    requested = [requested]
-                added = _load_categories(requested)
-                unknown = [
-                    str(c) for c in requested
-                    if str(c).strip().lower() not in _TOOL_CATEGORIES
-                ]
-                available = sorted(
-                    name for category in loaded_categories
-                    for name in _TOOL_CATEGORIES[category][1]
-                )
-                results[tc["id"]] = json.dumps({
-                    "loaded": added,
-                    "already_loaded": sorted(loaded_categories - set(added)),
-                    "unknown_categories": unknown,
-                    "tools_now_available": available,
-                    "instruction": "These tools are ready to use. Call the one you need now.",
-                })
-                await _t.emit(
-                    "tool", _agent_id, "Tools loaded", ", ".join(added) or "nothing new",
-                    _with_activity_meta({"tool": _LOAD_TOOLS_NAME, "categories": added}),
-                )
-                continue
-
-            # A model may call a deferred tool by name without loading it first.
-            # Load the category and run it rather than burning a round on an error.
-            if lazy_tools:
-                dynamic_names = {
-                    d.get("function", {}).get("name", "")
-                    for d in dynamic_tools.get_tool_definitions()
-                }
-                category = _category_of_tool(tc["name"], dynamic_names)
-                if category and category not in loaded_categories:
-                    _load_categories([category])
-
-            results[tc["id"]] = await _execute_tool_call(
-                tc["name"], tc["arguments"],
-                user_id if user_id is not None else 0,
-                send_func=send_func,
-                allow_subagent=allow_subagent,
-                _agent_id=_agent_id,
-                _parent_agent_id=_parent_agent_id,
-            )
+            await _t.emit("thinking", _agent_id, "Thinking", f"Round {round_no} — calling model {model_id}", _with_activity_meta())
             _touch_activity()
+
+            t0 = time.monotonic()
+            sink = _make_stream_sink(round_no)
+            try:
+                response = await model_router.call_model(
+                    model_id,
+                    messages,
+                    tools,
+                    speed_mode=speed_mode,
+                    reasoning_enabled=reasoning_enabled,
+                    on_delta=sink,
+                    user_id=user_id,
+                )
+            finally:
+                await sink.finish()
+            elapsed = (time.monotonic() - t0) * 1000
+
+            reasoning_text = str(response.get("reasoning") or "")
+            if reasoning_text.strip():
+                await _t.emit(
+                    "reasoning", _agent_id, "Reasoning", reasoning_text[:300],
+                    _with_activity_meta({"text": reasoning_text[:_STREAM_MAX_EVENT_CHARS], "model": model_id}),
+                )
+
+            tool_calls = response.get("tool_calls", [])
+            content_text = response.get("content", "")
+            text_tools = None
+
+            if not tool_calls:
+                text_tools, cleaned_content = _parse_text_tool_calls(content_text)
+                if text_tools:
+                    tool_calls = text_tools
+                    content_text = cleaned_content
+                    logger.warning(f"Model emitted {len(text_tools)} tool call(s) as text, intercepted and routing to execution")
+                    messages.append({"role": "assistant", "content": content_text})
+                elif not str(content_text).strip() and empty_rounds < _MAX_EMPTY_ROUNDS:
+                    # Reasoning models sometimes spend the whole turn inside their
+                    # thinking block and stop without writing an answer. Ask once
+                    # rather than handing the user an empty reply.
+                    empty_rounds += 1
+                    logger.warning(
+                        f"{model_id} returned no content and no tool calls; nudging "
+                        f"(attempt {empty_rounds}/{_MAX_EMPTY_ROUNDS})"
+                    )
+                    await _t.emit(
+                        "thinking", _agent_id, "Empty response",
+                        f"Model wrote nothing — retrying ({empty_rounds}/{_MAX_EMPTY_ROUNDS})",
+                        _with_activity_meta({"duration_ms": round(elapsed), "model": model_id}),
+                    )
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            "[SYSTEM] Your last turn produced no output at all. Write your answer "
+                            "to the user now as plain text, or call a tool if you still need "
+                            "information first. Do not end your turn empty again."
+                        ),
+                    })
+                    continue
+                else:
+                    await _t.emit(
+                        "done", _agent_id, "Responded", f"Final answer in {elapsed:.0f}ms",
+                        _with_activity_meta({"duration_ms": round(elapsed), "text": str(content_text)[:_STREAM_MAX_EVENT_CHARS]}),
+                    )
+                    interrupt_texts = _drain_interrupts()
+                    if interrupt_texts:
+                        msg = _build_interruption_message(interrupt_texts)
+                        if msg:
+                            messages.append(response.get("message", {"role": "assistant", "content": response.get("content", "")}))
+                            messages.append(msg)
+                            continue
+                    return _sanitize_response(response.get("content", "I could not generate a response right now."))
         
-        if subagent_calls:
-            async def _do_subagent(tc):
-                r = await _execute_tool_call(
+            if not text_tools:
+                messages.append(response["message"])
+        
+            tool_calls = tool_calls[:max_calls_per_round]
+        
+            if tool_calls:
+                names = [tc["name"] for tc in tool_calls]
+                await _t.emit("model", _agent_id, "Model decided", f"{len(tool_calls)} tool(s): {', '.join(names)}", _with_activity_meta({"duration_ms": round(elapsed), "model": model_id}))
+
+            # Refuse repeats before executing anything: a model stuck in a loop gets
+            # told to change course instead of re-running the same side effect.
+            results: dict[str, str] = {}
+            allowed_calls = []
+            for tc in tool_calls:
+                blocked = guard.check(tc["name"], tc["arguments"] if isinstance(tc["arguments"], dict) else {})
+                if blocked is None:
+                    allowed_calls.append(tc)
+                    continue
+                results[tc["id"]] = blocked
+                logger.warning(f"Loop guard blocked repeated call to {tc['name']} by {_agent_id}")
+                await _t.emit(
+                    "blocked", _agent_id, "Repeat blocked", f"Skipped duplicate {tc['name']} call",
+                    _with_activity_meta({"tool": tc["name"], "detail": blocked}),
+                )
+
+            subagent_calls = [tc for tc in allowed_calls if tc["name"] == "spawn_subagent"]
+            other_calls = [tc for tc in allowed_calls if tc["name"] != "spawn_subagent"]
+
+            tools_dirty = False
+
+            def _load_categories(names) -> list[str]:
+                """Mark categories loaded; returns the ones that were new."""
+                nonlocal tools_dirty
+                added = []
+                for raw in names or []:
+                    category = str(raw).strip().lower()
+                    if category in _TOOL_CATEGORIES and category not in loaded_categories:
+                        loaded_categories.add(category)
+                        added.append(category)
+                if added:
+                    tools_dirty = True
+                return added
+
+            for tc in other_calls:
+                if lazy_tools and tc["name"] == _LOAD_TOOLS_NAME:
+                    args = tc["arguments"] if isinstance(tc["arguments"], dict) else {}
+                    requested = args.get("categories") or []
+                    if isinstance(requested, str):
+                        requested = [requested]
+                    added = _load_categories(requested)
+                    unknown = [
+                        str(c) for c in requested
+                        if str(c).strip().lower() not in _TOOL_CATEGORIES
+                    ]
+                    available = sorted(
+                        name for category in loaded_categories
+                        for name in _TOOL_CATEGORIES[category][1]
+                    )
+                    results[tc["id"]] = json.dumps({
+                        "loaded": added,
+                        "already_loaded": sorted(loaded_categories - set(added)),
+                        "unknown_categories": unknown,
+                        "tools_now_available": available,
+                        "instruction": "These tools are ready to use. Call the one you need now.",
+                    })
+                    await _t.emit(
+                        "tool", _agent_id, "Tools loaded", ", ".join(added) or "nothing new",
+                        _with_activity_meta({"tool": _LOAD_TOOLS_NAME, "categories": added}),
+                    )
+                    continue
+
+                # A model may call a deferred tool by name without loading it first.
+                # Load the category and run it rather than burning a round on an error.
+                if lazy_tools:
+                    dynamic_names = {
+                        d.get("function", {}).get("name", "")
+                        for d in dynamic_tools.get_tool_definitions()
+                    }
+                    category = _category_of_tool(tc["name"], dynamic_names)
+                    if category and category not in loaded_categories:
+                        _load_categories([category])
+
+                results[tc["id"]] = await _execute_tool_call(
                     tc["name"], tc["arguments"],
                     user_id if user_id is not None else 0,
                     send_func=send_func,
                     allow_subagent=allow_subagent,
                     _agent_id=_agent_id,
                     _parent_agent_id=_parent_agent_id,
+                    _interrupt_queue=interrupt_queue,
                 )
                 _touch_activity()
-                return tc["id"], r
 
-            gathered = await asyncio.gather(
-                *[_do_subagent(tc) for tc in subagent_calls],
-                return_exceptions=True,
-            )
-            for item in gathered:
-                if isinstance(item, Exception):
-                    logger.error(f"Subagent failed: {item}")
-                else:
-                    results[item[0]] = item[1]
+            if subagent_calls:
+                async def _do_subagent(tc):
+                    r = await _execute_tool_call(
+                        tc["name"], tc["arguments"],
+                        user_id if user_id is not None else 0,
+                        send_func=send_func,
+                        allow_subagent=allow_subagent,
+                        _agent_id=_agent_id,
+                        _parent_agent_id=_parent_agent_id,
+                        _interrupt_queue=interrupt_queue,
+                    )
+                    _touch_activity()
+                    return tc["id"], r
+
+                gathered = await asyncio.gather(
+                    *[_do_subagent(tc) for tc in subagent_calls],
+                    return_exceptions=True,
+                )
+                for item in gathered:
+                    if isinstance(item, Exception):
+                        logger.error(f"Subagent failed: {item}")
+                    else:
+                        results[item[0]] = item[1]
         
-        round_had_useful_result = False
-        for tc in tool_calls:
-            result_text = results.get(tc["id"], json.dumps({"error": "execution failed"}))
-            if not _tool_result_is_failure(result_text):
-                round_had_useful_result = True
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tc["id"],
-                "content": result_text,
-            })
-            await _t.emit(
-                "result", _agent_id, "Tool result", f"{tc['name']} → {str(result_text)[:160]}",
-                _with_activity_meta({"tool": tc["name"], "text": str(result_text)[:_STREAM_MAX_EVENT_CHARS]}),
-            )
-
-        if using_default_tools and (
-            tools_dirty
-            or any(tc["name"] in {"create_tool", "delete_tool"} for tc in tool_calls)
-        ):
-            tools = _build_tools()
-
-        # A round spent only messaging the user IS the model's answer — weaker
-        # models reply through send_telegram_message instead of returning text,
-        # then read the "{sent: true}" result as a fresh user turn and invent
-        # more work. Close the turn out instead of handing them another round.
-        messaged = [tc for tc in allowed_calls if tc["name"] in _USER_FACING_MESSAGE_TOOLS]
-        if messaged and len(messaged) == len(allowed_calls):
-            message_only_rounds += 1
-            texts = [
-                str(tc["arguments"].get("message") or tc["arguments"].get("text") or "").strip()
-                for tc in messaged if isinstance(tc["arguments"], dict)
-            ]
-            spoken = "\n\n".join(t for t in texts if t)
-            if spoken:
-                last_user_message = spoken
-            # One round of grace for "on it, starting now"; otherwise the model
-            # has said its piece and the turn is over.
-            if spoken and not _message_defers_work(spoken):
+            round_had_useful_result = False
+            for tc in tool_calls:
+                result_text = results.get(tc["id"], json.dumps({"error": "execution failed"}))
+                if not _tool_result_is_failure(result_text):
+                    round_had_useful_result = True
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc["id"],
+                    "content": _truncate_tool_result(result_text),
+                })
                 await _t.emit(
-                    "done", _agent_id, "Responded",
-                    "Answered the user through a message tool",
-                    _with_activity_meta({"text": spoken[:_STREAM_MAX_EVENT_CHARS], "via": "send_telegram_message"}),
+                    "result", _agent_id, "Tool result", f"{tc['name']} → {str(result_text)[:160]}",
+                    _with_activity_meta({"tool": tc["name"], "text": str(result_text)[:_STREAM_MAX_EVENT_CHARS]}),
                 )
-                return AlreadySentReply(spoken)
-            if message_only_rounds >= 2:
-                await _t.emit(
-                    "done", _agent_id, "Responded",
-                    "Only sent messages for two rounds — closing the turn",
-                    _with_activity_meta({"text": last_user_message[:_STREAM_MAX_EVENT_CHARS]}),
-                )
-                return AlreadySentReply(last_user_message)
-            messages.append({
-                "role": "user",
-                "content": (
-                    "[SYSTEM] Your message was delivered to the user. Do not send it again. "
-                    "The tool results above are tool output, not new messages from the user. "
-                    "If you have finished, reply with your final answer as plain text and call no tools. "
-                    "Otherwise continue with real work."
-                ),
-            })
-        else:
-            message_only_rounds = 0
 
-        # A round counts as stalled when the guard blocked everything OR when
-        # every call that did run came back an error. The second half is what
-        # catches a jammed backend (rate limiter, broken CLI, dead credential):
-        # previously those rounds read as progress and reset the counter, so the
-        # loop ran to its round cap retrying a call that could not succeed.
-        made_no_progress = bool(tool_calls) and (not allowed_calls or not round_had_useful_result)
-        if guard.note_round(made_no_progress):
-            logger.warning(f"{_agent_id} made no progress for {guard.stalled_rounds} rounds; ending tool loop")
-            await _t.emit(
-                "blocked", _agent_id, "Loop stopped",
-                "No tool call produced a usable result — stopping and summarizing instead.",
-                _with_activity_meta(),
-            )
-            messages.append({
-                "role": "user",
-                "content": (
-                    "[SYSTEM] Your tool calls stopped producing usable results — they were either exact "
-                    "repeats or every one returned an error. Tool use is now disabled for this turn. "
-                    "Do not retry. Write your final answer as plain text, and if something is broken, "
-                    "tell the user plainly what failed and quote the error you received."
-                ),
-            })
-            break
+            if using_default_tools and (
+                tools_dirty
+                or any(tc["name"] in {"create_tool", "delete_tool"} for tc in tool_calls)
+            ):
+                tools = _build_tools()
+
+            # A round spent only messaging the user IS the model's answer — weaker
+            # models reply through send_telegram_message instead of returning text,
+            # then read the "{sent: true}" result as a fresh user turn and invent
+            # more work. Close the turn out instead of handing them another round.
+            messaged = [tc for tc in allowed_calls if tc["name"] in _USER_FACING_MESSAGE_TOOLS]
+            if messaged and len(messaged) == len(allowed_calls):
+                message_only_rounds += 1
+                texts = [
+                    str(tc["arguments"].get("message") or tc["arguments"].get("text") or "").strip()
+                    for tc in messaged if isinstance(tc["arguments"], dict)
+                ]
+                spoken = "\n\n".join(t for t in texts if t)
+                if spoken:
+                    last_user_message = spoken
+                # One round of grace for "on it, starting now"; otherwise the model
+                # has said its piece and the turn is over.
+                if spoken and not _message_defers_work(spoken):
+                    await _t.emit(
+                        "done", _agent_id, "Responded",
+                        "Answered the user through a message tool",
+                        _with_activity_meta({"text": spoken[:_STREAM_MAX_EVENT_CHARS], "via": "send_telegram_message"}),
+                    )
+                    return AlreadySentReply(spoken)
+                if message_only_rounds >= 2:
+                    await _t.emit(
+                        "done", _agent_id, "Responded",
+                        "Only sent messages for two rounds — closing the turn",
+                        _with_activity_meta({"text": last_user_message[:_STREAM_MAX_EVENT_CHARS]}),
+                    )
+                    return AlreadySentReply(last_user_message)
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "[SYSTEM] Your message was delivered to the user. Do not send it again. "
+                        "The tool results above are tool output, not new messages from the user. "
+                        "If you have finished, reply with your final answer as plain text and call no tools. "
+                        "Otherwise continue with real work."
+                    ),
+                })
+            else:
+                message_only_rounds = 0
+
+            # A round counts as stalled when the guard blocked everything OR when
+            # every call that did run came back an error. The second half is what
+            # catches a jammed backend (rate limiter, broken CLI, dead credential):
+            # previously those rounds read as progress and reset the counter, so the
+            # loop ran to its round cap retrying a call that could not succeed.
+            made_no_progress = bool(tool_calls) and (not allowed_calls or not round_had_useful_result)
+            last_round_useful = not made_no_progress
+            if guard.note_round(made_no_progress):
+                logger.warning(f"{_agent_id} made no progress for {guard.stalled_rounds} rounds; ending tool loop")
+                await _t.emit(
+                    "blocked", _agent_id, "Loop stopped",
+                    "No tool call produced a usable result — stopping and summarizing instead.",
+                    _with_activity_meta(),
+                )
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "[SYSTEM] Your tool calls stopped producing usable results — they were either exact "
+                        "repeats or every one returned an error. Tool use is now disabled for this turn. "
+                        "Do not retry. Write your final answer as plain text, and if something is broken, "
+                        "tell the user plainly what failed and quote the error you received."
+                    ),
+                })
+                give_up = True
+                break
     
+
+        # Budget exhausted. If the agent was still making progress, grant a
+        # fresh round budget (up to _MAX_TASK_CONTINUATIONS) instead of dying
+        # with "break the task into smaller pieces". Compaction keeps the
+        # context bounded across long runs.
+        if give_up:
+            break
+        if last_round_useful and continuations_used < max(0, _MAX_TASK_CONTINUATIONS):
+            continuations_used += 1
+            # A longer task legitimately needs more user-facing updates.
+            guard.grant_messages(2)
+            compacted = _compact_run_context(messages)
+            if compacted:
+                await _t.emit(
+                    "thinking", _agent_id, "Context compacted",
+                    "Older tool results were stubbed out to keep the run within budget",
+                    _with_activity_meta({"continuation": continuations_used, "round": round_no}),
+                )
+            messages.append({
+                "role": "user",
+                "content": (
+                    f"[SYSTEM CONTINUATION] You just used the last round of your current tool "
+                    f"budget, and the task is still in progress. A fresh budget of {max_rounds} "
+                    f"rounds has been granted (continuation {continuations_used} of "
+                    f"{_MAX_TASK_CONTINUATIONS}). Continue exactly where you left off. Do NOT "
+                    "restart, re-plan from scratch, or redo finished work. Keep making progress "
+                    "toward finishing the user's original request, and write your final answer "
+                    "as soon as the work is genuinely done."
+                ),
+            })
+            await _t.emit(
+                "thinking", _agent_id, "Continuing task",
+                f"Round budget used while still productive — continuing (segment {continuations_used + 1})",
+                _with_activity_meta({"continuation": continuations_used, "round": round_no, "context_compacted": compacted}),
+            )
+            continue
+        break
+
     async def _wrap_up() -> dict:
         """Final, tool-free call so the agent always produces a written answer."""
         sink = _make_stream_sink(max_rounds + 1)
@@ -3210,10 +3625,18 @@ async def _run_agent(
         )
         if sanitized and sanitized.strip():
             return sanitized
-        return "I ran out of processing rounds before finishing. Break the task into smaller pieces and try again."
+        return (
+            "I stopped making usable progress and ran out of my processing budget for this task "
+            "(including continuations). Try asking me to continue with a specific next step, "
+            "or split the task into smaller pieces."
+        )
     except Exception:
         logger.exception(f"{_agent_id} wrap-up call failed")
-        return "I ran out of processing rounds before finishing. Break the task into smaller pieces and try again."
+        return (
+            "I stopped making usable progress and ran out of my processing budget for this task "
+            "(including continuations). Try asking me to continue with a specific next step, "
+            "or split the task into smaller pieces."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -3460,6 +3883,13 @@ Based on this analysis and the user's current request, proceed with any tasks ne
             )
 
     db.add_message(user_id, "user", text)
+    # Messages the user sent mid-run (delivered as interruptions) belong in
+    # history between the original message and this reply.
+    try:
+        for injected_text in interrupt_hub.take_injected(user_id, interrupt_queue):
+            db.add_message(user_id, "user", injected_text)
+    except Exception:
+        logger.exception("Could not persist injected messages")
     db.add_message(user_id, "assistant", reply)
     _schedule_summary(user_id, model, speed_mode=speed_mode, reasoning_enabled=reasoning_enabled)
     sanitized = _sanitize_response(reply)

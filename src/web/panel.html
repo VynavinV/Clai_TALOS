@@ -1278,6 +1278,24 @@
 
   function $(id) { return document.getElementById(id); }
 
+  /* The CSRF token embedded in this page dies after an hour. This panel is
+     meant to stay open for days, so we quietly rotate the token well before
+     it expires, and any POST that still slips through gets one retry with a
+     freshly fetched token. */
+  function refreshCSRF() {
+    return fetch('/api/csrf').then(function (r) {
+      if (r.status === 401) { window.location.href = '/'; throw new Error('unauthorized'); }
+      return r.json();
+    }).then(function (d) {
+      if (d && d.csrf_token) {
+        CSRF = d.csrf_token;
+        if (CSRF_META) CSRF_META.setAttribute('content', CSRF);
+      }
+    }).catch(function () { /* retried on next tick or by postJSON */ });
+  }
+
+  setInterval(refreshCSRF, 20 * 60 * 1000);
+
   function getJSON(url) {
     return fetch(url).then(function (r) {
       if (r.status === 401) { window.location.href = '/'; throw new Error('unauthorized'); }
@@ -1285,7 +1303,7 @@
     });
   }
 
-  function postJSON(url, body) {
+  function postJSON(url, body, _retried) {
     body = body || {};
     body.csrf_token = CSRF;
     return fetch(url, {
@@ -1294,6 +1312,12 @@
       body: JSON.stringify(body)
     }).then(function (r) {
       if (r.status === 401) { window.location.href = '/'; throw new Error('unauthorized'); }
+      if (r.status === 403 && !_retried) {
+        // Most likely an expired CSRF token — get a fresh one and retry once.
+        return refreshCSRF().then(function () {
+          return postJSON(url, body, true);
+        });
+      }
       return r.json();
     });
   }

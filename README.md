@@ -736,15 +736,21 @@ Requests are proxied through the TALOS server, so the token never reaches the br
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MAX_TOOL_ROUNDS` | `40` | Max think-act-check rounds per response |
+| `MAX_TOOL_ROUNDS` | `40` | Max think-act-check rounds per budget segment |
 | `MAX_TOOL_CALLS_PER_ROUND` | `30` | Cap tool calls in a single round |
 | `MAX_COMMAND_TIMEOUT` | `300` | Max seconds for command tools |
 | `MAX_WORKFLOW_STEPS` | `30` | Cap workflow step count |
-| `MAX_ORCHESTRATOR_WALL_TIMEOUT_S` | `1800` | Wall-clock budget for orchestrator run |
+| `MAX_ORCHESTRATOR_WALL_TIMEOUT_S` | `1800` | Idle wall-clock budget for orchestrator run (active work resets it) |
 | `ORCHESTRATOR_TIMEOUT_ENABLED` | `1` | `0` disables the processing timeout entirely |
+| `MAX_TASK_CONTINUATIONS` | `6` | Fresh round budgets granted while a task keeps making progress (long-running tasks) |
+| `MAX_TOOL_RESULT_CHARS` | `12000` | Tool results are truncated to this size in agent context |
+| `MAX_RUN_CONTEXT_CHARS` | `160000` | Past this, older tool results inside a run are compacted |
+| `BACKGROUND_SUBAGENT_MAX` | `4` | Concurrent background subagents |
+| `MODEL_CALL_TIMEOUT_S` | `300` | Idle timeout for one model call (reasoning models think slowly) |
+| `MODEL_CALL_RETRIES` | `1` | Retries of the SAME model on timeout before erroring (no mid-task model switch) |
 | `MAX_SUBAGENT_TOOL_ROUNDS` | `20` | Subagent tool rounds cap |
 | `MAX_SUBAGENT_TOOL_CALLS_PER_ROUND` | `25` | Subagent calls per round cap |
-| `MAX_SUBAGENT_WALL_TIMEOUT_S` | `900` | Subagent wall-clock budget |
+| `MAX_SUBAGENT_WALL_TIMEOUT_S` | `900` | Subagent idle wall-clock budget |
 | `SUBAGENT_MAX_TELEGRAM_MESSAGES` | `3` | Max subagent update messages |
 | `SUBAGENT_MAX_TELEGRAM_MESSAGE_CHARS` | `260` | Max chars per subagent update |
 | `SUBAGENT_MIN_UPDATE_INTERVAL_S` | `30` | Min spacing between subagent updates |
@@ -759,16 +765,28 @@ Read live, so Settings changes apply without a restart.
 | `TALOS_STUCK_ENABLED` | `1` | `0` turns off autoinject recovery |
 | `TALOS_STUCK_CHECK_INTERVAL_S` | `10` | How often the watchdog checks for progress |
 | `TALOS_STUCK_THRESHOLD_S` | `90` | Seconds without progress before recovery is injected |
-| `TALOS_STUCK_MAX_INTERVENTIONS` | `2` | Recovery attempts per message |
+| `TALOS_STUCK_MAX_INTERVENTIONS` | `2` | Recovery message injections per message |
+| `TALOS_STUCK_CANCEL_S` | `600` | Stuck time after which the run is cancelled outright |
+| `TALOS_STUCK_AUTO_RETRY` | `1` | Automatic restarts of a hung run with a recovery prompt (`0` disables) |
 
 ### Core progress notifier knobs
 
+Read live, so Settings changes apply without a restart. During long tasks,
+the runtime sends an automatic Telegram status line ("Still working — 12 min
+in. Latest: ...") whenever the agent has been quiet for the silence
+threshold, so the user is never left staring at a silent bot.
+
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `TALOS_PROGRESS_SILENCE_THRESHOLD_S` | `45` | Silence threshold before auto update |
-| `TALOS_PROGRESS_MIN_GAP_S` | `120` | Minimum gap between auto updates |
-| `TALOS_PROGRESS_CHECK_INTERVAL_S` | `10` | Progress loop tick |
-| `TALOS_PROGRESS_MAX_AUTO_UPDATES` | `0` | Number of automatic progress updates (`0` disables) |
+| `TALOS_PROGRESS_ENABLED` | `1` | `0` turns off automatic progress updates |
+| `TALOS_PROGRESS_SILENCE_THRESHOLD_S` | `90` | Quiet time before an auto status is sent |
+| `TALOS_PROGRESS_MIN_GAP_S` | `300` | Minimum gap between auto updates |
+| `TALOS_PROGRESS_CHECK_INTERVAL_S` | `15` | Progress loop tick |
+| `TALOS_PROGRESS_MAX_AUTO_UPDATES` | `60` | Cap on auto updates per task (`0` disables) |
+
+Long tasks also earn a larger messaging budget: each round-budget continuation
+grants the orchestrator two extra Telegram updates, and subagents with an idle
+timeout of 30 minutes or more get a larger update budget automatically.
 
 ### Browser automation defaults (set by `setup.py`)
 
@@ -804,6 +822,7 @@ These tools are exposed by the orchestrator and can be toggled in the dashboard.
 | `scrape_url` | Local Scrapy content extraction |
 | `google_execute` | Execute Google actions |
 | `email_execute` | Execute Himalaya email actions |
+| `homeassistant_execute` | Read and control Home Assistant entities |
 | `browser_start_chrome_debug` | Launch Chrome with debug port |
 | `browser_connect` | Connect to browser CDP |
 | `browser_run` | Execute browser action steps |
@@ -1298,6 +1317,7 @@ Current tool docs:
 - `src/tools/file_tools.md`
 - `src/tools/gateway.md`
 - `src/tools/google.md`
+- `src/tools/homeassistant.md`
 - `src/tools/memory.md`
 - `src/tools/model_prefs.md`
 - `src/tools/presentation.md`

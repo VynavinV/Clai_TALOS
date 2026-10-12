@@ -12,6 +12,7 @@ import AI
 import db
 import core
 import model_router
+import interrupt_hub
 
 HELP_TEXT = (
     "Clai TALOS - Personal AI Assistant\n\n"
@@ -27,6 +28,7 @@ HELP_TEXT = (
     "- Scheduled tasks (cron)\n"
     "- Memory (I remember things about you)\n"
     "- Browser automation\n"
+    "- Smart home (Home Assistant)\n"
     "- Subagent spawning for complex tasks\n\n"
     "Commands:\n"
     "/start - Start or restart\n"
@@ -784,9 +786,14 @@ async def cmd_stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("Stopping the current job...")
 
 
-async def _run_with_user_lock(user_id: int, chat, runner_coro):
+async def _run_with_user_lock(user_id: int, chat, runner_coro, message_text: str | None = None):
     lock = _get_user_process_lock(user_id)
     if lock.locked():
+        # A run is already active for this user. Deliver the new message INTO
+        # the running agent (it is drained between model/tool rounds) instead
+        # of queueing a whole new turn behind it.
+        if message_text and interrupt_hub.inject_message(user_id, message_text):
+            return
         await _safe_send(chat, "Another request is still running. I queued this one and will respond next.")
 
     async with lock:
@@ -841,7 +848,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await core.process_message(uid, text, send_func, model_override=model_override)
 
     try:
-        await _run_with_user_lock(uid, chat, _runner)
+        await _run_with_user_lock(uid, chat, _runner, message_text=text)
     except Exception:
         logger.exception("Error handling text message")
         await update.message.reply_text("An internal error occurred while processing your message.")

@@ -21,6 +21,9 @@ Parameters:
 **Calendar:**
 - `calendar.list_events` — List upcoming events. Payload: `{time_min, time_max, max_results, calendar_id}`. `time_min` defaults to now (UTC). `time_max` defaults to none (all future). Use ISO 8601 format: `"2026-04-06T00:00:00Z"`. For "next week", set `time_min` to next Monday and `time_max` to next Sunday.
 - `calendar.create_event` — Create an event. Payload: `{calendar_id, event: {summary, start: {dateTime}, end: {dateTime}, ...}}`
+- `calendar.get_event` — Get one event's full details. Payload: `{calendar_id, event_id}`
+- `calendar.update_event` — Update an event (partial patch; unset fields keep their values). Payload: `{calendar_id, event_id, event: {summary, start, end, ...}}`
+- `calendar.delete_event` — Delete an event. Payload: `{calendar_id, event_id}`. Get the `event_id` from `calendar.list_events` first — never guess an id.
 - `calendar.list_calendars` — List all calendars.
 
 **Drive:**

@@ -197,3 +197,97 @@ async def call_service(domain: str, service: str, entity_id: str, data: dict | N
         logger.info("homeassistant service %s/%s on %s", domain, service, entity_id)
         return {"ok": True}
     return {"ok": False, "error": f"Home Assistant refused the command (HTTP {status})."}
+
+
+# ---------------------------------------------------------------------------
+# Agent-facing helpers (used by the homeassistant_execute tool)
+#
+# These return deliberately compact payloads: one line per entity, no JSON
+# nesting, so a model can scan hundreds of entities without burning context.
+# ---------------------------------------------------------------------------
+
+_MAX_LIST_LINES = 250
+
+
+def _entity_line(entity: dict) -> str:
+    entity_id = str(entity.get("entity_id", ""))
+    state = str(entity.get("state", ""))
+    name = str((entity.get("attributes") or {}).get("friendly_name") or "")
+    unit = str((entity.get("attributes") or {}).get("unit_of_measurement") or "")
+    line = f"{entity_id} = {state}"
+    if unit:
+        line += f" {unit}"
+    if name and name.lower() != entity_id:
+        line += f" ({name})"
+    return line
+
+
+async def list_entities_compact(domain: str = "", search: str = "") -> dict:
+    """Compact entity listing for the agent, optionally filtered.
+
+    Output is one line per entity: "entity_id = state unit (friendly name)".
+    Filters keep the response small even on big installs.
+    """
+    if not is_configured() or not is_enabled():
+        return _not_ready()
+
+    status, body, error = await _request("GET", "/api/states")
+    if error:
+        return {"ok": False, "error": error}
+    http_error = _friendly_http_error(status)
+    if http_error:
+        return {"ok": False, "error": http_error}
+    if status != 200 or not isinstance(body, list):
+        return {"ok": False, "error": f"Unexpected answer from Home Assistant (HTTP {status})."}
+
+    domain = str(domain or "").strip().lower().rstrip(".")
+    search = str(search or "").strip().lower()
+    lines: list[str] = []
+    total = 0
+    for entity in body:
+        if not isinstance(entity, dict) or not entity.get("entity_id"):
+            continue
+        entity_id = str(entity["entity_id"])
+        if domain and not entity_id.startswith(domain + "."):
+            continue
+        if search and search not in entity_id and search not in str((entity.get("attributes") or {}).get("friendly_name") or "").lower():
+            continue
+        total += 1
+        if len(lines) < _MAX_LIST_LINES:
+            lines.append(_entity_line(entity))
+
+    result = {"ok": True, "total_matches": total, "returned": len(lines)}
+    if total > len(lines):
+        result["note"] = f"Only the first {len(lines)} matches are shown. Narrow with the 'domain' or 'search' filter."
+    result["entities"] = "\n".join(lines)
+    return result
+
+
+async def get_entity_state(entity_id: str) -> dict:
+    """Full state of one entity, for when a compact line is not enough."""
+    if not is_configured() or not is_enabled():
+        return _not_ready()
+
+    entity_id = str(entity_id or "").strip()
+    if not entity_id or not _ALLOWED_NAME.match(entity_id.replace(".", "_")):
+        return {"ok": False, "error": "That is not a valid Home Assistant entity_id."}
+
+    status, body, error = await _request("GET", f"/api/states/{entity_id}")
+    if error:
+        return {"ok": False, "error": error}
+    http_error = _friendly_http_error(status)
+    if http_error:
+        return {"ok": False, "error": http_error}
+    if status == 200 and isinstance(body, dict):
+        attributes = body.get("attributes") or {}
+        return {
+            "ok": True,
+            "entity_id": str(body.get("entity_id", entity_id)),
+            "state": str(body.get("state", "")),
+            "attributes": attributes,
+            "last_changed": str(body.get("last_changed", "")),
+            "last_updated": str(body.get("last_updated", "")),
+        }
+    if status == 404:
+        return {"ok": False, "error": f"Entity '{entity_id}' does not exist. Use list_entities with a search filter to find the right entity_id."}
+    return {"ok": False, "error": f"Unexpected answer from Home Assistant (HTTP {status})."}

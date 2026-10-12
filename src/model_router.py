@@ -1502,7 +1502,11 @@ def _pick_preferred(preferences: list[str], candidates: list[str], fallback: str
     return candidates[0]
 
 
-_MODEL_CALL_TIMEOUT_S = int(os.getenv("MODEL_CALL_TIMEOUT_S", "120"))
+_MODEL_CALL_TIMEOUT_S = int(os.getenv("MODEL_CALL_TIMEOUT_S", "300"))
+# Retry a timed-out model call on the SAME model once before any fallback.
+# Reasoning models regularly think for minutes before the first token, and
+# switching models mid-task is what derails long-running agent runs.
+_MODEL_CALL_RETRIES = int(os.getenv("MODEL_CALL_RETRIES", "1"))
 
 
 def _normalize_speed_mode(speed_mode: str | None) -> str:
@@ -1538,7 +1542,11 @@ def _model_timeout_for_speed(speed_mode: str, provider: str = "") -> int:
             return max(30, min(int(raw), 3600)) if raw else 300
         except ValueError:
             return 300
-    base = max(30, min(_MODEL_CALL_TIMEOUT_S, 600))
+    # Read live so Settings changes apply without a restart.
+    try:
+        base = max(30, min(int(os.getenv("MODEL_CALL_TIMEOUT_S", str(_MODEL_CALL_TIMEOUT_S))), 600))
+    except ValueError:
+        base = max(30, min(_MODEL_CALL_TIMEOUT_S, 600))
     if speed_mode == "quick":
         return max(30, min(base, 70))
     if speed_mode == "fast":
@@ -1604,19 +1612,41 @@ async def call_model(
 
     runtime_profile = _normalize_runtime_profile(speed_mode=speed_mode, reasoning_enabled=reasoning_enabled)
     sink_token = _STREAM_SINK.set(on_delta)
-    activity_token = _STREAM_ACTIVITY.set({"ts": time.monotonic()})
     try:
         timeout = _model_timeout_for_speed(runtime_profile["speed_mode"], provider)
-        return await _wait_for_model_call(caller(model_id, messages, tools, runtime_profile), timeout)
-    except asyncio.TimeoutError:
-        logger.error(
-            f"{provider} call timed out after {timeout}s for model {model_id} "
-            f"(speed={runtime_profile['speed_mode']}, reasoning={runtime_profile['reasoning_enabled']})"
-        )
-        # Try fallback on timeout
-        if user_id is not None and not _fallback_attempted:
-            return await _try_fallback(user_id, messages, tools, speed_mode, reasoning_enabled, on_delta, f"Model call to {provider}/{model_id} timed out after {timeout}s.")
-        return {"content": f"Model call to {provider}/{model_id} timed out after {timeout}s. The API may be overloaded.", "tool_calls": [], "message": None}
+
+        async def _attempt() -> dict:
+            activity_token = _STREAM_ACTIVITY.set({"ts": time.monotonic()})
+            try:
+                return await _wait_for_model_call(
+                    caller(model_id, messages, tools, runtime_profile), timeout
+                )
+            finally:
+                _STREAM_ACTIVITY.reset(activity_token)
+
+        try:
+            return await _attempt()
+        except asyncio.TimeoutError:
+            # A timeout usually means the provider is slow or stalled — not that
+            # the model is wrong. Retry the SAME model before doing anything
+            # drastic, so long agent runs are not handed to a different brain
+            # mid-task.
+            for attempt in range(max(0, _MODEL_CALL_RETRIES)):
+                logger.warning(
+                    f"{provider} call to {model_id} timed out after {timeout}s; "
+                    f"retrying same model (attempt {attempt + 1}/{_MODEL_CALL_RETRIES})"
+                )
+                try:
+                    return await _attempt()
+                except asyncio.TimeoutError:
+                    continue
+            logger.error(
+                f"{provider} call timed out after {timeout}s for model {model_id} "
+                f"(speed={runtime_profile['speed_mode']}, reasoning={runtime_profile['reasoning_enabled']})"
+            )
+            # Deliberately NO model fallback on timeout: returning a clear error
+            # keeps the running agent coherent instead of switching brains.
+            return {"content": f"Model call to {provider}/{model_id} timed out after {timeout}s (retried). The API may be overloaded — try again, possibly with a smaller request.", "tool_calls": [], "message": None}
     except Exception as e:
         logger.exception(f"{provider} call failed for model {model_id}")
         if provider == "nvidia":
@@ -1636,7 +1666,6 @@ async def call_model(
         return {"content": f"Error communicating with {provider}: {e}", "tool_calls": [], "message": None}
     finally:
         _STREAM_SINK.reset(sink_token)
-        _STREAM_ACTIVITY.reset(activity_token)
 
 
 async def _try_fallback(

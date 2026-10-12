@@ -507,6 +507,40 @@ async def _direct_api_fallback(action: str, payload: dict | None = None) -> dict
         safe_id = urllib.parse.quote(calendar_id, safe="")
         return await _google_api_call("POST", f"/calendar/v3/calendars/{safe_id}/events", body=event_body)
 
+    if action == "calendar.get_event":
+        calendar_id = payload.get("calendar_id", "primary")
+        event_id = str(payload.get("event_id", "")).strip()
+        if not event_id:
+            return {"error": "event_id is required."}
+        safe_id = urllib.parse.quote(calendar_id, safe="")
+        safe_event = urllib.parse.quote(event_id, safe="")
+        return await _google_api_call("GET", f"/calendar/v3/calendars/{safe_id}/events/{safe_event}")
+
+    if action == "calendar.update_event":
+        calendar_id = payload.get("calendar_id", "primary")
+        event_id = str(payload.get("event_id", "")).strip()
+        event_body = payload.get("event", {})
+        if not event_id:
+            return {"error": "event_id and event are required."}
+        if not isinstance(event_body, dict):
+            return {"error": "event must be an object."}
+        safe_id = urllib.parse.quote(calendar_id, safe="")
+        safe_event = urllib.parse.quote(event_id, safe="")
+        # PATCH keeps fields the caller does not mention intact.
+        return await _google_api_call("PATCH", f"/calendar/v3/calendars/{safe_id}/events/{safe_event}", body=event_body)
+
+    if action == "calendar.delete_event":
+        calendar_id = payload.get("calendar_id", "primary")
+        event_id = str(payload.get("event_id", "")).strip()
+        if not event_id:
+            return {"error": "event_id is required."}
+        safe_id = urllib.parse.quote(calendar_id, safe="")
+        safe_event = urllib.parse.quote(event_id, safe="")
+        result = await _google_api_call("DELETE", f"/calendar/v3/calendars/{safe_id}/events/{safe_event}")
+        if result.get("ok"):
+            return {"ok": True, "deleted": True, "event_id": event_id, "calendar_id": calendar_id}
+        return result
+
     if action == "calendar.list_calendars":
         return await _google_api_call("GET", "/calendar/v3/users/me/calendarList")
 
@@ -548,9 +582,10 @@ async def _direct_api_fallback(action: str, payload: dict | None = None) -> dict
         return await _google_api_call("POST", f"/sheets/v4/spreadsheets/{spreadsheet_id}/values/{urllib.parse.quote(range_str, safe=':!')}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS", body=body)
 
     return {
-        "error": f"Unknown action: {action}. Set GOOGLE_APPS_SCRIPT_URL for custom actions, or use: calendar.list_events, calendar.create_event, calendar.list_calendars, drive.list_files, drive.get_file, drive.export_file, sheets.get_values, sheets.append_row",
+        "error": f"Unknown action: {action}. Set GOOGLE_APPS_SCRIPT_URL for custom actions, or use: calendar.list_events, calendar.create_event, calendar.get_event, calendar.update_event, calendar.delete_event, calendar.list_calendars, drive.list_files, drive.get_file, drive.export_file, sheets.get_values, sheets.append_row",
         "available_actions": [
-            "calendar.list_events", "calendar.create_event", "calendar.list_calendars",
+            "calendar.list_events", "calendar.create_event", "calendar.get_event",
+            "calendar.update_event", "calendar.delete_event", "calendar.list_calendars",
             "drive.list_files", "drive.get_file", "drive.export_file",
             "sheets.get_values", "sheets.append_row",
         ],

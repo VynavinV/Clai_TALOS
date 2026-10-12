@@ -6,13 +6,18 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- Open-source governance files: `LICENSE`, `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, and CI workflow.
-- Basic test coverage for dashboard password policy via `tests/test_auth_policy.py`.
-- Initial Windows EXE packaging pipeline: `talos_entry.py`, `talos_exe.spec`, `scripts/build_windows_exe.ps1`, and `.github/workflows/windows-exe-release.yml`.
-- Runtime path abstraction in `app_paths.py` for frozen executable mode (app data storage under OS user data directories).
-- Over-the-air update support in Settings with authenticated update check/apply APIs and runtime update handling for source git installs and frozen Windows builds.
-- OTA channel control (`stable` / `prerelease`) and release-notes preview in Settings.
-- Legacy updater utility `scripts/update_legacy_copy.py` for non-git copied installs that predate OTA support.
+- Long-running task support: agents that use their whole round budget while still making progress now earn continuation budgets (`MAX_TASK_CONTINUATIONS`, default 6) instead of stopping at the cap.
+- Context hygiene for long runs: tool results are truncated into agent context (`MAX_TOOL_RESULT_CHARS`) and older tool results inside a run are compacted past `MAX_RUN_CONTEXT_CHARS`.
+- Background subagents: `spawn_subagent` accepts `background: true` for long-running detached helpers with per-subagent `timeout_s`; results are delivered back to the orchestrator between rounds, and the new `subagent_status` tool reports on them.
+- Mid-run message delivery: messages sent while the assistant is working are injected into the running agent between its model/tool rounds (Telegram and web chat) instead of queueing behind the task, via the new `interrupt_hub`.
+- Telegram keep-in-the-loop updates: automatic status lines ("Still working — 12 min in. Latest: ...") whenever the agent goes quiet on a long task (`TALOS_PROGRESS_*` knobs, now actually implemented and on by default), larger messaging budgets for long tasks (extra allowance per continuation, bigger subagent budgets for runs of 30+ minutes), and prompt guidance to post milestone updates.
+- Watchdog escalation: hung runs are cancelled after `TALOS_STUCK_CANCEL_S` and automatically restarted once with a recovery prompt (`TALOS_STUCK_AUTO_RETRY`).
+- Home Assistant tool for the bot: `homeassistant_execute` (status / list_entities / get_state / call_service) with compact, filterable output, lazy-loaded behind the `smart_home` category.
+- Google Calendar: `calendar.get_event`, `calendar.update_event`, and `calendar.delete_event` actions (deleting events previously always failed — the action did not exist).
+- Model call resilience: `MODEL_CALL_TIMEOUT_S` default raised to 300s and timed-out calls retry the SAME model before any fallback, so long tasks no longer switch models mid-run.
+- Settings UI knobs for continuations, tool result truncation, run context compaction, model call timeout, and watchdog cancel/retry behavior.
+- CSRF token auto-refresh for the Panel page plus retry-on-403, and sliding renewal server-side, so an always-on panel no longer dies with "invalid or expired CSRF token" after an hour.
+- Tests for the new machinery: `tests/test_long_running.py` and `tests/test_agent_continuation.py`.
 
 ### Changed
 

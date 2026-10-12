@@ -34,6 +34,7 @@ import model_router
 import core
 import google_integration
 import homeassistant
+import interrupt_hub
 import activity_tracker
 import ollama_setup
 import app_paths
@@ -654,6 +655,10 @@ def validate_csrf(token):
     if time.time() - csrf_tokens[token] > CSRF_MAX_AGE:
         del csrf_tokens[token]
         return False
+    # Sliding renewal: every successful use extends the token's life, so a
+    # page that keeps POSTing (like the always-on Panel) never expires while
+    # in use. An idle token still dies at CSRF_MAX_AGE.
+    csrf_tokens[token] = time.time()
     return True
 
 
@@ -2717,11 +2722,14 @@ async def handle_api_keys_get(request):
 async def handle_api_csrf(request):
     cleanup_csrf()
     token = generate_csrf()
-    return web.json_response({
+    response = web.json_response({
         "ok": True,
         "csrf_token": token,
         "expires_in": CSRF_MAX_AGE,
     })
+    # Keep the cookie in sync too, so any client reading it stays fresh.
+    response.set_cookie(CSRF_COOKIE, token, max_age=CSRF_MAX_AGE, path="/")
+    return response
 
 
 @require_auth_csrf
@@ -2958,12 +2966,23 @@ async def handle_api_settings_get(request):
         "MAX_SUBAGENT_TOOL_ROUNDS": env_vars.get("MAX_SUBAGENT_TOOL_ROUNDS", "20"),
         "MAX_SUBAGENT_TOOL_CALLS_PER_ROUND": env_vars.get("MAX_SUBAGENT_TOOL_CALLS_PER_ROUND", "25"),
         "MAX_CONTEXT_CHARS": env_vars.get("MAX_CONTEXT_CHARS", "200000"),
+        "MAX_TASK_CONTINUATIONS": env_vars.get("MAX_TASK_CONTINUATIONS", "6"),
+        "MAX_TOOL_RESULT_CHARS": env_vars.get("MAX_TOOL_RESULT_CHARS", "12000"),
+        "MAX_RUN_CONTEXT_CHARS": env_vars.get("MAX_RUN_CONTEXT_CHARS", "160000"),
+        "BACKGROUND_SUBAGENT_MAX": env_vars.get("BACKGROUND_SUBAGENT_MAX", "4"),
+        "MODEL_CALL_TIMEOUT_S": env_vars.get("MODEL_CALL_TIMEOUT_S", "300"),
         "HOMEASSISTANT_URL": env_vars.get("HOMEASSISTANT_URL", ""),
         "HOMEASSISTANT_ENABLED": env_vars.get("HOMEASSISTANT_ENABLED", "1"),
         "TALOS_STUCK_ENABLED": env_vars.get("TALOS_STUCK_ENABLED", "1"),
         "TALOS_STUCK_CHECK_INTERVAL_S": env_vars.get("TALOS_STUCK_CHECK_INTERVAL_S", "10"),
         "TALOS_STUCK_THRESHOLD_S": env_vars.get("TALOS_STUCK_THRESHOLD_S", "90"),
         "TALOS_STUCK_MAX_INTERVENTIONS": env_vars.get("TALOS_STUCK_MAX_INTERVENTIONS", "2"),
+        "TALOS_STUCK_CANCEL_S": env_vars.get("TALOS_STUCK_CANCEL_S", "600"),
+        "TALOS_STUCK_AUTO_RETRY": env_vars.get("TALOS_STUCK_AUTO_RETRY", "1"),
+        "TALOS_PROGRESS_ENABLED": env_vars.get("TALOS_PROGRESS_ENABLED", "1"),
+        "TALOS_PROGRESS_SILENCE_THRESHOLD_S": env_vars.get("TALOS_PROGRESS_SILENCE_THRESHOLD_S", "90"),
+        "TALOS_PROGRESS_MIN_GAP_S": env_vars.get("TALOS_PROGRESS_MIN_GAP_S", "300"),
+        "TALOS_PROGRESS_MAX_AUTO_UPDATES": env_vars.get("TALOS_PROGRESS_MAX_AUTO_UPDATES", "60"),
         "ORCHESTRATOR_TIMEOUT_ENABLED": env_vars.get("ORCHESTRATOR_TIMEOUT_ENABLED", "1"),
         "MAX_ORCHESTRATOR_WALL_TIMEOUT_S": env_vars.get("MAX_ORCHESTRATOR_WALL_TIMEOUT_S", "1800"),
         "MAX_SUBAGENT_WALL_TIMEOUT_S": env_vars.get("MAX_SUBAGENT_WALL_TIMEOUT_S", "900"),
@@ -3130,7 +3149,7 @@ async def handle_api_settings_post(request):
     ]
 
     # On/off switches, stored as "1"/"0" so they survive the flat .env format.
-    _BOOL_KEYS = ["HOMEASSISTANT_ENABLED", "TALOS_STUCK_ENABLED", "ORCHESTRATOR_TIMEOUT_ENABLED"]
+    _BOOL_KEYS = ["HOMEASSISTANT_ENABLED", "TALOS_STUCK_ENABLED", "ORCHESTRATOR_TIMEOUT_ENABLED", "TALOS_PROGRESS_ENABLED"]
 
     for key in _BOOL_KEYS:
         if key in body:
@@ -3171,9 +3190,20 @@ async def handle_api_settings_post(request):
         ("MAX_SUBAGENT_TOOL_ROUNDS", 1, 1000000),
         ("MAX_SUBAGENT_TOOL_CALLS_PER_ROUND", 1, 1000000),
         ("MAX_CONTEXT_CHARS", 10000, 100000000),
+        ("MAX_TASK_CONTINUATIONS", 0, 1000),
+        ("MAX_TOOL_RESULT_CHARS", 1000, 1000000),
+        ("MAX_RUN_CONTEXT_CHARS", 10000, 100000000),
+        ("BACKGROUND_SUBAGENT_MAX", 1, 32),
+        ("MODEL_CALL_TIMEOUT_S", 30, 3600),
         ("TALOS_STUCK_CHECK_INTERVAL_S", 5, 86400),
         ("TALOS_STUCK_THRESHOLD_S", 30, 86400),
         ("TALOS_STUCK_MAX_INTERVENTIONS", 1, 100),
+        ("TALOS_STUCK_CANCEL_S", 60, 86400),
+        ("TALOS_STUCK_AUTO_RETRY", 0, 10),
+        ("TALOS_PROGRESS_CHECK_INTERVAL_S", 5, 86400),
+        ("TALOS_PROGRESS_SILENCE_THRESHOLD_S", 20, 86400),
+        ("TALOS_PROGRESS_MIN_GAP_S", 30, 86400),
+        ("TALOS_PROGRESS_MAX_AUTO_UPDATES", 0, 1000),
         ("MAX_ORCHESTRATOR_WALL_TIMEOUT_S", 60, 86400),
         ("MAX_SUBAGENT_WALL_TIMEOUT_S", 30, 86400),
     ]
@@ -3608,6 +3638,16 @@ async def handle_api_chat(request):
 
     send_func = _build_web_send_func(events)
     lock = _get_web_chat_lock(user_id)
+
+    if lock.locked():
+        # A run is already active for this user: deliver the new message into
+        # the running agent between its rounds instead of queueing a new turn.
+        if text and interrupt_hub.inject_message(user_id, text):
+            events.append({
+                "type": "text",
+                "text": "Passed to the running task — it will be answered as part of the current response.",
+            })
+            return web.json_response({"ok": True, "injected": True, "events": events})
 
     async with lock:
         try:

@@ -418,6 +418,26 @@
       <div class="form-hint">If chat history gets too long, TALOS tidies it automatically and keeps going. Default 200000.</div>
     </div>
     <div class="form-group">
+      <label>Task continuations</label>
+      <input type="text" id="max-task-continuations" placeholder="6" inputmode="numeric">
+      <div class="form-hint">When a long task uses all its tool rounds but is still making progress, it earns a fresh round budget this many times. Default 6 — a productive task can run for hours.</div>
+    </div>
+    <div class="form-group">
+      <label>Max tool result size (characters)</label>
+      <input type="text" id="max-tool-result-chars" placeholder="12000" inputmode="numeric">
+      <div class="form-hint">Tool outputs larger than this are truncated in the agent's context so long tasks don't drown in old output. Default 12000.</div>
+    </div>
+    <div class="form-group">
+      <label>Run context compaction threshold (characters)</label>
+      <input type="text" id="max-run-context-chars" placeholder="160000" inputmode="numeric">
+      <div class="form-hint">During long tasks, older tool results are compacted past this size. Default 160000.</div>
+    </div>
+    <div class="form-group">
+      <label>Model call timeout (seconds)</label>
+      <input type="text" id="model-call-timeout" placeholder="300" inputmode="numeric">
+      <div class="form-hint">How long a single model call may stay silent before it's retried (the same model, never switched mid-task). Default 300.</div>
+    </div>
+    <div class="form-group">
       <label>Current Memory Usage</label>
       <div class="usage-wrap">
         <input type="range" id="context-usage-slider" class="usage-slider safe" min="0" max="120000" value="0" aria-label="Context usage compared to threshold">
@@ -442,7 +462,21 @@
     <div class="sub-fields" id="stuck-fields">
       <div class="form-group"><label>Wait before injecting recovery (seconds)</label><input type="text" id="stuck-threshold" placeholder="90" inputmode="numeric"><div class="form-hint">How long with no progress before recovery kicks in. Default 90.</div></div>
       <div class="form-group"><label>How often to check (seconds)</label><input type="text" id="stuck-interval" placeholder="10" inputmode="numeric"><div class="form-hint">Default 10.</div></div>
-      <div class="form-group"><label>Max recovery attempts per message</label><input type="text" id="stuck-max" placeholder="2" inputmode="numeric"><div class="form-hint">After this many tries it stops and waits for you. Default 2.</div></div>
+      <div class="form-group"><label>Max recovery attempts per message</label><input type="text" id="stuck-max" placeholder="2" inputmode="numeric"><div class="form-hint">Message-level recovery pokes before escalation. Default 2.</div></div>
+      <div class="form-group"><label>Restart hung job after (seconds)</label><input type="text" id="stuck-cancel" placeholder="600" inputmode="numeric"><div class="form-hint">If the job stays hung this long past its recovery attempts, it is cancelled outright and restarted once with a different approach. Default 600 (10 minutes).</div></div>
+      <div class="form-group"><label>Recovery restarts</label><input type="text" id="stuck-auto-retry" placeholder="1" inputmode="numeric"><div class="form-hint">How many times a hung job is automatically restarted with a recovery prompt before giving up. Default 1. 0 disables restarts.</div></div>
+    </div>
+
+    <div class="toggle-row">
+      <input type="checkbox" id="progress-enabled">
+      <div class="toggle-label"><strong>Progress Updates</strong>
+        <div class="toggle-sub">During long tasks, automatically messages you on Telegram when the assistant has gone quiet — a one-line status of what it is doing and how long it has been running.</div>
+      </div>
+    </div>
+    <div class="sub-fields" id="progress-fields">
+      <div class="form-group"><label>Quiet time before auto-update (seconds)</label><input type="text" id="progress-threshold" placeholder="90" inputmode="numeric"><div class="form-hint">If the assistant hasn't messaged you for this long while working, it sends an automatic status line. Default 90.</div></div>
+      <div class="form-group"><label>Minimum gap between auto-updates (seconds)</label><input type="text" id="progress-gap" placeholder="300" inputmode="numeric"><div class="form-hint">Default 300 (5 minutes).</div></div>
+      <div class="form-group"><label>Max auto-updates per task</label><input type="text" id="progress-max" placeholder="60" inputmode="numeric"><div class="form-hint">Safety cap so a runaway task can't spam you. Default 60. 0 disables auto-updates.</div></div>
     </div>
 
     <div class="toggle-row">
@@ -1209,6 +1243,10 @@ async function loadSettings() {
     document.getElementById('max-subagent-tool-rounds').value = d.MAX_SUBAGENT_TOOL_ROUNDS || '20';
     document.getElementById('max-subagent-tool-calls-per-round').value = d.MAX_SUBAGENT_TOOL_CALLS_PER_ROUND || '25';
     document.getElementById('max-context-chars').value = d.MAX_CONTEXT_CHARS || '200000';
+    document.getElementById('max-task-continuations').value = d.MAX_TASK_CONTINUATIONS == null ? '6' : d.MAX_TASK_CONTINUATIONS;
+    document.getElementById('max-tool-result-chars').value = d.MAX_TOOL_RESULT_CHARS || '12000';
+    document.getElementById('max-run-context-chars').value = d.MAX_RUN_CONTEXT_CHARS || '160000';
+    document.getElementById('model-call-timeout').value = d.MODEL_CALL_TIMEOUT_S || '300';
     document.getElementById('ha-url').value = d.HOMEASSISTANT_URL || '';
     document.getElementById('ha-token').value = d.HOMEASSISTANT_TOKEN || '';
     document.getElementById('ha-enabled').checked = (d.HOMEASSISTANT_ENABLED || '1') !== '0';
@@ -1216,6 +1254,12 @@ async function loadSettings() {
     document.getElementById('stuck-threshold').value = d.TALOS_STUCK_THRESHOLD_S || '90';
     document.getElementById('stuck-interval').value = d.TALOS_STUCK_CHECK_INTERVAL_S || '10';
     document.getElementById('stuck-max').value = d.TALOS_STUCK_MAX_INTERVENTIONS || '2';
+    document.getElementById('stuck-cancel').value = d.TALOS_STUCK_CANCEL_S || '600';
+    document.getElementById('stuck-auto-retry').value = d.TALOS_STUCK_AUTO_RETRY == null ? '1' : d.TALOS_STUCK_AUTO_RETRY;
+    document.getElementById('progress-enabled').checked = (d.TALOS_PROGRESS_ENABLED || '1') !== '0';
+    document.getElementById('progress-threshold').value = d.TALOS_PROGRESS_SILENCE_THRESHOLD_S || '90';
+    document.getElementById('progress-gap').value = d.TALOS_PROGRESS_MIN_GAP_S || '300';
+    document.getElementById('progress-max').value = d.TALOS_PROGRESS_MAX_AUTO_UPDATES == null ? '60' : d.TALOS_PROGRESS_MAX_AUTO_UPDATES;
     document.getElementById('orchestrator-timeout-enabled').checked = (d.ORCHESTRATOR_TIMEOUT_ENABLED || '1') !== '0';
     document.getElementById('orchestrator-timeout').value = d.MAX_ORCHESTRATOR_WALL_TIMEOUT_S || '1800';
     document.getElementById('subagent-timeout').value = d.MAX_SUBAGENT_WALL_TIMEOUT_S || '900';
@@ -1789,12 +1833,22 @@ async function saveSettings() {
     MAX_SUBAGENT_TOOL_ROUNDS: document.getElementById('max-subagent-tool-rounds').value.trim(),
     MAX_SUBAGENT_TOOL_CALLS_PER_ROUND: document.getElementById('max-subagent-tool-calls-per-round').value.trim(),
     MAX_CONTEXT_CHARS: document.getElementById('max-context-chars').value.trim(),
+    MAX_TASK_CONTINUATIONS: document.getElementById('max-task-continuations').value.trim(),
+    MAX_TOOL_RESULT_CHARS: document.getElementById('max-tool-result-chars').value.trim(),
+    MAX_RUN_CONTEXT_CHARS: document.getElementById('max-run-context-chars').value.trim(),
+    MODEL_CALL_TIMEOUT_S: document.getElementById('model-call-timeout').value.trim(),
     HOMEASSISTANT_URL: document.getElementById('ha-url').value.trim(),
     HOMEASSISTANT_ENABLED: document.getElementById('ha-enabled').checked ? '1' : '0',
     TALOS_STUCK_ENABLED: document.getElementById('stuck-enabled').checked ? '1' : '0',
     TALOS_STUCK_THRESHOLD_S: document.getElementById('stuck-threshold').value.trim(),
     TALOS_STUCK_CHECK_INTERVAL_S: document.getElementById('stuck-interval').value.trim(),
     TALOS_STUCK_MAX_INTERVENTIONS: document.getElementById('stuck-max').value.trim(),
+    TALOS_STUCK_CANCEL_S: document.getElementById('stuck-cancel').value.trim(),
+    TALOS_STUCK_AUTO_RETRY: document.getElementById('stuck-auto-retry').value.trim(),
+    TALOS_PROGRESS_ENABLED: document.getElementById('progress-enabled').checked ? '1' : '0',
+    TALOS_PROGRESS_SILENCE_THRESHOLD_S: document.getElementById('progress-threshold').value.trim(),
+    TALOS_PROGRESS_MIN_GAP_S: document.getElementById('progress-gap').value.trim(),
+    TALOS_PROGRESS_MAX_AUTO_UPDATES: document.getElementById('progress-max').value.trim(),
     ORCHESTRATOR_TIMEOUT_ENABLED: document.getElementById('orchestrator-timeout-enabled').checked ? '1' : '0',
     MAX_ORCHESTRATOR_WALL_TIMEOUT_S: document.getElementById('orchestrator-timeout').value.trim(),
     MAX_SUBAGENT_WALL_TIMEOUT_S: document.getElementById('subagent-timeout').value.trim()
@@ -1888,8 +1942,10 @@ async function hotReload() {
 function updateToggleDim() {
   var sf = document.getElementById('stuck-fields');
   var of = document.getElementById('orchestrator-timeout-fields');
+  var pf = document.getElementById('progress-fields');
   if (sf) sf.className = 'sub-fields' + (document.getElementById('stuck-enabled').checked ? '' : ' dim');
   if (of) of.className = 'sub-fields' + (document.getElementById('orchestrator-timeout-enabled').checked ? '' : ' dim');
+  if (pf) pf.className = 'sub-fields' + (document.getElementById('progress-enabled').checked ? '' : ' dim');
 }
 
 async function loadHomeAssistantStatus() {
@@ -1929,6 +1985,7 @@ async function testHomeAssistant() {
 
 document.getElementById('stuck-enabled').addEventListener('change', updateToggleDim);
 document.getElementById('orchestrator-timeout-enabled').addEventListener('change', updateToggleDim);
+document.getElementById('progress-enabled').addEventListener('change', updateToggleDim);
 document.getElementById('ha-enabled').addEventListener('change', loadHomeAssistantStatus);
 
 async function restartBot() {
