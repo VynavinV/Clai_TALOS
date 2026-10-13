@@ -550,6 +550,7 @@ INSTALL_DIR="${SCRIPT_DIR}"
 SERVICE_MANAGER="${SERVICE_MANAGER_KIND}"
 SERVICE_NAME="${SERVICE_NAME}"
 WEB_PORT="${WEB_PORT}"
+AUTO_UPDATE=false
 EOF
   ok "Installed the 'clai' command"
   return 0

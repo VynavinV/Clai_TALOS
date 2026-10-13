@@ -283,8 +283,75 @@ cmd_help() {
     clai url             print the dashboard URL
     clai enable          start automatically at boot
     clai disable         stop starting at boot
+    clai auto-update enable|disable|status
+                         daily auto-update at 1 AM (off by default)
 
 EOF
+}
+
+cmd_auto_update() {
+  need_install_dir
+  local action="${1:-status}"
+  local cfg="${CONFIG_FILE}"
+  local script="$INSTALL_DIR/scripts/auto_update.sh"
+  local cron_marker="# clai-talos-auto-update"
+
+  case "$action" in
+    enable)
+      if [[ ! -f "$script" ]]; then
+        bad "auto_update.sh not found at $script"
+        exit 1
+      fi
+      # Update config flag
+      if grep -q '^AUTO_UPDATE=' "$cfg" 2>/dev/null; then
+        sed -i 's|^AUTO_UPDATE=.*|AUTO_UPDATE=true|' "$cfg"
+      else
+        echo 'AUTO_UPDATE=true' >> "$cfg"
+      fi
+      # Add crontab entry (remove old one first to avoid duplicates)
+      ( crontab -l 2>/dev/null | grep -v "$cron_marker"; \
+        echo "0 1 * * * $script $cron_marker" ) | crontab -
+      ok "Auto-update enabled (daily at 1 AM)"
+      info "Logs: $INSTALL_DIR/src/logs/auto_update.log"
+      ;;
+    disable)
+      # Update config flag
+      if grep -q '^AUTO_UPDATE=' "$cfg" 2>/dev/null; then
+        sed -i 's|^AUTO_UPDATE=.*|AUTO_UPDATE=false|' "$cfg"
+      else
+        echo 'AUTO_UPDATE=false' >> "$cfg"
+      fi
+      # Remove crontab entry
+      crontab -l 2>/dev/null | grep -v "$cron_marker" | crontab -
+      ok "Auto-update disabled"
+      ;;
+    status)
+      local enabled=false
+      grep -q '^AUTO_UPDATE=true' "$cfg" 2>/dev/null && enabled=true
+      local cron_active=false
+      crontab -l 2>/dev/null | grep -q "$cron_marker" && cron_active=true
+
+      if [[ "$enabled" == true && "$cron_active" == true ]]; then
+        ok "Auto-update is enabled"
+        info "Schedule: daily at 1:00 AM"
+        info "Script: $script"
+        local logf="$INSTALL_DIR/src/logs/auto_update.log"
+        if [[ -f "$logf" ]]; then
+          info "Last run:"
+          tail -1 "$logf" | sed 's/^/    /'
+        else
+          info "No runs yet"
+        fi
+      else
+        warn "Auto-update is disabled"
+        info "Enable with: clai auto-update enable"
+      fi
+      ;;
+    *)
+      echo "Usage: clai auto-update enable|disable|status"
+      exit 1
+      ;;
+  esac
 }
 
 case "${1:-status}" in
@@ -298,6 +365,7 @@ case "${1:-status}" in
   url)     shift; cmd_url "$@" ;;
   enable)  shift; cmd_enable "$@" ;;
   disable) shift; cmd_disable "$@" ;;
+  auto-update) shift; cmd_auto_update "$@" ;;
   -h|--help|help) cmd_help ;;
   *) echo "Unknown command: $1"; cmd_help; exit 1 ;;
 esac
