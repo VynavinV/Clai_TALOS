@@ -650,6 +650,22 @@ async def probe_email_tool() -> ProbeOutcome:
     return ok("The email tool lists folders through the agent's own dispatch path.")
 
 
+async def probe_whatsapp() -> ProbeOutcome:
+    import whatsapp_bot
+
+    if not whatsapp_bot.is_configured():
+        return skip("Skipped — WhatsApp is not configured.")
+
+    # Verify API credentials by checking token format
+    if not whatsapp_bot.WHATSAPP_TOKEN.startswith("EA"):
+        return fail("WhatsApp token appears invalid (should start with 'EA').")
+
+    if not whatsapp_bot.WHATSAPP_PHONE_NUMBER_ID:
+        return fail("WhatsApp phone number ID is missing.")
+
+    return ok("WhatsApp Cloud API is configured and ready.")
+
+
 async def probe_google_tool() -> ProbeOutcome:
     import google_integration
 
@@ -692,6 +708,7 @@ PROBES: list[tuple[str, str, str, Any]] = [
     ("tool.guide",       "Tool guides",               "tools",        probe_tool_guide),
     ("tool.email",       "Email tool",                "email",        probe_email_tool),
     ("tool.google",      "Google Workspace tool",     "integrations", probe_google_tool),
+    ("tool.whatsapp",    "WhatsApp messaging",        "messaging",    probe_whatsapp),
 ]
 
 

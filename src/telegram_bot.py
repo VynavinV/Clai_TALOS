@@ -42,6 +42,7 @@ import ota_update
 import email_tools
 import diagnostics
 import claistore
+import whatsapp_bot
 from auth_policy import MIN_DASHBOARD_PASSWORD_LENGTH, validate_dashboard_password
 
 SCRIPT_DIR = app_paths.resource_root()
@@ -2580,6 +2581,33 @@ async def handle_api_onboarding_google(request):
     return web.json_response({"ok": True})
 
 
+@require_auth_csrf
+async def handle_api_onboarding_whatsapp(request):
+    """Save WhatsApp Cloud API credentials during onboarding."""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid request."}, status=400)
+
+    token = str(body.get("token", "")).strip()
+    phone_number_id = str(body.get("phone_number_id", "")).strip()
+    verify_token = str(body.get("verify_token", "")).strip()
+
+    if not token or not phone_number_id or not verify_token:
+        return web.json_response({"error": "All three WhatsApp fields are required."}, status=400)
+
+    env_vars = _read_env_file()
+    env_vars["WHATSAPP_TOKEN"] = token
+    env_vars["WHATSAPP_PHONE_NUMBER_ID"] = phone_number_id
+    env_vars["WHATSAPP_VERIFY_TOKEN"] = verify_token
+    env_vars["WHATSAPP_ENABLED"] = "true"
+
+    _write_env_file(env_vars)
+
+    load_dotenv(dotenv_path=ENV_FILE, override=True)
+    return web.json_response({"ok": True})
+
+
 def _serve_auth_page(request, template_name: str):
     """Serve an authenticated HTML page with a fresh CSRF token."""
     csrf = generate_csrf()
@@ -4209,6 +4237,7 @@ async def main():
     web_app.router.add_post("/api/onboarding/gemini", handle_api_onboarding_gemini)
     web_app.router.add_post("/api/onboarding/email", handle_api_onboarding_email)
     web_app.router.add_post("/api/onboarding/google", handle_api_onboarding_google)
+    web_app.router.add_post("/api/onboarding/whatsapp", handle_api_onboarding_whatsapp)
     web_app.router.add_get("/dashboard", handle_dashboard)
     web_app.router.add_get("/activity", handle_activity)
     web_app.router.add_get("/keys", handle_keys)
@@ -4264,6 +4293,7 @@ async def main():
     web_app.router.add_post("/api/restart", handle_api_restart)
     web_app.router.add_static("/static", STATIC_DIR)
     gateway.setup_routes(web_app, auth_decorator=require_auth)
+    whatsapp_bot.setup_routes(web_app)
 
     runner = web.AppRunner(web_app)
     await runner.setup()
@@ -4326,6 +4356,11 @@ async def main():
     else:
         print("No Telegram token configured. Running web-only mode.")
         print("Complete onboarding at the dashboard to connect Telegram.")
+
+    if whatsapp_bot.is_configured():
+        print("WhatsApp bot online (Cloud API webhook).")
+    else:
+        print("WhatsApp not configured. Set WHATSAPP_TOKEN/WHATSAPP_PHONE_NUMBER_ID/WHATSAPP_VERIFY_TOKEN/WHATSAPP_ENABLED to enable.")
 
     cron_task = asyncio.create_task(cron_jobs.cron_loop(cron_stop))
     auth_maintenance_task = asyncio.create_task(
