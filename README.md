@@ -564,7 +564,7 @@ Main pages:
 - `/dashboard`
 - Primary control panel and status view.
 - `/panel`
-- Always-on panel for tablets (system checks, live agents, scheduled tasks, model output, and Home Assistant controls). Works on old iPads (iOS 12 Safari); use Safari's "Add to Home Screen" to run it like an app.
+- Always-on panel for tablets (system resources with configurable tiles, system checks, live agents, scheduled tasks, model output, and Home Assistant controls). Works on old iPads (iOS 12 Safari); use Safari's "Add to Home Screen" to run it like an app.
 - `/keys`
 - API key management UI.
 - `/settings`
@@ -630,6 +630,7 @@ Main pages:
 |--------|-------|---------|
 | GET | `/panel` | Always-on tablet panel page |
 | GET | `/api/tasks` | List scheduled tasks (cron jobs) |
+| GET | `/api/system` | System resources: CPU, memory, temps, GPUs, and per-disk storage |
 | GET | `/api/activity/history` | Recent activity events |
 | GET | `/api/activity/stream` | Live activity events (SSE) |
 | GET | `/api/homeassistant/status` | Home Assistant connection check |

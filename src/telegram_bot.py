@@ -42,6 +42,7 @@ import ota_update
 import email_tools
 import diagnostics
 import claistore
+import system_stats
 from auth_policy import MIN_DASHBOARD_PASSWORD_LENGTH, validate_dashboard_password
 
 SCRIPT_DIR = app_paths.resource_root()
@@ -2878,6 +2879,13 @@ async def handle_status(request):
 
 
 @require_auth
+async def handle_api_system(request):
+    loop = asyncio.get_running_loop()
+    data = await loop.run_in_executor(None, system_stats.snapshot)
+    return web.json_response(data)
+
+
+@require_auth
 async def handle_settings(request):
     return _serve_auth_page(request, "settings.html")
 
@@ -4226,6 +4234,7 @@ async def main():
     web_app.router.add_post("/login", handle_login)
     web_app.router.add_post("/logout", handle_logout)
     web_app.router.add_get("/api/status", handle_status)
+    web_app.router.add_get("/api/system", handle_api_system)
     web_app.router.add_get("/api/csrf", handle_api_csrf)
     web_app.router.add_get("/api/keys", handle_api_keys_get)
     web_app.router.add_post("/api/keys", handle_api_keys_post)
