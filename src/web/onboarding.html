@@ -1484,7 +1484,7 @@ async function saveWhatsApp() {
       token: token, phone_number_id: phoneId, verify_token: verifyToken
     });
     var data = await res.json();
-    if (data.ok) goStep(8);
+    if (data.ok) goStep(7);
     else err.textContent = data.error || 'Could not save WhatsApp settings.';
   } catch (e) { err.textContent = 'Connection problem. Please try again.'; }
 }
@@ -1502,7 +1502,7 @@ async function saveDiscord() {
       token: token, application_id: appId
     });
     var data = await res.json();
-    if (data.ok) goStep(9);
+    if (data.ok) goStep(8);
     else err.textContent = data.error || 'Could not save Discord settings.';
   } catch (e) { err.textContent = 'Connection problem. Please try again.'; }
 }
