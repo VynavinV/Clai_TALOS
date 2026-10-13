@@ -579,8 +579,35 @@
     </div>
   </div>
 
-  <!-- Step 7: Done! -->
+  <!-- Step 7: Optional - Discord -->
   <div class="step" data-step="7">
+    <h2>Step 7: Discord (Optional)</h2>
+    <p class="desc">Connect Discord so you can message your assistant from a Discord server.</p>
+    <div class="info-box">
+      <ol>
+        <li>Go to <a href="https://discord.com/developers/applications" target="_blank">Discord Developer Portal</a> and create a new application</li>
+        <li>Go to <strong>Bot</strong> and click <strong>Add Bot</strong></li>
+        <li>Copy the <strong>Token</strong> and <strong>Application ID</strong></li>
+        <li>Enable the <strong>MESSAGE CONTENT</strong> intent in Bot settings</li>
+      </ol>
+    </div>
+    <div class="field">
+      <label>Bot Token</label>
+      <input type="password" id="discord-token" placeholder="MTIz..." autocomplete="off">
+    </div>
+    <div class="field">
+      <label>Application ID</label>
+      <input type="text" id="discord-application-id" placeholder="123456789012345678" autocomplete="off">
+    </div>
+    <div class="error" id="err-discord"></div>
+    <div class="btn-row">
+      <button class="btn btn-skip" onclick="goStep(8)">Skip for now</button>
+      <button class="btn btn-primary" onclick="saveDiscord()">Save & Continue</button>
+    </div>
+  </div>
+
+  <!-- Step 8: Done! -->
+  <div class="step" data-step="8">
     <div class="finish-wrap">
       <div class="finish-check">&#10003;</div>
       <h2>All set. You did it!</h2>
@@ -596,7 +623,7 @@
 </div>
 
 <script>
-var TOTAL_STEPS = 8;
+var TOTAL_STEPS = 9;
 var currentStep = 0;
 var selectedProvider = '';
 var _csrfToken = document.querySelector('meta[name="csrf-token"]') ? document.querySelector('meta[name="csrf-token"]').getAttribute('content') : '';
@@ -1457,8 +1484,26 @@ async function saveWhatsApp() {
       token: token, phone_number_id: phoneId, verify_token: verifyToken
     });
     var data = await res.json();
-    if (data.ok) goStep(7);
+    if (data.ok) goStep(8);
     else err.textContent = data.error || 'Could not save WhatsApp settings.';
+  } catch (e) { err.textContent = 'Connection problem. Please try again.'; }
+}
+
+async function saveDiscord() {
+  var token = document.getElementById('discord-token').value.trim();
+  var appId = document.getElementById('discord-application-id').value.trim();
+  var err = document.getElementById('err-discord');
+  err.textContent = '';
+
+  if (!token || !appId) { err.textContent = 'Both fields are required.'; return; }
+
+  try {
+    var res = await _post('/api/onboarding/discord', {
+      token: token, application_id: appId
+    });
+    var data = await res.json();
+    if (data.ok) goStep(9);
+    else err.textContent = data.error || 'Could not save Discord settings.';
   } catch (e) { err.textContent = 'Connection problem. Please try again.'; }
 }
 

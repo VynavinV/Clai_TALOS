@@ -43,6 +43,7 @@ import email_tools
 import diagnostics
 import claistore
 import whatsapp_bot
+import discord_bot
 from auth_policy import MIN_DASHBOARD_PASSWORD_LENGTH, validate_dashboard_password
 
 SCRIPT_DIR = app_paths.resource_root()
@@ -2608,6 +2609,30 @@ async def handle_api_onboarding_whatsapp(request):
     return web.json_response({"ok": True})
 
 
+async def handle_api_onboarding_discord(request):
+    """Save Discord bot credentials during onboarding."""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid request."}, status=400)
+
+    token = str(body.get("token", "")).strip()
+    application_id = str(body.get("application_id", "")).strip()
+
+    if not token or not application_id:
+        return web.json_response({"error": "Both Discord fields are required."}, status=400)
+
+    env_vars = _read_env_file()
+    env_vars["DISCORD_TOKEN"] = token
+    env_vars["DISCORD_APPLICATION_ID"] = application_id
+    env_vars["DISCORD_ENABLED"] = "true"
+
+    _write_env_file(env_vars)
+
+    load_dotenv(dotenv_path=ENV_FILE, override=True)
+    return web.json_response({"ok": True})
+
+
 def _serve_auth_page(request, template_name: str):
     """Serve an authenticated HTML page with a fresh CSRF token."""
     csrf = generate_csrf()
@@ -2972,6 +2997,9 @@ async def handle_api_settings_get(request):
         "WHATSAPP_PHONE_NUMBER_ID": env_vars.get("WHATSAPP_PHONE_NUMBER_ID", ""),
         "WHATSAPP_VERIFY_TOKEN": env_vars.get("WHATSAPP_VERIFY_TOKEN", ""),
         "WHATSAPP_ENABLED": env_vars.get("WHATSAPP_ENABLED", "0"),
+        "DISCORD_TOKEN": env_vars.get("DISCORD_TOKEN", ""),
+        "DISCORD_APPLICATION_ID": env_vars.get("DISCORD_APPLICATION_ID", ""),
+        "DISCORD_ENABLED": env_vars.get("DISCORD_ENABLED", "0"),
         "PIPER_VOICE": env_vars.get("PIPER_VOICE", "en_US-lessac-medium"),
         "CLIENT_BASE_URL": env_vars.get("CLIENT_BASE_URL", "https://api.z.ai/api/coding/paas/v4"),
         "NVIDIA_BASE_URL": env_vars.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
@@ -3172,6 +3200,7 @@ async def handle_api_settings_post(request):
         "GOOGLE_OAUTH_REDIRECT_URI", "GOOGLE_APPS_SCRIPT_URL", "GOOGLE_OAUTH_SCOPES",
         "HIMALAYA_BIN", "HIMALAYA_CONFIG", "HIMALAYA_DEFAULT_ACCOUNT",
         "WHATSAPP_TOKEN", "WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_VERIFY_TOKEN",
+        "DISCORD_TOKEN", "DISCORD_APPLICATION_ID",
         "PIPER_VOICE", "CLIENT_BASE_URL", "NVIDIA_BASE_URL", "CEREBRAS_BASE_URL", "GROQ_BASE_URL", "QWEN_BASE_URL", "OPENROUTER_BASE_URL", "MISTRAL_BASE_URL", "OLLAMA_BASE_URL", "OTHER_BASE_URL", "OLLAMA_MODEL",
         "OLLAMA_NUM_CTX", "OLLAMA_TEMPERATURE", "OLLAMA_MAX_TOKENS", "OLLAMA_KEEP_ALIVE", "OLLAMA_KEEP_WARM", "OLLAMA_TIMEOUT_S",
         "OTHER_TIMEOUT_S",
@@ -3182,7 +3211,7 @@ async def handle_api_settings_post(request):
     ]
 
     # On/off switches, stored as "1"/"0" so they survive the flat .env format.
-    _BOOL_KEYS = ["HOMEASSISTANT_ENABLED", "WHATSAPP_ENABLED", "TALOS_STUCK_ENABLED", "ORCHESTRATOR_TIMEOUT_ENABLED", "TALOS_PROGRESS_ENABLED"]
+    _BOOL_KEYS = ["HOMEASSISTANT_ENABLED", "WHATSAPP_ENABLED", "DISCORD_ENABLED", "TALOS_STUCK_ENABLED", "ORCHESTRATOR_TIMEOUT_ENABLED", "TALOS_PROGRESS_ENABLED"]
 
     for key in _BOOL_KEYS:
         if key in body:
@@ -4243,6 +4272,7 @@ async def main():
     web_app.router.add_post("/api/onboarding/email", handle_api_onboarding_email)
     web_app.router.add_post("/api/onboarding/google", handle_api_onboarding_google)
     web_app.router.add_post("/api/onboarding/whatsapp", handle_api_onboarding_whatsapp)
+    web_app.router.add_post("/api/onboarding/discord", handle_api_onboarding_discord)
     web_app.router.add_get("/dashboard", handle_dashboard)
     web_app.router.add_get("/activity", handle_activity)
     web_app.router.add_get("/keys", handle_keys)
@@ -4299,6 +4329,7 @@ async def main():
     web_app.router.add_static("/static", STATIC_DIR)
     gateway.setup_routes(web_app, auth_decorator=require_auth)
     whatsapp_bot.setup_routes(web_app)
+    discord_bot.start_gateway()
 
     runner = web.AppRunner(web_app)
     await runner.setup()
@@ -4366,6 +4397,11 @@ async def main():
         print("WhatsApp bot online (Cloud API webhook).")
     else:
         print("WhatsApp not configured. Set WHATSAPP_TOKEN/WHATSAPP_PHONE_NUMBER_ID/WHATSAPP_VERIFY_TOKEN/WHATSAPP_ENABLED to enable.")
+
+    if discord_bot.is_configured():
+        print("Discord bot online (Gateway WebSocket).")
+    else:
+        print("Discord not configured. Set DISCORD_TOKEN/DISCORD_APPLICATION_ID/DISCORD_ENABLED to enable.")
 
     cron_task = asyncio.create_task(cron_jobs.cron_loop(cron_stop))
     auth_maintenance_task = asyncio.create_task(

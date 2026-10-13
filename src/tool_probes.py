@@ -666,6 +666,21 @@ async def probe_whatsapp() -> ProbeOutcome:
     return ok("WhatsApp Cloud API is configured and ready.")
 
 
+async def probe_discord() -> ProbeOutcome:
+    import discord_bot
+
+    if not discord_bot.is_configured():
+        return skip("Skipped — Discord is not configured.")
+
+    if not discord_bot.DISCORD_TOKEN:
+        return fail("Discord bot token is missing.")
+
+    if not discord_bot.DISCORD_APPLICATION_ID:
+        return fail("Discord application ID is missing.")
+
+    return ok("Discord bot is configured and ready.")
+
+
 async def probe_google_tool() -> ProbeOutcome:
     import google_integration
 
@@ -709,6 +724,7 @@ PROBES: list[tuple[str, str, str, Any]] = [
     ("tool.email",       "Email tool",                "email",        probe_email_tool),
     ("tool.google",      "Google Workspace tool",     "integrations", probe_google_tool),
     ("tool.whatsapp",    "WhatsApp messaging",        "messaging",    probe_whatsapp),
+    ("tool.discord",     "Discord messaging",          "messaging",    probe_discord),
 ]
 
 

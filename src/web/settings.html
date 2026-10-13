@@ -342,6 +342,24 @@
   </div>
 
   <div class="section">
+    <div class="section-title">Discord Bot</div>
+    <div class="form-hint" style="margin-bottom:0.8rem;">
+      Connect Discord so you can message your assistant from a Discord server. Create a bot at <a href="https://discord.com/developers/applications" target="_blank">Discord Developer Portal</a>.
+    </div>
+    <div class="form-group">
+      <label>
+        <input type="checkbox" id="discord-enabled" onchange="toggleDiscordFields()"> Enable Discord
+      </label>
+    </div>
+    <div id="discord-config-area" style="display:none;">
+      <div class="form-group"><label>Bot Token</label><input type="password" id="discord-token" placeholder="MTIz..." autocomplete="off"></div>
+      <div class="form-group"><label>Application ID</label><input type="text" id="discord-application-id" placeholder="123456789012345678" autocomplete="off"></div>
+      <div class="form-hint">Enable the MESSAGE CONTENT intent in the Bot settings.</div>
+    </div>
+    <div class="status-line" id="discord-status"></div>
+  </div>
+
+  <div class="section">
     <div class="section-title">Over-the-Air Updates</div>
     <div class="form-group">
       <label>Update Channel</label>
@@ -1260,6 +1278,10 @@ async function loadSettings() {
     document.getElementById('whatsapp-phone-id').value = d.WHATSAPP_PHONE_NUMBER_ID || '';
     document.getElementById('whatsapp-verify-token').value = d.WHATSAPP_VERIFY_TOKEN || '';
     toggleWhatsAppFields();
+    document.getElementById('discord-enabled').checked = (d.DISCORD_ENABLED || '0') === '1';
+    document.getElementById('discord-token').value = d.DISCORD_TOKEN || '';
+    document.getElementById('discord-application-id').value = d.DISCORD_APPLICATION_ID || '';
+    toggleDiscordFields();
     document.getElementById('max-tool-rounds').value = d.MAX_TOOL_ROUNDS || '40';
     document.getElementById('max-tool-calls-per-round').value = d.MAX_TOOL_CALLS_PER_ROUND || '30';
     document.getElementById('max-command-timeout').value = d.MAX_COMMAND_TIMEOUT || '300';
@@ -1830,6 +1852,9 @@ async function saveSettings() {
     WHATSAPP_TOKEN: document.getElementById('whatsapp-token').value.trim(),
     WHATSAPP_PHONE_NUMBER_ID: document.getElementById('whatsapp-phone-id').value.trim(),
     WHATSAPP_VERIFY_TOKEN: document.getElementById('whatsapp-verify-token').value.trim(),
+    DISCORD_ENABLED: document.getElementById('discord-enabled').checked ? '1' : '0',
+    DISCORD_TOKEN: document.getElementById('discord-token').value.trim(),
+    DISCORD_APPLICATION_ID: document.getElementById('discord-application-id').value.trim(),
     CLIENT_BASE_URL: (document.getElementById('client-base-url') || {}).value || _baseUrlValues.zhipu || '',
     NVIDIA_BASE_URL: (document.getElementById('nvidia-base-url') || {}).value || _baseUrlValues.nvidia || '',
     CEREBRAS_BASE_URL: (document.getElementById('cerebras-base-url') || {}).value || _baseUrlValues.cerebras || '',
@@ -2029,6 +2054,11 @@ function toggleEmailReconfigure() {
 function toggleWhatsAppFields() {
   var enabled = document.getElementById('whatsapp-enabled').checked;
   document.getElementById('whatsapp-config-area').style.display = enabled ? 'block' : 'none';
+}
+
+function toggleDiscordFields() {
+  var enabled = document.getElementById('discord-enabled').checked;
+  document.getElementById('discord-config-area').style.display = enabled ? 'block' : 'none';
 }
 
 async function reconfigureEmail() {
