@@ -323,6 +323,25 @@
   </div>
 
   <div class="section">
+    <div class="section-title">WhatsApp Cloud API</div>
+    <div class="form-hint" style="margin-bottom:0.8rem;">
+      Connect WhatsApp so you can message your assistant from there too. Get credentials from <a href="https://developers.facebook.com/apps/" target="_blank">Meta for Developers</a>.
+    </div>
+    <div class="form-group">
+      <label>
+        <input type="checkbox" id="whatsapp-enabled" onchange="toggleWhatsAppFields()"> Enable WhatsApp
+      </label>
+    </div>
+    <div id="whatsapp-config-area" style="display:none;">
+      <div class="form-group"><label>Access Token</label><input type="password" id="whatsapp-token" placeholder="EAAG..." autocomplete="off"></div>
+      <div class="form-group"><label>Phone Number ID</label><input type="text" id="whatsapp-phone-id" placeholder="1234567890" autocomplete="off"></div>
+      <div class="form-group"><label>Webhook Verify Token</label><input type="password" id="whatsapp-verify-token" placeholder="your-secret-token" autocomplete="off"></div>
+      <div class="form-hint">Set the webhook URL to: <code>YOUR_SERVER/whatsapp/webhook</code></div>
+    </div>
+    <div class="status-line" id="whatsapp-status"></div>
+  </div>
+
+  <div class="section">
     <div class="section-title">Over-the-Air Updates</div>
     <div class="form-group">
       <label>Update Channel</label>
@@ -1236,6 +1255,11 @@ async function loadSettings() {
     document.getElementById('himalaya-bin').value = d.HIMALAYA_BIN || '';
     document.getElementById('himalaya-config').value = d.HIMALAYA_CONFIG || '';
     document.getElementById('himalaya-default-account').value = d.HIMALAYA_DEFAULT_ACCOUNT || '';
+    document.getElementById('whatsapp-enabled').checked = (d.WHATSAPP_ENABLED || '0') === '1';
+    document.getElementById('whatsapp-token').value = d.WHATSAPP_TOKEN || '';
+    document.getElementById('whatsapp-phone-id').value = d.WHATSAPP_PHONE_NUMBER_ID || '';
+    document.getElementById('whatsapp-verify-token').value = d.WHATSAPP_VERIFY_TOKEN || '';
+    toggleWhatsAppFields();
     document.getElementById('max-tool-rounds').value = d.MAX_TOOL_ROUNDS || '40';
     document.getElementById('max-tool-calls-per-round').value = d.MAX_TOOL_CALLS_PER_ROUND || '30';
     document.getElementById('max-command-timeout').value = d.MAX_COMMAND_TIMEOUT || '300';
@@ -1802,6 +1826,10 @@ async function saveSettings() {
     HIMALAYA_BIN: document.getElementById('himalaya-bin').value.trim(),
     HIMALAYA_CONFIG: document.getElementById('himalaya-config').value.trim(),
     HIMALAYA_DEFAULT_ACCOUNT: document.getElementById('himalaya-default-account').value.trim(),
+    WHATSAPP_ENABLED: document.getElementById('whatsapp-enabled').checked ? '1' : '0',
+    WHATSAPP_TOKEN: document.getElementById('whatsapp-token').value.trim(),
+    WHATSAPP_PHONE_NUMBER_ID: document.getElementById('whatsapp-phone-id').value.trim(),
+    WHATSAPP_VERIFY_TOKEN: document.getElementById('whatsapp-verify-token').value.trim(),
     CLIENT_BASE_URL: (document.getElementById('client-base-url') || {}).value || _baseUrlValues.zhipu || '',
     NVIDIA_BASE_URL: (document.getElementById('nvidia-base-url') || {}).value || _baseUrlValues.nvidia || '',
     CEREBRAS_BASE_URL: (document.getElementById('cerebras-base-url') || {}).value || _baseUrlValues.cerebras || '',
@@ -1996,6 +2024,11 @@ async function restartBot() {
 function toggleEmailReconfigure() {
   var area = document.getElementById('email-reconfigure-area');
   area.style.display = area.style.display === 'none' ? 'block' : 'none';
+}
+
+function toggleWhatsAppFields() {
+  var enabled = document.getElementById('whatsapp-enabled').checked;
+  document.getElementById('whatsapp-config-area').style.display = enabled ? 'block' : 'none';
 }
 
 async function reconfigureEmail() {
