@@ -3154,6 +3154,102 @@ async def handle_api_updates_check(request):
     return web.json_response(status, status=http_status)
 
 
+@require_auth
+async def handle_api_auto_update(request):
+    """GET/POST for the daily auto-update toggle (crontab + config flag)."""
+    from pathlib import Path
+    import shutil, subprocess
+
+    config_path = Path(os.environ.get("CLAI_CONFIG", Path.home() / ".config" / "clai-talos" / "env"))
+    cron_marker = "# clai-talos-auto-update"
+
+    def _read_config() -> dict:
+        cfg = {}
+        if config_path.is_file():
+            for line in config_path.read_text().splitlines():
+                line = line.strip()
+                if "=" in line and not line.startswith("#"):
+                    k, v = line.split("=", 1)
+                    cfg[k.strip()] = v.strip()
+        return cfg
+
+    def _write_config(cfg: dict) -> None:
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        lines = []
+        seen = set()
+        if config_path.is_file():
+            for line in config_path.read_text().splitlines():
+                stripped = line.strip()
+                if "=" in stripped and not stripped.startswith("#"):
+                    k = stripped.split("=", 1)[0].strip()
+                    if k in cfg:
+                        lines.append(f"{k}={cfg[k]}")
+                        seen.add(k)
+                        continue
+                lines.append(line)
+        for k, v in cfg.items():
+            if k not in seen:
+                lines.append(f"{k}={v}")
+        config_path.write_text("\n".join(lines) + "\n")
+
+    def _cron_has_entry() -> bool:
+        try:
+            out = subprocess.check_output(["crontab", "-l"], stderr=subprocess.DEVNULL, text=True)
+            return cron_marker in out
+        except Exception:
+            return False
+
+    def _set_cron(enable: bool, script_path: str) -> bool:
+        try:
+            existing = subprocess.check_output(["crontab", "-l"], stderr=subprocess.DEVNULL, text=True)
+        except Exception:
+            existing = ""
+        lines = [l for l in existing.splitlines() if cron_marker not in l]
+        if enable:
+            lines.append(f"0 1 * * * {script_path} {cron_marker}")
+        new_cron = "\n".join(lines) + "\n" if lines else ""
+        proc = subprocess.run(["crontab", "-"], input=new_cron, text=True, capture_output=True)
+        return proc.returncode == 0
+
+    if request.method == "GET":
+        cfg = _read_config()
+        enabled = cfg.get("AUTO_UPDATE", "false").lower() == "true"
+        install_dir = cfg.get("INSTALL_DIR", "")
+        script = str(Path(install_dir) / "scripts" / "auto_update.sh") if install_dir else ""
+        return web.json_response({
+            "ok": True,
+            "enabled": enabled,
+            "cron_active": _cron_has_entry(),
+            "script": script,
+            "config_path": str(config_path),
+        })
+
+    # POST
+    try:
+        body = request._json_body if isinstance(request._json_body, dict) else {}
+    except Exception:
+        return web.json_response({"ok": False, "error": "Invalid request."}, status=400)
+
+    enable = str(body.get("enabled", "")).strip().lower() in ("1", "true", "on", "yes")
+    cfg = _read_config()
+    cfg["AUTO_UPDATE"] = "true" if enable else "false"
+    _write_config(cfg)
+
+    install_dir = cfg.get("INSTALL_DIR", "")
+    script = str(Path(install_dir) / "scripts" / "auto_update.sh") if install_dir else ""
+
+    if enable and script and Path(script).is_file():
+        _set_cron(True, script)
+    elif not enable:
+        _set_cron(False, "")
+
+    return web.json_response({
+        "ok": True,
+        "enabled": enable,
+        "cron_active": _cron_has_entry(),
+    })
+
+
 @require_auth_csrf
 async def handle_api_updates_apply(request):
     body = request._json_body if isinstance(request._json_body, dict) else {}
@@ -4305,6 +4401,8 @@ async def main():
     web_app.router.add_get("/api/settings", handle_api_settings_get)
     web_app.router.add_post("/api/settings", handle_api_settings_post)
     web_app.router.add_get("/api/updates/check", handle_api_updates_check)
+    web_app.router.add_get("/api/updates/auto-update", handle_api_auto_update)
+    web_app.router.add_post("/api/updates/auto-update", handle_api_auto_update)
     web_app.router.add_post("/api/updates/apply", handle_api_updates_apply)
     web_app.router.add_post("/api/updates/rollback", handle_api_updates_rollback)
     web_app.router.add_get("/api/context-usage", handle_api_context_usage)

@@ -32,6 +32,7 @@ PY="$SRC_DIR/venv/bin/python"
 ok()   { echo -e "${GREEN}✓${RESET} $1"; }
 bad()  { echo -e "${RED}✗${RESET} $1"; }
 warn() { echo -e "${YELLOW}!${RESET} $1"; }
+info() { echo -e "${DIM}  $1${RESET}"; }
 
 need_install_dir() {
   if [[ -z "$INSTALL_DIR" || ! -d "$SRC_DIR" ]]; then

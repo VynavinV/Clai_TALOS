@@ -281,28 +281,30 @@
       <a href="/panel" style="color:#63b3ed;">Panel page</a> (great for an always-on tablet).
     </div>
     <div class="toggle-row">
-      <input type="checkbox" id="ha-enabled">
+      <input type="checkbox" id="ha-enabled" onchange="toggleHomeAssistantFields()">
       <div class="toggle-label"><strong>Use Home Assistant</strong>
         <div class="toggle-sub">Turn off to hide the smart home controls without losing your settings.</div>
       </div>
     </div>
-    <div class="form-group">
-      <label>Home Assistant Address</label>
-      <input type="text" id="ha-url" placeholder="http://homeassistant.local:8123" inputmode="url" autocapitalize="off">
-      <div class="form-hint">Open Home Assistant and copy the address from the top bar of your browser. Usually <code>http://homeassistant.local:8123</code>.</div>
-    </div>
-    <div class="form-group">
-      <label>Access Token</label>
-      <input type="password" id="ha-token" placeholder="Paste your long-lived access token" autocomplete="off">
-      <div class="form-hint">
-        In Home Assistant: tap your profile picture (bottom left) &rarr; <strong>Security</strong> &rarr; <strong>Long-lived access tokens</strong> &rarr; <strong>Create Token</strong>.
-        Step-by-step with pictures: <a href="https://www.home-assistant.io/docs/authentication/#long-lived-access-token" target="_blank" style="color:#63b3ed;">home-assistant.io guide</a>.
+    <div id="ha-config-area">
+      <div class="form-group">
+        <label>Home Assistant Address</label>
+        <input type="text" id="ha-url" placeholder="http://homeassistant.local:8123" inputmode="url" autocapitalize="off">
+        <div class="form-hint">Open Home Assistant and copy the address from the top bar of your browser. Usually <code>http://homeassistant.local:8123</code>.</div>
       </div>
+      <div class="form-group">
+        <label>Access Token</label>
+        <input type="password" id="ha-token" placeholder="Paste your long-lived access token" autocomplete="off">
+        <div class="form-hint">
+          In Home Assistant: tap your profile picture (bottom left) &rarr; <strong>Security</strong> &rarr; <strong>Long-lived access tokens</strong> &rarr; <strong>Create Token</strong>.
+          Step-by-step with pictures: <a href="https://www.home-assistant.io/docs/authentication/#long-lived-access-token" target="_blank" style="color:#63b3ed;">home-assistant.io guide</a>.
+        </div>
+      </div>
+      <div class="google-actions">
+        <button class="btn" id="ha-test-btn" onclick="testHomeAssistant()">Check Connection</button>
+      </div>
+      <div class="status-line" id="ha-connection-status"></div>
     </div>
-    <div class="google-actions">
-      <button class="btn" id="ha-test-btn" onclick="testHomeAssistant()">Check Connection</button>
-    </div>
-    <div class="status-line" id="ha-connection-status"></div>
   </div>
 
   <div class="section">
@@ -327,10 +329,11 @@
     <div class="form-hint" style="margin-bottom:0.8rem;">
       Connect WhatsApp so you can message your assistant from there too. Get credentials from <a href="https://developers.facebook.com/apps/" target="_blank">Meta for Developers</a>.
     </div>
-    <div class="form-group">
-      <label>
-        <input type="checkbox" id="whatsapp-enabled" onchange="toggleWhatsAppFields()"> Enable WhatsApp
-      </label>
+    <div class="toggle-row">
+      <input type="checkbox" id="whatsapp-enabled" onchange="toggleWhatsAppFields()">
+      <div class="toggle-label"><strong>Enable WhatsApp</strong>
+        <div class="toggle-sub">Turn off to hide WhatsApp without losing your settings.</div>
+      </div>
     </div>
     <div id="whatsapp-config-area" style="display:none;">
       <div class="form-group"><label>Access Token</label><input type="password" id="whatsapp-token" placeholder="EAAG..." autocomplete="off"></div>
@@ -346,10 +349,11 @@
     <div class="form-hint" style="margin-bottom:0.8rem;">
       Connect Discord so you can message your assistant from a Discord server. Create a bot at <a href="https://discord.com/developers/applications" target="_blank">Discord Developer Portal</a>.
     </div>
-    <div class="form-group">
-      <label>
-        <input type="checkbox" id="discord-enabled" onchange="toggleDiscordFields()"> Enable Discord
-      </label>
+    <div class="toggle-row">
+      <input type="checkbox" id="discord-enabled" onchange="toggleDiscordFields()">
+      <div class="toggle-label"><strong>Enable Discord</strong>
+        <div class="toggle-sub">Turn off to hide Discord without losing your settings.</div>
+      </div>
     </div>
     <div id="discord-config-area" style="display:none;">
       <div class="form-group"><label>Bot Token</label><input type="password" id="discord-token" placeholder="MTIz..." autocomplete="off"></div>
@@ -361,6 +365,13 @@
 
   <div class="section">
     <div class="section-title">Over-the-Air Updates</div>
+    <div class="toggle-row">
+      <input type="checkbox" id="ota-auto-update" onchange="toggleAutoUpdate()">
+      <div class="toggle-label"><strong>Auto-Update</strong>
+        <div class="toggle-sub">Check for updates daily at 1 AM and apply them automatically. A backup is created so you can roll back if anything goes wrong.</div>
+      </div>
+    </div>
+    <div class="status-line" id="ota-auto-update-status"></div>
     <div class="form-group">
       <label>Update Channel</label>
       <select id="ota-channel" onchange="checkOtaUpdates(false)">
@@ -1296,6 +1307,7 @@ async function loadSettings() {
     document.getElementById('ha-url').value = d.HOMEASSISTANT_URL || '';
     document.getElementById('ha-token').value = d.HOMEASSISTANT_TOKEN || '';
     document.getElementById('ha-enabled').checked = (d.HOMEASSISTANT_ENABLED || '1') !== '0';
+    toggleHomeAssistantFields();
     document.getElementById('stuck-enabled').checked = (d.TALOS_STUCK_ENABLED || '1') !== '0';
     document.getElementById('stuck-threshold').value = d.TALOS_STUCK_THRESHOLD_S || '90';
     document.getElementById('stuck-interval').value = d.TALOS_STUCK_CHECK_INTERVAL_S || '10';
@@ -1406,6 +1418,7 @@ async function loadSettings() {
     updateStatus('google-api', d.GOOGLE_API_KEY);
     await loadGoogleStatus();
     await checkOtaUpdates(false);
+    await loadAutoUpdateState();
     // Load Claistore settings
     document.getElementById('claistore-repo').value = d.CLAISTORE_GITHUB_REPO || '';
     document.getElementById('claistore-token').value = d.CLAISTORE_GITHUB_TOKEN || '';
@@ -1614,6 +1627,58 @@ function renderOtaStatus(data) {
   hintEl.textContent = (data.apply_message || '');
   statusEl.textContent = data.message || '';
   applyBtn.disabled = !(data.ok && data.update_available && data.can_apply);
+}
+
+async function loadAutoUpdateState() {
+  try {
+    var res = await fetch('/api/updates/auto-update');
+    if (res.status === 401) { window.location.href = '/'; return; }
+    var d = await res.json();
+    var cb = document.getElementById('ota-auto-update');
+    var statusEl = document.getElementById('ota-auto-update-status');
+    if (cb) cb.checked = !!d.enabled;
+    if (statusEl) {
+      if (d.enabled && d.cron_active) {
+        statusEl.textContent = 'Scheduled daily at 1:00 AM.';
+        statusEl.style.color = '#68d391';
+      } else if (d.enabled) {
+        statusEl.textContent = 'Enabled, but cron entry is missing — toggle off and on to fix.';
+        statusEl.style.color = '#f6ad55';
+      } else {
+        statusEl.textContent = 'Disabled.';
+        statusEl.style.color = '';
+      }
+    }
+  } catch (e) {}
+}
+
+async function toggleAutoUpdate() {
+  var cb = document.getElementById('ota-auto-update');
+  var statusEl = document.getElementById('ota-auto-update-status');
+  if (!cb) return;
+  var enable = cb.checked;
+  try {
+    var csrf = document.querySelector('meta[name="csrf-token"]');
+    var res = await fetch('/api/updates/auto-update', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrf ? csrf.content : ''},
+      body: JSON.stringify({enabled: enable})
+    });
+    if (res.status === 401) { window.location.href = '/'; return; }
+    var d = await res.json();
+    if (d.ok) {
+      if (statusEl) {
+        statusEl.textContent = enable ? 'Auto-update enabled — checks daily at 1 AM.' : 'Auto-update disabled.';
+        statusEl.style.color = enable ? '#68d391' : '';
+      }
+    } else {
+      cb.checked = !enable;
+      if (statusEl) { statusEl.textContent = d.error || 'Could not update.'; statusEl.style.color = '#fc8181'; }
+    }
+  } catch (e) {
+    cb.checked = !enable;
+    if (statusEl) { statusEl.textContent = 'Network error.'; statusEl.style.color = '#fc8181'; }
+  }
 }
 
 async function checkOtaUpdates(showToast) {
@@ -2059,6 +2124,11 @@ function toggleWhatsAppFields() {
 function toggleDiscordFields() {
   var enabled = document.getElementById('discord-enabled').checked;
   document.getElementById('discord-config-area').style.display = enabled ? 'block' : 'none';
+}
+
+function toggleHomeAssistantFields() {
+  var enabled = document.getElementById('ha-enabled').checked;
+  document.getElementById('ha-config-area').style.display = enabled ? 'block' : 'none';
 }
 
 async function reconfigureEmail() {
