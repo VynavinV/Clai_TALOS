@@ -581,6 +581,60 @@
   .stat-label { font-size: 0.57rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-2); margin-top: 0.25rem; }
   .pending { animation: pulse-dot 1.2s ease-in-out infinite; }
 
+  /* ---------- server vitals ---------- */
+
+  .server-vitals {
+    padding: 0.75rem 0.85rem;
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(86, 206, 255, 0.22);
+    background: linear-gradient(155deg, rgba(86, 206, 255, 0.08), rgba(9, 18, 32, 0.78));
+  }
+  .sv-title {
+    font-size: 0.7rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--accent); margin-bottom: 0.6rem;
+  }
+  .sv-grid { display: flex; flex-direction: column; gap: 0.55rem; margin-bottom: 0.55rem; }
+  .sv-item { display: flex; align-items: center; gap: 0.6rem; }
+  .sv-item.sv-full { flex-wrap: wrap; }
+  .sv-label {
+    font-size: 0.65rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--text-2); min-width: 38px; flex-shrink: 0;
+  }
+  .sv-bar {
+    flex: 1; height: 8px; border-radius: 4px;
+    background: rgba(255, 255, 255, 0.06);
+    overflow: hidden; position: relative;
+  }
+  .sv-fill {
+    height: 100%; border-radius: 4px;
+    background: linear-gradient(90deg, var(--ok), var(--accent));
+    transition: width 0.6s ease;
+    box-shadow: 0 0 8px rgba(66, 223, 173, 0.4);
+  }
+  .sv-fill.warn { background: linear-gradient(90deg, var(--warn), #ff9a56); box-shadow: 0 0 8px rgba(255, 185, 105, 0.4); }
+  .sv-fill.crit { background: linear-gradient(90deg, var(--danger), #ff4757); box-shadow: 0 0 8px rgba(255, 111, 139, 0.4); }
+  .sv-val {
+    font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; font-weight: 700;
+    color: var(--text-0); min-width: 48px; text-align: right;
+  }
+  .sv-detail {
+    width: 100%; font-size: 0.68rem; color: var(--text-2); margin-top: 0.2rem;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .sv-temps { margin-top: 0.6rem; }
+  .sv-temp-list { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.35rem; }
+  .sv-temp-chip {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    padding: 0.25rem 0.5rem; border-radius: 6px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(143, 217, 255, 0.12);
+    font-size: 0.68rem;
+  }
+  .sv-temp-chip .label { color: var(--text-2); font-weight: 600; }
+  .sv-temp-chip .val { font-family: 'JetBrains Mono', monospace; color: var(--text-0); font-weight: 700; }
+  .sv-temp-chip.warn .val { color: var(--warn); }
+  .sv-temp-chip.crit .val { color: var(--danger); }
+
   /* ---------- system tiles ---------- */
 
   .svc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); grid-gap: 0.55rem; gap: 0.55rem; }
@@ -1149,6 +1203,34 @@
               <div class="stat-num pending" id="stat-health">--</div>
               <div class="stat-label">Health</div>
             </div>
+          </div>
+        </div>
+
+        <div class="server-vitals" id="server-vitals">
+          <div class="sv-title">Server Vitals</div>
+          <div class="sv-grid">
+            <div class="sv-item">
+              <div class="sv-label">CPU</div>
+              <div class="sv-bar"><div class="sv-fill" id="sv-cpu-fill"></div></div>
+              <div class="sv-val" id="sv-cpu">--%</div>
+            </div>
+            <div class="sv-item">
+              <div class="sv-label">RAM</div>
+              <div class="sv-bar"><div class="sv-fill" id="sv-ram-fill"></div></div>
+              <div class="sv-val" id="sv-ram">--%</div>
+            </div>
+          </div>
+          <div class="sv-grid" id="sv-gpu-grid" style="display:none;">
+            <div class="sv-item sv-full">
+              <div class="sv-label" id="sv-gpu-name">GPU</div>
+              <div class="sv-bar"><div class="sv-fill" id="sv-gpu-fill"></div></div>
+              <div class="sv-val" id="sv-gpu">--%</div>
+              <div class="sv-detail" id="sv-gpu-detail"></div>
+            </div>
+          </div>
+          <div class="sv-temps" id="sv-temps" style="display:none;">
+            <div class="sv-label">Temperatures</div>
+            <div class="sv-temp-list" id="sv-temp-list"></div>
           </div>
         </div>
 
@@ -1757,6 +1839,58 @@
     getJSON('/api/tasks').then(function (d) {
       lastTasks = d.tasks || [];
       renderTasks(lastTasks);
+    }).catch(function () {});
+  }
+
+  function loadServerVitals() {
+    getJSON('/api/server-vitals').then(function (d) {
+      // CPU
+      var cpuPct = d.cpu_percent || 0;
+      $('sv-cpu').textContent = cpuPct.toFixed(1) + '%';
+      var cpuFill = $('sv-cpu-fill');
+      cpuFill.style.width = cpuPct + '%';
+      cpuFill.className = 'sv-fill' + (cpuPct > 90 ? ' crit' : cpuPct > 70 ? ' warn' : '');
+
+      // RAM
+      var ramPct = (d.memory && d.memory.percent) || 0;
+      var ramUsed = d.memory ? (d.memory.used / 1024 / 1024 / 1024).toFixed(1) : '--';
+      var ramTotal = d.memory ? (d.memory.total / 1024 / 1024 / 1024).toFixed(0) : '--';
+      $('sv-ram').textContent = ramPct.toFixed(1) + '%';
+      var ramFill = $('sv-ram-fill');
+      ramFill.style.width = ramPct + '%';
+      ramFill.className = 'sv-fill' + (ramPct > 90 ? ' crit' : ramPct > 70 ? ' warn' : '');
+
+      // GPU
+      if (d.gpu && d.gpu.length > 0) {
+        var gpu = d.gpu[0]; // show first GPU
+        $('sv-gpu-grid').style.display = 'flex';
+        $('sv-gpu-name').textContent = gpu.name || 'GPU';
+        $('sv-gpu').textContent = gpu.utilization.toFixed(1) + '%';
+        $('sv-gpu-detail').textContent = gpu.memory_used.toFixed(0) + ' / ' + gpu.memory_total.toFixed(0) + ' MB | ' + gpu.temperature + '°C';
+        var gpuFill = $('sv-gpu-fill');
+        gpuFill.style.width = gpu.utilization + '%';
+        gpuFill.className = 'sv-fill' + (gpu.utilization > 90 ? ' crit' : gpu.utilization > 70 ? ' warn' : '');
+      } else {
+        $('sv-gpu-grid').style.display = 'none';
+      }
+
+      // Temperatures
+      if (d.temperatures && Object.keys(d.temperatures).length > 0) {
+        $('sv-temps').style.display = 'block';
+        var tempHtml = '';
+        for (var chip in d.temperatures) {
+          var entries = d.temperatures[chip];
+          entries.forEach(function (e) {
+            if (e.current != null) {
+              var cls = (e.critical && e.current >= e.critical) ? ' crit' : (e.high && e.current >= e.high) ? ' warn' : '';
+              tempHtml += '<div class="sv-temp-chip' + cls + '"><span class="label">' + e.label + ':</span><span class="val">' + e.current.toFixed(1) + '°C</span></div>';
+            }
+          });
+        }
+        $('sv-temp-list').innerHTML = tempHtml || '<div style="color:var(--text-2);font-size:0.68rem;">No sensor data</div>';
+      } else {
+        $('sv-temps').style.display = 'none';
+      }
     }).catch(function () {});
   }
 
@@ -2935,6 +3069,8 @@
   loadTasks();
   setInterval(function () { if (!document.hidden) loadTasks(); }, 30000);
   setInterval(function () { if (!document.hidden) renderTasks(lastTasks); }, 30000); // refresh countdowns
+  loadServerVitals();
+  setInterval(function () { if (!document.hidden) loadServerVitals(); }, 30000);
 
   loadHistory();
   connectSSE();

@@ -16,6 +16,7 @@ import re
 import html
 import io
 import zipfile
+import psutil
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 import aiohttp
@@ -2734,6 +2735,63 @@ async def handle_api_homeassistant_states(request):
     return web.json_response(await homeassistant.get_states())
 
 
+async def handle_api_server_vitals(request):
+    token = request.cookies.get(SESSION_COOKIE)
+    if not validate_session(token):
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    vitals = {}
+
+    # CPU
+    vitals["cpu_percent"] = psutil.cpu_percent(interval=0.1)
+    vitals["cpu_count"] = psutil.cpu_count()
+    vitals["cpu_freq"] = psutil.cpu_freq()._asdict() if psutil.cpu_freq() else None
+
+    # Memory
+    mem = psutil.virtual_memory()
+    vitals["memory"] = {
+        "total": mem.total,
+        "available": mem.available,
+        "used": mem.used,
+        "percent": mem.percent,
+    }
+
+    # Temperatures
+    try:
+        temps = psutil.sensors_temperatures()
+        vitals["temperatures"] = {}
+        for chip, entries in temps.items():
+            vitals["temperatures"][chip] = [
+                {"label": e.label or chip, "current": e.current, "high": e.high, "critical": e.critical}
+                for e in entries
+            ]
+    except (AttributeError, NotImplementedError):
+        vitals["temperatures"] = None
+
+    # GPU (try nvidia-smi)
+    try:
+        gpu_output = subprocess.check_output(
+            ["nvidia-smi", "--query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu", "--format=csv,noheader,nounits"],
+            timeout=2
+        ).decode()
+        gpus = []
+        for line in gpu_output.strip().split("\n"):
+            parts = [p.strip() for p in line.split(",")]
+            if len(parts) >= 5:
+                gpus.append({
+                    "name": parts[0],
+                    "utilization": float(parts[1]),
+                    "memory_used": float(parts[2]),
+                    "memory_total": float(parts[3]),
+                    "temperature": float(parts[4]),
+                })
+        vitals["gpu"] = gpus if gpus else None
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+        vitals["gpu"] = None
+
+    return web.json_response(vitals)
+
+
 @require_auth_csrf
 async def handle_api_homeassistant_service(request):
     body = request._json_body if isinstance(request._json_body, dict) else {}
@@ -4286,6 +4344,7 @@ async def main():
     web_app.router.add_get("/api/tasks", handle_api_tasks)
     web_app.router.add_get("/api/homeassistant/status", handle_api_homeassistant_status)
     web_app.router.add_get("/api/homeassistant/states", handle_api_homeassistant_states)
+    web_app.router.add_get("/api/server-vitals", handle_api_server_vitals)
     web_app.router.add_post("/api/homeassistant/service", handle_api_homeassistant_service)
     web_app.router.add_post("/login", handle_login)
     web_app.router.add_post("/logout", handle_logout)
