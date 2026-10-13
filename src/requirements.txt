@@ -1,6 +1,7 @@
 python-telegram-bot
 python-dotenv
 aiohttp
+psutil
 bcrypt
 zhipuai
 httpx
