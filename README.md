@@ -1005,6 +1005,10 @@ Key behavior:
 - Can start Chrome debug mode if configured
 - Isolated fallback profile is opt-in (default off)
 - Dashboard and tools expose state/connect/run/disconnect operations
+- `eval` step evaluates JS in the page and returns JSON — structured DOM reads (grids, datasets, computed values) and synthetic events stay inside browser_run instead of requiring one-off scripts
+- Screenshot steps self-heal on animated pages (freeze animations, retry via raw CDP)
+- Browser tool calls are audit-logged to `logs/audit.log` alongside terminal commands
+- Chromium binary resolution: system Chrome/Chromium first, then Playwright-managed Chromium (`playwright install chromium`) — start.sh sets both up on fresh machines
 
 If Chrome profile lock issues happen:
 

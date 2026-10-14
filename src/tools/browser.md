@@ -61,6 +61,7 @@ Execute a list of steps sequentially.
 - `press`: `{ action: "press", key: "Enter", selector?: "input[name='q']" }`
 - `wait_for`: `{ action: "wait_for", selector?: "#ready", text?: "Done", url_contains?: "dashboard", milliseconds?: 500 }`
 - `extract`: `{ action: "extract", selector?: "body", attr?: "href", all?: false, limit?: 5 }`
+- `eval`: `{ action: "eval", expression: "JSON.stringify([...document.querySelectorAll('.cw-cell')].map(c => c.textContent))" }` — evaluates a JavaScript expression in the page and returns the result as parsed JSON. Use this instead of dropping to Python scripts whenever you need structured DOM state (grid layouts, datasets, computed positions), dispatch synthetic events (KeyboardEvent/MouseEvent), or read values the `extract`/`type` vocabulary cannot express. Bare expressions (`1 + 1`, `document.title`, `JSON.stringify(...)`) need no wrapper. To pass data in, write a function and use `arg` (optional, string): `{ action: "eval", expression: "a => a.n * 2", arg: "{\"n\": 21}" }` — string `arg` values are JSON-parsed when possible, so structured payloads arrive as real objects. Results over 8KB are truncated. With `selector` set, evaluation runs against that element (like `evalOnSelector`; the element is passed as the first function argument).
 - `select`: `{ action: "select", selector: "select#country", value?: "US", label?: "United States", index?: 1 }`
 - `scroll`: `{ action: "scroll", selector?: "#target", x?: 0, y?: 800 }`
 - `screenshot`: `{ action: "screenshot", path?: "logs/browser/my-shot.png", full_page?: false }` — if the page never settles due to perpetual CSS animations, the step automatically freezes animations and retries the capture via raw CDP (`Page.captureScreenshot`). The result reports `fallback: "animations_frozen_cdp_capture"` when this path fires. You do not need to pre-emptively disable animations.
@@ -90,8 +91,18 @@ Disconnect the active browser session.
 ## Notes
 
 - Requires Python Playwright package.
+- **Where the venv lives:** the bot's Python (with Playwright installed) is at `<repo>/src/venv`. When an exploratory script needs Playwright, run it with `venv/bin/python` from `src/` — never system `python3` (Playwright is not installed there). This repo layout is the same on every deployment.
 - CDP attach does not require downloading Playwright browser binaries when using your installed Chrome.
 - Browser startup is on-demand when browser tools are first used.
 - If profile lock is detected, close normal Chrome windows and retry the browser action.
 - Isolated fallback is opt-in by default; set `BROWSER_ALLOW_ISOLATED_FALLBACK=1` only when you want fallback behavior.
 - Isolated fallback profile data is stored outside the repo by default; override with `BROWSER_ISOLATED_PROFILE_DIR`.
+- **Structured DOM state:** for grids, datasets, computed styles, or synthetic events, use the `eval` step — do not fall back to writing one-off Python/Playwright scripts. The `eval` action exists precisely so interactive-webapp tasks stay inside browser_run.
+- **Python-side browser tool calls are audited** to `logs/audit.log` (same file as terminal commands), so post-mortems cover the full session, not just shell activity.
+
+## Troubleshooting
+
+- **"Playwright is not installed" from an exploratory script** — you ran system `python3` instead of the repo venv. Use `venv/bin/python`.
+- **Missing Chrome/Chromium binary** — start.sh installs a system chromium or Playwright-managed Chromium as a fallback; `_default_chrome_path()` resolves in that order too. If both are missing, install one and re-run start.sh.
+- **`eval` returns `undefined` for `arg`** — bare expressions cannot see `arg`. Write the function form: `expression: "a => ...", arg: "..."`.
+- **Screenshot timeout on animated pages** — already self-healing: animations are frozen and the capture retried via raw CDP. No manual workaround needed.

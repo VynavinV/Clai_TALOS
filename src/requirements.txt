@@ -13,3 +13,4 @@ playwright
 scrapy
 pandas
 openpyxl
+pytest

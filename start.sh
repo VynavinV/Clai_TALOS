@@ -138,6 +138,10 @@ install_python() {
 # On headless hosts we additionally make sure the bot can actually render:
 # browser_automation.py auto-detects a missing DISPLAY and launches with
 # --headless=new (see _headless_launch_flags).
+#
+# Two-phase: ensure_browser runs before the venv exists (system package
+# install only); verify_browser_setup runs after the venv is ready and can
+# fall back to Playwright-managed Chromium if no system browser was found.
 ensure_browser() {
   local browser_bin=""
   for cmd in google-chrome google-chrome-stable chromium chromium-browser; do
@@ -160,10 +164,11 @@ ensure_browser() {
   fi
 
   if command -v apt-get &>/dev/null; then
-    # Prefer the distro chromium package; snap-based chromium works but takes
-    # longer to install. Either way the bot finds it via PATH.
+    # Ubuntu's chromium-browser package is a snap-transition stub and Debian
+    # calls the package "chromium". Try both, plus snap for Ubuntu.
     sudo apt-get update -qq
-    sudo apt-get install -y -qq chromium-browser 2>/dev/null \
+    sudo apt-get install -y -qq chromium 2>/dev/null \
+      || sudo apt-get install -y -qq chromium-browser 2>/dev/null \
       || sudo snap install chromium 2>/dev/null \
       || true
   elif command -v dnf &>/dev/null; then
@@ -182,8 +187,40 @@ ensure_browser() {
       return 0
     fi
   done
-  warn "Chrome/Chromium install failed - browser automation will be unavailable."
-  warn "Install manually, then re-run start.sh."
+  warn "No system Chromium found yet - will retry after the venv is ready."
+  return 0
+}
+
+# ── Step 4b: Verify browser setup with the venv available ──────────────────
+#
+# Runs after setup_venv. Uses the bot's own binary resolution (same code the
+# running bot uses) instead of duplicating path logic here. If no system
+# browser exists, installs Playwright's managed Chromium as the fallback.
+# Fails loudly: browser automation is a core capability, and a missing
+# binary must surface now, not as a confusing timeout mid-task later.
+verify_browser_setup() {
+  local resolved=""
+  resolved="$(venv/bin/python -c "import browser_automation as b; print(b._default_chrome_path() or '')" 2>/dev/null || true)"
+
+  if [[ -n "$resolved" && -x "$resolved" ]]; then
+    ok "Browser automation binary: $resolved"
+    return 0
+  fi
+
+  info "No system Chrome/Chromium found - installing Playwright-managed Chromium..."
+  if ! venv/bin/python -m playwright install chromium >/dev/null 2>&1; then
+    fail "Browser setup failed: 'playwright install chromium' did not succeed."
+    warn "Install Chrome/Chromium manually (https://www.chromium.org/getting-involved/download-chromium/), then re-run start.sh."
+    return 1
+  fi
+
+  resolved="$(venv/bin/python -c "import browser_automation as b; print(b._default_chrome_path() or '')" 2>/dev/null || true)"
+  if [[ -z "$resolved" || ! -x "$resolved" ]]; then
+    fail "Browser setup failed: no usable Chrome/Chromium binary after fallback install."
+    warn "Install manually, then re-run start.sh."
+    return 1
+  fi
+  ok "Browser automation binary: $resolved (Playwright-managed)"
   return 0
 }
 
@@ -940,6 +977,12 @@ ensure_browser
 
 setup_venv "$PYTHON"
 ok "Virtual environment ready"
+
+# Verify the browser binary with the venv available (falls back to
+# Playwright-managed Chromium). Kept non-fatal: the bot still runs without
+# a browser, and the failure is loud (red FAIL above) plus visible in
+# /status via the browser probe.
+verify_browser_setup || true
 
 run_setup
 ok "Configuration checked"

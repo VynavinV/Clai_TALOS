@@ -1330,7 +1330,7 @@ def _get_all_tools(include_subagent: bool = True, include_telegram: bool = False
                                 "properties": {
                                     "action": {
                                         "type": "string",
-                                        "description": "Action: goto, click, type, press, wait_for, extract, select, scroll, screenshot, assert, set_page, new_tab, close_tab"
+                                        "description": "Action: goto, click, type, press, wait_for, extract, eval, select, scroll, screenshot, assert, set_page, new_tab, close_tab"
                                     },
                                     "url": {"type": "string"},
                                     "selector": {"type": "string"},
@@ -1355,7 +1355,9 @@ def _get_all_tools(include_subagent: bool = True, include_telegram: bool = False
                                     "y": {"type": "number"},
                                     "path": {"type": "string"},
                                     "full_page": {"type": "boolean"},
-                                    "page_index": {"type": "number"}
+                                    "page_index": {"type": "number"},
+                                    "expression": {"type": "string"},
+                                    "arg": {"type": "string"}
                                 },
                                 "required": ["action"]
                             }

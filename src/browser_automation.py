@@ -10,6 +10,7 @@ import subprocess
 import importlib
 import ipaddress
 import socket
+import glob
 from datetime import datetime, timezone
 from urllib import request, error
 from urllib.parse import urlparse
@@ -34,6 +35,26 @@ except Exception as exc:
 
 _ARTIFACT_DIR = app_paths.browser_artifacts_dir()
 os.makedirs(_ARTIFACT_DIR, exist_ok=True)
+
+# Browser tool calls were historically invisible in audit logs — only terminal
+# commands were recorded — which made post-mortems of browser-heavy sessions
+# guesswork. Log every browser tool call to the same audit.log as the terminal.
+_audit_logger = logging.getLogger("talos.audit")
+_audit_logger.setLevel(logging.INFO)
+if not _audit_logger.handlers:
+    _audit_handler = logging.FileHandler(os.path.join(app_paths.logs_dir(), "audit.log"))
+    _audit_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+    _audit_logger.addHandler(_audit_handler)
+
+
+def _audit(tool: str, status: str, detail: dict) -> None:
+    """Record a browser tool call in audit.log. Never raises."""
+    try:
+        entry = {"tool": tool, "status": status}
+        entry.update(detail)
+        _audit_logger.info(json.dumps(entry))
+    except Exception:
+        pass
 
 _DEFAULT_ENDPOINT = os.getenv("BROWSER_CDP_ENDPOINT", "http://127.0.0.1:9222")
 _DEFAULT_TIMEOUT_MS = int(os.getenv("BROWSER_DEFAULT_TIMEOUT_MS", "15000"))
@@ -138,6 +159,37 @@ async def _wait_for_cdp(endpoint: str, timeout_seconds: int) -> tuple[bool, dict
     return False, {"error": last_error or "CDP endpoint did not become ready in time"}
 
 
+def _playwright_managed_chromium() -> str:
+    """Locate Playwright's managed Chromium, if `playwright install chromium` ran.
+
+    Layouts differ per OS; glob all known variants and prefer the newest.
+    """
+    if sys.platform == "win32":
+        base = os.path.join(os.getenv("LOCALAPPDATA", ""), "ms-playwright")
+        patterns = [os.path.join(base, "chromium-*", "chrome-win", "chrome.exe"),
+                    os.path.join(base, "chromium-*", "chrome-win64", "chrome.exe")]
+    elif sys.platform == "darwin":
+        base = os.path.expanduser("~/Library/Caches/ms-playwright")
+        patterns = [
+            os.path.join(base, "chromium-*", "chrome-mac", "Chromium.app", "Contents", "MacOS", "Chromium"),
+            os.path.join(base, "chromium-*", "chrome-mac-arm64", "Chromium.app", "Contents", "MacOS", "Chromium"),
+            os.path.join(base, "chromium-*", "chrome-mac-universal", "Chromium.app", "Contents", "MacOS", "Chromium"),
+        ]
+    else:
+        base = os.path.expanduser("~/.cache/ms-playwright")
+        patterns = [os.path.join(base, "chromium-*", "chrome-linux", "chrome")]
+
+    try:
+        candidates = []
+        for pattern in patterns:
+            candidates.extend(glob.glob(pattern))
+        if candidates:
+            return sorted(candidates)[-1]
+    except Exception:
+        pass
+    return ""
+
+
 def _default_chrome_path() -> str:
     if sys.platform == "darwin":
         candidates = [
@@ -148,13 +200,19 @@ def _default_chrome_path() -> str:
         for path in candidates:
             if os.path.isfile(path):
                 return path
-        return ""
+        return _playwright_managed_chromium()
 
     if sys.platform.startswith("linux"):
         for cmd in ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"]:
             resolved = shutil.which(cmd)
             if resolved:
                 return resolved
+        # Last resort: Playwright's own managed Chromium (installed via
+        # `playwright install chromium`). Slower to bootstrap but present on
+        # any system that ran the standard setup path.
+        managed = _playwright_managed_chromium()
+        if managed:
+            return managed
         return ""
 
     if sys.platform == "win32":
@@ -171,9 +229,12 @@ def _default_chrome_path() -> str:
         for path in candidates:
             if os.path.isfile(path):
                 return path
+        managed = _playwright_managed_chromium()
+        if managed:
+            return managed
         return shutil.which("chrome") or ""
 
-    return ""
+    return _playwright_managed_chromium()
 
 
 def _default_user_data_dir() -> str:
@@ -926,6 +987,51 @@ async def _execute_step(session: BrowserSession, page, step: dict, default_timeo
             return page, {"path": path, "full_page": full_page, "fallback": "animations_frozen_cdp_capture"}
         return page, {"path": path, "full_page": full_page}
 
+    if action == "eval":
+        expression = str(step.get("expression", "")).strip()
+        if not expression:
+            raise ValueError("eval requires expression")
+        selector = str(step.get("selector", "")).strip()
+        # `arg` may be any JSON value; strings are parsed as JSON when possible so
+        # callers can pass structured payloads without knowing Python types.
+        arg = step.get("arg")
+        if isinstance(arg, str):
+            try:
+                arg = json.loads(arg)
+            except Exception:
+                pass
+        try:
+            if selector:
+                value = await asyncio.wait_for(
+                    page.eval_on_selector(selector, expression, arg),
+                    timeout=timeout_ms / 1000.0,
+                )
+            else:
+                value = await asyncio.wait_for(
+                    page.evaluate(expression, arg),
+                    timeout=timeout_ms / 1000.0,
+                )
+        except asyncio.TimeoutError as exc:
+            raise TimeoutError(f"eval timed out after {timeout_ms}ms") from exc
+        except PlaywrightTimeoutError:
+            raise
+        except PlaywrightError as exc:
+            raise ValueError(f"eval failed: {exc}") from exc
+
+        # Return native JSON types when possible; hard-cap the payload size so a
+        # runaway expression cannot flood the tool result.
+        try:
+            rendered = json.dumps(value)
+        except (TypeError, ValueError):
+            rendered = json.dumps(repr(value))
+        if len(rendered) > 8000:
+            return page, {"eval": True, "value": rendered[:8000] + "... [truncated]"}
+        try:
+            parsed = json.loads(rendered)
+        except Exception:
+            parsed = rendered
+        return page, {"eval": True, "value": parsed}
+
     if action == "assert":
         selector = str(step.get("selector", "")).strip()
         text = str(step.get("text", "")).strip()
@@ -1007,12 +1113,39 @@ async def run_steps(
 
         default_timeout_ms = _to_int(default_timeout_ms, _DEFAULT_TIMEOUT_MS, 100, _MAX_TIMEOUT_MS)
 
+        # Sanitize step payloads for the audit trail: keep the actions and
+        # parameters that identify what ran, drop bulk payloads (typed text,
+        # eval expressions) so secrets typed into pages don't land in logs.
+        audited_steps = []
+        for s in steps:
+            if not isinstance(s, dict):
+                audited_steps.append(None)
+                continue
+            safe = {k: v for k, v in s.items() if k in (
+                "action", "selector", "url", "key", "state", "wait_until",
+                "button", "attr", "all", "full_page", "page_index", "index",
+                "label", "value", "x", "y", "milliseconds", "url_contains",
+                "click_count", "clear", "delay_ms", "text",
+            )}
+            audited_steps.append(safe)
+
+        audit_start = time.monotonic()
+        _audit("browser_run", "start", {
+            "steps": len(steps),
+            "step_actions": [s.get("action") if isinstance(s, dict) else None for s in steps],
+            "page_index": page_index,
+        })
+
         results = []
         completed = 0
         stopped_on_error = False
 
         for i, raw_step in enumerate(steps, start=1):
             if not isinstance(raw_step, dict):
+                _audit("browser_run", "error", {
+                    "step": i,
+                    "error": "Each step must be an object",
+                })
                 entry = {
                     "step": i,
                     "ok": False,
@@ -1080,6 +1213,14 @@ async def run_steps(
 
         tabs, active_index = await _session_tabs(session)
         all_ok = all(r.get("ok") for r in results) if results else False
+
+        _audit("browser_run", "success" if all_ok else "error", {
+            "steps_requested": len(steps),
+            "steps_completed": completed,
+            "stopped_on_error": stopped_on_error,
+            "final_url": page.url,
+            "duration_ms": int((time.monotonic() - audit_start) * 1000),
+        })
 
         return {
             "ok": all_ok,

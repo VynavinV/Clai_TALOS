@@ -576,6 +576,14 @@ async def probe_browser() -> ProbeOutcome:
             hint="Installs the playwright package and its Chromium runtime.",
         )
 
+    binary = browser_automation._default_chrome_path()
+    if not binary:
+        return fail(
+            "Playwright installed, but no Chrome/Chromium binary found — launching a browser would fail.",
+            fix="manual",
+            hint="Install Chrome/Chromium or run `venv/bin/python -m playwright install chromium`, then re-run start.sh.",
+        )
+
     parsed, raw = await call_tool("browser_state", {"include_tabs": True})
     if not isinstance(parsed, dict):
         return fail(f"browser_state returned unparseable output: {raw[:200]}")
@@ -583,8 +591,8 @@ async def probe_browser() -> ProbeOutcome:
     # Not being connected is the correct state for an idle system; the probe is
     # checking that the tool answers coherently, not that a browser is running.
     if parsed.get("connected"):
-        return ok("Playwright installed; a browser session is currently connected.")
-    return ok("Playwright installed and the browser tool responds (no session open, which is normal).")
+        return ok(f"Playwright installed; a browser session is currently connected (binary: {binary}).")
+    return ok(f"Playwright installed and the browser tool responds; browser binary: {binary}.")
 
 
 # ---------------------------------------------------------------------------
