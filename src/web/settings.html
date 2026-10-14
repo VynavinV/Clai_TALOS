@@ -418,6 +418,11 @@
       <input type="text" id="claistore-branch" value="main" placeholder="main">
       <div class="form-hint">Branch to publish skills to.</div>
     </div>
+    <div class="form-group">
+      <label>Worker Auth Token (optional)</label>
+      <input type="password" id="claistore-worker-token" placeholder="Token for worker uploads" autocomplete="off">
+      <div class="form-hint">If your Cloudflare Worker requires authentication for uploads, enter the token here.</div>
+    </div>
     <div class="google-actions">
       <button class="btn" id="claistore-test-btn" onclick="testClaistoreConfig()">Test Connection</button>
       <button class="btn" id="claistore-save-btn" onclick="saveClaistoreConfig()">Save Configuration</button>
@@ -1423,6 +1428,7 @@ async function loadSettings() {
     document.getElementById('claistore-repo').value = d.CLAISTORE_GITHUB_REPO || '';
     document.getElementById('claistore-token').value = d.CLAISTORE_GITHUB_TOKEN || '';
     document.getElementById('claistore-branch').value = d.CLAISTORE_GITHUB_BRANCH || 'main';
+    document.getElementById('claistore-worker-token').value = d.CLAISTORE_WORKER_AUTH_TOKEN || '';
     await loadContextUsage();
     startContextUsagePolling();
   } catch (e) {}
@@ -1944,6 +1950,7 @@ async function saveSettings() {
     CLAISTORE_GITHUB_REPO: document.getElementById('claistore-repo').value.trim(),
     CLAISTORE_GITHUB_TOKEN: document.getElementById('claistore-token').value.trim(),
     CLAISTORE_GITHUB_BRANCH: document.getElementById('claistore-branch').value.trim() || 'main',
+    CLAISTORE_WORKER_AUTH_TOKEN: document.getElementById('claistore-worker-token').value.trim(),
     MAX_TOOL_ROUNDS: document.getElementById('max-tool-rounds').value.trim(),
     MAX_TOOL_CALLS_PER_ROUND: document.getElementById('max-tool-calls-per-round').value.trim(),
     MAX_COMMAND_TIMEOUT: document.getElementById('max-command-timeout').value.trim(),

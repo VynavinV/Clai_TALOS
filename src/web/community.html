@@ -578,6 +578,8 @@
 
 <script>
 var csrfToken = document.querySelector('meta[name="csrf-token"]') ? document.querySelector('meta[name="csrf-token"]').getAttribute('content') : '';
+var workerUrl = 'https://claistore.nerfgunredusebook.workers.dev';
+var workerAuthToken = '{{WORKER_AUTH_TOKEN}}';
 var state = { items: [] };
 
 function esc(value) {
@@ -643,8 +645,7 @@ function renderList() {
 
 async function loadItems() {
   try {
-    var res = await fetch('/api/community');
-    if (res.status === 401) { window.location.href = '/'; return; }
+    var res = await fetch(workerUrl + '/api/items');
     var data = await res.json();
     if (!data.ok) throw new Error(data.error || 'Failed to load ClaiStore packages');
     state.items = Array.isArray(data.items) ? data.items : [];
@@ -686,7 +687,6 @@ async function uploadItem(event) {
   try {
     var dataUrl = await toDataUrl(file);
     var payload = {
-      csrf_token: csrfToken,
       name: document.getElementById('item-name').value,
       kind: document.getElementById('item-kind').value,
       author: document.getElementById('item-author').value,
@@ -697,9 +697,14 @@ async function uploadItem(event) {
       }
     };
 
-    var res = await fetch('/api/community/upload', {
+    var headers = { 'Content-Type': 'application/json' };
+    if (workerAuthToken && !workerAuthToken.startsWith('{{')) {
+      headers['Authorization'] = 'Bearer ' + workerAuthToken;
+    }
+
+    var res = await fetch(workerUrl + '/api/items', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: headers,
       body: JSON.stringify(payload)
     });
 
@@ -739,7 +744,7 @@ async function uploadItem(event) {
 function downloadItem(id) {
   var itemId = String(id || '').trim();
   if (!itemId) return;
-  window.location.href = '/api/community/download/' + encodeURIComponent(itemId);
+  window.location.href = workerUrl + '/api/items/' + encodeURIComponent(itemId) + '/download';
 }
 
 async function installItem(id) {

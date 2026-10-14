@@ -2634,11 +2634,13 @@ async def handle_api_onboarding_discord(request):
     return web.json_response({"ok": True})
 
 
-def _serve_auth_page(request, template_name: str):
+def _serve_auth_page(request, template_name: str, **extra_vars):
     """Serve an authenticated HTML page with a fresh CSRF token."""
     csrf = generate_csrf()
+    template_vars = {"BOT_NAME": BOT_NAME, "CSRF_TOKEN": csrf}
+    template_vars.update(extra_vars)
     response = web.Response(
-        text=render_template(template_name, BOT_NAME=BOT_NAME, CSRF_TOKEN=csrf),
+        text=render_template(template_name, **template_vars),
         content_type="text/html",
     )
     response.set_cookie(
@@ -2950,7 +2952,8 @@ async def handle_tools(request):
 
 @require_auth
 async def handle_community_page(request):
-    return _serve_auth_page(request, "community.html")
+    worker_token = env_vars.get("CLAISTORE_WORKER_AUTH_TOKEN", "")
+    return _serve_auth_page(request, "community.html", WORKER_AUTH_TOKEN=worker_token)
 
 
 @require_auth
@@ -2967,7 +2970,7 @@ _SECRET_KEYS = frozenset({
     "TELEGRAM_BOT_TOKEN", "ZHIPUAI_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY",
     "ANTHROPIC_API_KEY", "NVIDIA_API_KEY", "CEREBRAS_API_KEY", "GROQ_API_KEY", "QWEN_API_KEY", "OPENROUTER_API_KEY",
     "MISTRAL_API_KEY", "OTHER_API_KEY", "GOOGLE_API_KEY", "GOOGLE_OAUTH_CLIENT_SECRET",
-    "CLAISTORE_GITHUB_TOKEN", "HOMEASSISTANT_TOKEN",
+    "CLAISTORE_GITHUB_TOKEN", "CLAISTORE_WORKER_AUTH_TOKEN", "HOMEASSISTANT_TOKEN",
 })
 
 
@@ -3057,6 +3060,7 @@ async def handle_api_settings_get(request):
         "CLAISTORE_GITHUB_REPO": env_vars.get("CLAISTORE_GITHUB_REPO", ""),
         "CLAISTORE_GITHUB_TOKEN": env_vars.get("CLAISTORE_GITHUB_TOKEN", ""),
         "CLAISTORE_GITHUB_BRANCH": env_vars.get("CLAISTORE_GITHUB_BRANCH", "main"),
+        "CLAISTORE_WORKER_AUTH_TOKEN": env_vars.get("CLAISTORE_WORKER_AUTH_TOKEN", ""),
     }
     # Per-user fallback model from DB
     try:
@@ -3310,7 +3314,7 @@ async def handle_api_settings_post(request):
         "OTHER_TIMEOUT_S",
         "OTHER_REASONING_EFFORT",
         "OTA_CHANNEL", "TALOS_LAZY_TOOLS",
-        "CLAISTORE_GITHUB_REPO", "CLAISTORE_GITHUB_TOKEN", "CLAISTORE_GITHUB_BRANCH",
+        "CLAISTORE_GITHUB_REPO", "CLAISTORE_GITHUB_TOKEN", "CLAISTORE_GITHUB_BRANCH", "CLAISTORE_WORKER_AUTH_TOKEN",
         "HOMEASSISTANT_URL", "HOMEASSISTANT_TOKEN",
     ]
 
