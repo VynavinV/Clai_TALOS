@@ -82,6 +82,15 @@ def init():
         conn.execute("UPDATE user_settings SET speed_mode = COALESCE(speed_mode, 'normal')")
         conn.execute("UPDATE user_settings SET reasoning_enabled = COALESCE(reasoning_enabled, 1)")
 
+        # Retire models that upstream providers no longer serve. Without this,
+        # existing installs keep a dead image_model in the DB and vision fails.
+        _RETIRED_MODELS = {"gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"}
+        for retired in _RETIRED_MODELS:
+            conn.execute(
+                "UPDATE user_settings SET image_model = NULL WHERE image_model = ?",
+                (retired,),
+            )
+
         chat_cols = [r["name"] for r in conn.execute("PRAGMA table_info(chat_history)").fetchall()]
         if "image_b64" not in chat_cols:
             conn.execute("ALTER TABLE chat_history ADD COLUMN image_b64 TEXT")

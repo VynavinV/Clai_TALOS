@@ -1441,6 +1441,7 @@ _IMAGE_MODEL_PREFERENCES = [
     "gpt-4o",
     "gpt-4.1",
     "claude-sonnet-4-20250514",
+    "gemini-3.1-pro-preview",
     "gemini-2.5-pro",
     "glm-4v",
 ]
