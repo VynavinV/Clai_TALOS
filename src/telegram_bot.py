@@ -3928,6 +3928,24 @@ async def handle_api_tools_dynamic(request):
 
 @require_auth
 async def handle_api_community_get(request):
+    # ClaiStore Worker (always-on, independent of bot)
+    worker_url = "https://claistore.nerfgunredusebook.workers.dev"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{worker_url.rstrip('/')}/api/items") as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    if data.get("ok"):
+                        builtin_entries = _community_builtin_public_entries()
+                        worker_items = data.get("items", [])
+                        return web.json_response({
+                            "ok": True,
+                            "items": builtin_entries + [_community_public_entry(item) for item in worker_items],
+                            "source": "worker",
+                        })
+    except Exception:
+        logger.debug("ClaiStore Worker unreachable, falling back")
+
     # Fetch from Claistore (GitHub) if configured, otherwise fall back to local
     if claistore_is_configured():
         try:

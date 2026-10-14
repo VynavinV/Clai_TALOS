@@ -1,0 +1,11 @@
+name = "claistore"
+main = "src/index.js"
+compatibility_date = "2024-09-23"
+
+[vars]
+GITHUB_BRANCH = "main"
+
+[[rules]]
+type = "Text"
+globs = ["**/*.html"]
+fallthrough = false

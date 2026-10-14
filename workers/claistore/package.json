@@ -1,0 +1,12 @@
+{
+  "name": "claistore-worker",
+  "private": true,
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  },
+  "allowScripts": {
+    "esbuild@0.17.19": true,
+    "sharp@0.33.5": true,
+    "workerd@1.20250718.0": true
+  }
+}
