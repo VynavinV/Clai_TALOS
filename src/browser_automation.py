@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import time
+import base64
 import asyncio
 import logging
 import shutil
@@ -597,6 +598,33 @@ async def disconnect_browser(terminate_launched: bool = False) -> dict:
         }
 
 
+_FREEZE_ANIMATIONS_CSS = """
+*, *::before, *::after {
+    animation-play-state: paused !important;
+    transition: none !important;
+    caret-color: transparent !important;
+}
+"""
+
+
+async def _freeze_animations(page) -> None:
+    """Pause all CSS animations/transitions on the page.
+
+    Used as a fallback when perpetual animations (spinners, marquees, ambient
+    motion) keep Playwright's screenshot capture from ever settling.
+    """
+    try:
+        await page.add_style_tag(content=_FREEZE_ANIMATIONS_CSS)
+    except PlaywrightError as exc:
+        logger.debug("Could not inject animation-freeze CSS: %s", exc)
+
+
+async def _cdp_session_for(page):
+    """Return a CDP session bound to the page's browser context."""
+    # Playwright exposes context-level CDP on Chromium.
+    return await page.context.new_cdp_session(page)
+
+
 async def _wait_url_contains(page, needle: str, timeout_ms: int) -> None:
     deadline = time.monotonic() + (timeout_ms / 1000.0)
     while time.monotonic() < deadline:
@@ -881,7 +909,21 @@ async def _execute_step(session: BrowserSession, page, step: dict, default_timeo
     if action == "screenshot":
         path = _artifact_path(step.get("path"), suffix=".png")
         full_page = _to_bool(step.get("full_page", False), False)
-        await page.screenshot(path=path, full_page=full_page)
+        try:
+            await page.screenshot(path=path, full_page=full_page)
+        except PlaywrightError as exc:
+            # Pages with perpetual CSS animations never "settle", which can starve
+            # Playwright's screenshot waiting. Freeze animations and retry via CDP.
+            logger.warning("Screenshot failed (%s); retrying with animations frozen", exc)
+            await _freeze_animations(page)
+            cdp = await _cdp_session_for(page)
+            params = {"format": "png"}
+            if full_page:
+                params["captureBeyondViewport"] = True
+            result = await cdp.send("Page.captureScreenshot", params)
+            with open(path, "wb") as fh:
+                fh.write(base64.b64decode(result["data"]))
+            return page, {"path": path, "full_page": full_page, "fallback": "animations_frozen_cdp_capture"}
         return page, {"path": path, "full_page": full_page}
 
     if action == "assert":

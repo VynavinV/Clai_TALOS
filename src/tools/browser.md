@@ -63,7 +63,7 @@ Execute a list of steps sequentially.
 - `extract`: `{ action: "extract", selector?: "body", attr?: "href", all?: false, limit?: 5 }`
 - `select`: `{ action: "select", selector: "select#country", value?: "US", label?: "United States", index?: 1 }`
 - `scroll`: `{ action: "scroll", selector?: "#target", x?: 0, y?: 800 }`
-- `screenshot`: `{ action: "screenshot", path?: "logs/browser/my-shot.png", full_page?: false }`
+- `screenshot`: `{ action: "screenshot", path?: "logs/browser/my-shot.png", full_page?: false }` — if the page never settles due to perpetual CSS animations, the step automatically freezes animations and retries the capture via raw CDP (`Page.captureScreenshot`). The result reports `fallback: "animations_frozen_cdp_capture"` when this path fires. You do not need to pre-emptively disable animations.
 - `assert`: `{ action: "assert", selector?: "#ok", text?: "Success", url_contains?: "done" }`
 - `set_page`: `{ action: "set_page", page_index: 1 }`
 - `new_tab`: `{ action: "new_tab", url?: "https://example.com" }`
