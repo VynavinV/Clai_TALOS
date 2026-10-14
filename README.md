@@ -455,8 +455,9 @@ TALOS is designed as the practical infrastructure this project needed from the b
 
 | Area | Capability | Main Modules |
 |------|------------|--------------|
-| Conversational interface | Telegram bot + web chat dashboard | `src/telegram_bot.py`, `src/bot_handlers.py`, `src/core.py` |
-| Orchestration | Tool-calling agent loop, subagent delegation | `src/AI.py` |
+| Conversational interface | Telegram bot + web chat dashboard + WhatsApp + Discord | `src/telegram_bot.py`, `src/whatsapp_bot.py`, `src/discord_bot.py`, `src/bot_handlers.py`, `src/core.py` |
+| Orchestration | Tool-calling agent loop, subagent delegation, mid-run interrupts | `src/AI.py`, `src/interrupt_hub.py` |
+| Skill ecosystem | Claistore GitHub-backed skill marketplace + community hub | `src/claistore.py`, `src/community_hub/` |
 | Persistence | SQLite settings/history/summaries | `src/db.py` |
 | Memory | Keyword extraction, relevance ranking | `src/memory.py` |
 | Terminal execution | Commands and workflows with safeguards | `src/terminal_tools.py` |
@@ -839,11 +840,32 @@ These tools are exposed by the orchestrator and can be toggled in the dashboard.
 | `delete_tool` | Delete dynamic tool |
 | `spawn_subagent` | Delegate task to subagent |
 | `send_telegram_message` | Send direct Telegram text |
+| `send_telegram_document` | Send any file as a Telegram document |
 | `send_voice_message` | Send Telegram voice message |
 | `send_telegram_photo` | Send photo to Telegram |
 | `send_telegram_screenshot` | Capture and send screenshot |
 | `create_project` | Create and register a live web project |
+| `migrate_project` | Register an existing file/directory as a live project |
 | `list_projects` | List registered projects |
+| `read_tool_guide` | Read the full usage guide for any tool |
+| `pa_system` | Speak a message through the host machine speakers (local PA announcements) |
+| `subagent_status` | Check on background subagents |
+
+### Additional integrations
+
+Beyond the tools table above, TALOS ships these runtime integrations:
+
+- **WhatsApp bot** - WhatsApp Cloud API webhook (`/whatsapp/webhook`) configured via onboarding (`WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_ENABLED`). See `src/whatsapp_bot.py`.
+- **Discord bot** - Discord Gateway (WebSocket receive + REST send) configured via onboarding (`DISCORD_TOKEN`, `DISCORD_APPLICATION_ID`, `DISCORD_ENABLED`). See `src/discord_bot.py`.
+- **Claistore / Community Hub** - GitHub-backed decentralized skill marketplace. Skills can be browsed, uploaded, downloaded, installed, and published from the dashboard (`/claistore`, `/community`, `/api/community*`). Installed skills become dynamic tools. Config: `CLAISTORE_GITHUB_REPO`, `CLAISTORE_GITHUB_TOKEN`, `CLAISTORE_GITHUB_BRANCH`. See `src/claistore.py`.
+- **Voice output (TTS)** - `src/voice.py` converts text to speech (gTTS) for Telegram voice replies; the `/voice` handler toggle controls it.
+- **PA system (local TTS)** - Server-side announcements through the host speakers with backend auto-selection (Windows SAPI, `say`, `spd-say`, `espeak`).
+- **Model routing** - `src/model_router.py` picks between cloud providers and local Ollama models with failover.
+- **System monitoring** - `src/system_stats.py` and `src/system_prompt.md` expose host health to the dashboard.
+- **Interrupt hub** - `src/interrupt_hub.py` delivers messages sent while the agent is mid-run, injected between model/tool rounds instead of queueing behind the task.
+- **Activity tracking** - `src/activity_tracker.py` records per-user activity.
+- **OTA updates** - `src/ota_update.py` manages git-based over-the-air updates with rollback (see [OTA Updates](#ota-updates)).
+- **Universal GUI desktop skill** - optional community skill (`src/community/universal_gui_desktop_operator_skill.md`) for automating GUI apps via pyautogui/pytesseract.
 
 ## Advanced File Support
 
@@ -1311,20 +1333,28 @@ Current tool docs:
 
 - `src/docs/MAKING_TOOLS.md`
 - `src/tools/browser.md`
+- `src/tools/backup_creator.md`
 - `src/tools/cron.md`
 - `src/tools/docx_execute.md`
 - `src/tools/dynamic_tools.md`
 - `src/tools/email.md`
 - `src/tools/file_tools.md`
 - `src/tools/gateway.md`
+- `src/tools/git_commit.md`
 - `src/tools/google.md`
 - `src/tools/homeassistant.md`
+- `src/tools/log_viewer.md`
 - `src/tools/memory.md`
 - `src/tools/model_prefs.md`
+- `src/tools/ota.md`
+- `src/tools/pa_system.md`
+- `src/tools/port_checker.md`
 - `src/tools/presentation.md`
+- `src/tools/project_starter.md`
 - `src/tools/scrape_url.md`
 - `src/tools/spreadsheet_execute.md`
 - `src/tools/subagent.md`
+- `src/tools/system_info.md`
 - `src/tools/telegram.md`
 - `src/tools/terminal.md`
 - `src/tools/voice.md`
