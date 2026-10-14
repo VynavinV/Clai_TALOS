@@ -187,6 +187,25 @@ def _default_user_data_dir() -> str:
     return ""
 
 
+def _headless_launch_flags() -> list[str]:
+    """Launch Chrome headless when there is no X/Wayland display (servers).
+
+    GUI Chrome on a display-less host exits immediately with
+    "Missing X server or $DISPLAY", which previously surfaced as a
+    "debug endpoint did not become ready" timeout.
+    """
+    if sys.platform.startswith("linux"):
+        if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+            return [
+                "--headless=new",
+                "--no-sandbox",
+                "--disable-gpu",
+                "--disable-dev-shm-usage",
+                "--window-size=1920,1080",
+            ]
+    return []
+
+
 def _default_isolated_profile_dir() -> str:
     configured = (os.getenv("BROWSER_ISOLATED_PROFILE_DIR", "") or "").strip()
     if configured:
@@ -359,7 +378,7 @@ async def start_chrome_debug(
         f"--remote-debugging-port={effective_port}",
         "--no-first-run",
         "--no-default-browser-check",
-    ]
+    ] + _headless_launch_flags()
 
     if user_data_dir:
         cmd.append(f"--user-data-dir={user_data_dir}")

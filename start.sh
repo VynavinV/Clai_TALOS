@@ -131,6 +131,62 @@ install_python() {
   fi
 }
 
+# ── Step 3b: Ensure a Chromium-based browser (for browser automation) ──────
+#
+# The browser tools drive a real Chrome/Chromium over CDP. On a fresh server
+# none is installed, which used to surface as a confusing timeout later.
+# On headless hosts we additionally make sure the bot can actually render:
+# browser_automation.py auto-detects a missing DISPLAY and launches with
+# --headless=new (see _headless_launch_flags).
+ensure_browser() {
+  local browser_bin=""
+  for cmd in google-chrome google-chrome-stable chromium chromium-browser; do
+    browser_bin="$(command -v "$cmd" 2>/dev/null || true)"
+    if [[ -n "$browser_bin" ]]; then
+      ok "Browser automation: $browser_bin"
+      return 0
+    fi
+  done
+
+  info "No Chrome/Chromium found - installing one for browser automation..."
+  if [[ "$(uname)" == "Darwin" ]]; then
+    if command -v brew &>/dev/null; then
+      brew install --cask chromium 2>/dev/null || brew install chromium || true
+    else
+      warn "Install Chrome or Chromium manually: https://www.chromium.org/getting-involved/download-chromium/"
+      warn "Browser automation will be unavailable until then."
+    fi
+    return 0
+  fi
+
+  if command -v apt-get &>/dev/null; then
+    # Prefer the distro chromium package; snap-based chromium works but takes
+    # longer to install. Either way the bot finds it via PATH.
+    sudo apt-get update -qq
+    sudo apt-get install -y -qq chromium-browser 2>/dev/null \
+      || sudo snap install chromium 2>/dev/null \
+      || true
+  elif command -v dnf &>/dev/null; then
+    sudo dnf install -y chromium 2>/dev/null || true
+  elif command -v pacman &>/dev/null; then
+    sudo pacman -Sy --noconfirm chromium 2>/dev/null || true
+  elif command -v snap &>/dev/null; then
+    sudo snap install chromium 2>/dev/null || true
+  fi
+
+  # Re-check after install
+  for cmd in google-chrome google-chrome-stable chromium chromium-browser; do
+    browser_bin="$(command -v "$cmd" 2>/dev/null || true)"
+    if [[ -n "$browser_bin" ]]; then
+      ok "Browser automation: $browser_bin"
+      return 0
+    fi
+  done
+  warn "Chrome/Chromium install failed - browser automation will be unavailable."
+  warn "Install manually, then re-run start.sh."
+  return 0
+}
+
 # ── Step 3: Ensure Tailscale ──────────────────────────────────────────
 
 install_tailscale() {
@@ -744,7 +800,7 @@ headless_terminal_setup() {
   echo ""
   echo -e "  ${DIM}1) OpenAI        (gpt-4o, o3, o4-mini)${RESET}"
   echo -e "  ${DIM}2) Anthropic     (claude-sonnet-4, claude-3.5-sonnet)${RESET}"
-  echo -e "  ${DIM}3) Gemini        (gemini-2.5-pro, gemini-2.0-flash)${RESET}"
+  echo -e "  ${DIM}3) Gemini        (gemini-3.1-pro, gemini-3.1-flash-lite)${RESET}"
   echo -e "  ${DIM}4) ZhipuAI       (glm-5, glm-4v)${RESET}"
   echo -e "  ${DIM}5) NVIDIA        (glm4.7)${RESET}"
   echo -e "  ${DIM}6) Cerebras      (llama4-scout, llama-3.3-70b)${RESET}"
@@ -758,7 +814,7 @@ headless_terminal_setup() {
   case "$PROVIDER_NUM" in
     1) provider="openai";    env_key="OPENAI_API_KEY";    default_model="openai/gpt-4o" ;;
     2) provider="anthropic"; env_key="ANTHROPIC_API_KEY"; default_model="anthropic/claude-sonnet-4-20250514" ;;
-    3) provider="gemini";    env_key="GEMINI_API_KEY";    default_model="gemini/gemini-2.5-pro" ;;
+    3) provider="gemini";    env_key="GEMINI_API_KEY";    default_model="gemini/gemini-3.1-pro-preview" ;;
     4) provider="zhipu";     env_key="ZHIPUAI_API_KEY";   default_model="zhipu/glm-5" ;;
     5) provider="nvidia";    env_key="NVIDIA_API_KEY";    default_model="nvidia/z-ai/glm4.7" ;;
     6) provider="cerebras";  env_key="CEREBRAS_API_KEY";  default_model="cerebras/llama4-scout-17b-16e-instruct" ;;
@@ -879,6 +935,9 @@ ok "Python: $($PYTHON --version 2>&1)"
 
 install_tailscale
 
+# Browser automation needs a Chromium binary; installs one if missing.
+ensure_browser
+
 setup_venv "$PYTHON"
 ok "Virtual environment ready"
 
@@ -905,6 +964,7 @@ if [[ "$HEADLESS" == true ]]; then
   echo -e "${DIM}    - publish the dashboard over HTTPS (tailscale serve/funnel)${RESET}"
   echo -e "${DIM}    - install a background service so it survives logout and reboot${RESET}"
   echo -e "${DIM}    - install the 'clai' command${RESET}"
+  echo -e "${DIM}    - install Chromium for browser automation, if missing${RESET}"
   echo ""
   prompt AUTO_FIX "Allow setup to make these changes? [Y/n]" "Y"
   case "$AUTO_FIX" in

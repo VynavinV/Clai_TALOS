@@ -15,12 +15,21 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _next_run_iso(schedule: str, base: datetime | None = None) -> str:
+def _next_run_iso(schedule: str, base: datetime | None = None, timezone_name: str = "UTC") -> str:
     base_time = base or datetime.now(timezone.utc)
-    iterator = croniter(schedule, base_time)
+    try:
+        if timezone_name and timezone_name != "UTC":
+            from zoneinfo import ZoneInfo
+            base_local = base_time.astimezone(ZoneInfo(timezone_name))
+        else:
+            base_local = base_time
+    except Exception:
+        logger.warning("Unknown timezone %r, falling back to UTC", timezone_name)
+        base_local = base_time
+    iterator = croniter(schedule, base_local)
     next_time = iterator.get_next(datetime)
     if next_time.tzinfo is None:
-        next_time = next_time.replace(tzinfo=timezone.utc)
+        next_time = next_time.replace(tzinfo=base_local.tzinfo)
     return next_time.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
@@ -32,7 +41,7 @@ def schedule_job(
     timezone_name: str = "UTC",
 ) -> dict:
     croniter(schedule, datetime.now(timezone.utc))
-    next_run = _next_run_iso(schedule)
+    next_run = _next_run_iso(schedule, timezone_name=timezone_name)
     job_id = db.add_cron_job(user_id, name, schedule, command, timezone_name, next_run)
     return {
         "id": job_id,
@@ -134,7 +143,7 @@ async def run_due_jobs() -> list[dict]:
     results = []
     for job in due:
         last_run = _now_iso()
-        next_run = _next_run_iso(job["schedule"], datetime.now(timezone.utc))
+        next_run = _next_run_iso(job["schedule"], datetime.now(timezone.utc), timezone_name=job.get("timezone") or "UTC")
 
         if _is_self_prompt(job["command"]):
             summary = await _run_self_prompt(job["user_id"], job["name"], job["command"])

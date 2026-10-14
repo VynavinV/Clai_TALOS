@@ -45,3 +45,13 @@ node_modules/
 
 # Scratch space used by the system-check tool probes
 diagnostics_scratch/
+
+# Runtime/browser artifacts
+src/.mozilla/
+src/profiles.ini
+src/data/
+src/qa/
+src/updates/
+src/trace.log
+src/museion.html
+src/qa_museion.js
