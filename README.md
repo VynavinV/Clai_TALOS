@@ -396,6 +396,8 @@ This behavior is Linux-specific.
 - [HTTP Routes and API Reference](#http-routes-and-api-reference)
 - [Configuration Reference (.env)](#configuration-reference-env)
 - [Built-in Tool Reference](#built-in-tool-reference)
+- [Multi-Agent Orchestration](#multi-agent-orchestration)
+- [Long-Running Tasks](#long-running-tasks)
 - [Advanced File Support](#advanced-file-support)
 - [Google Ecosystem Integration](#google-ecosystem-integration)
 - [Himalaya Email Integration](#himalaya-email-integration)
@@ -456,7 +458,7 @@ TALOS is designed as the practical infrastructure this project needed from the b
 | Area | Capability | Main Modules |
 |------|------------|--------------|
 | Conversational interface | Telegram bot + web chat dashboard + WhatsApp + Discord | `src/telegram_bot.py`, `src/whatsapp_bot.py`, `src/discord_bot.py`, `src/bot_handlers.py`, `src/core.py` |
-| Orchestration | Tool-calling agent loop, subagent delegation, mid-run interrupts | `src/AI.py`, `src/interrupt_hub.py` |
+| Orchestration | Tool-calling agent loop, parallel and background subagent delegation, mid-run interrupts, long-task continuations | `src/AI.py`, `src/interrupt_hub.py` |
 | Skill ecosystem | Claistore GitHub-backed skill marketplace + community hub | `src/claistore.py`, `src/community_hub/` |
 | Persistence | SQLite settings/history/summaries | `src/db.py` |
 | Memory | Keyword extraction, relevance ranking | `src/memory.py` |
@@ -866,6 +868,42 @@ Beyond the tools table above, TALOS ships these runtime integrations:
 - **Activity tracking** - `src/activity_tracker.py` records per-user activity.
 - **OTA updates** - `src/ota_update.py` manages git-based over-the-air updates with rollback (see [OTA Updates](#ota-updates)).
 - **Universal GUI desktop skill** - optional community skill (`src/community/universal_gui_desktop_operator_skill.md`) for automating GUI apps via pyautogui/pytesseract.
+
+## Multi-Agent Orchestration
+
+The orchestrator can delegate work to subagents with `spawn_subagent` and monitor them with `subagent_status`. See the full guide in `src/tools/subagent.md`.
+
+### Foreground vs background
+
+- **Foreground** (default): the orchestrator blocks until the subagent finishes and gets its result as the tool output. Best for short, focused passes (research, review, planning).
+- **Background** (`background: true`): the tool returns immediately with a `subagent_id`. The subagent keeps working detached while the orchestrator continues other work, its final result is delivered automatically between rounds as a `[SUBAGENT RESULT]` message, and progress can be checked any time with `subagent_status`. Use this for anything expected to run over ~15 minutes (idle timeout up to 86400s; set `timeout_s` explicitly for long jobs, e.g. 3600).
+
+### Parallelism
+
+Multiple `spawn_subagent` calls in a single orchestrator response run in PARALLEL — useful for fanning out independent research or execution tasks. Up to `BACKGROUND_SUBAGENT_MAX` (default 4) background subagents can be in flight at once.
+
+### Subagent behavior
+
+- Each subagent gets its own role label (e.g. researcher, planner, reviewer, executor) and signs Telegram updates with it in brackets.
+- Subagents keep the user posted directly on Telegram: one optional start line, one short update per real milestone (or roughly every 10 minutes on long tasks), and one completion summary. Step-by-step log spam is explicitly rejected.
+- Long-running subagents (idle timeout >= 30 minutes) get a larger update budget automatically.
+- Subagents get their own round budgets with automatic continuations while they make progress, so long subtasks keep going instead of dying at a step cap.
+- Subagents cannot spawn other subagents (no recursive delegation).
+
+### Mid-run interrupts
+
+Messages sent while the agent is mid-run are not queued behind the task: `src/interrupt_hub.py` injects them between model/tool rounds so you can redirect, add info, or cancel while work is in progress.
+
+## Long-Running Tasks
+
+TALOS is built to keep working on a task for as long as it takes rather than dying at a step cap.
+
+- **Round budgets and continuations**: an orchestrator run gets fresh round budgets (`MAX_TASK_CONTINUATIONS`, default 6) as long as it keeps making progress. Each continuation also grants two extra Telegram updates.
+- **Stuck recovery (autoinject)**: a watchdog checks for progress every `TALOS_STUCK_CHECK_INTERVAL_S` (default 10s). If a run goes quiet for `TALOS_STUCK_THRESHOLD_S` (default 90s), a recovery prompt is injected automatically; if it stays stuck past `TALOS_STUCK_CANCEL_S` (default 600s), the run is cancelled (or auto-restarted, see [Recovery watchdog](#recovery-watchdog-autoinject)).
+- **Automatic progress updates**: during long tasks the runtime sends a Telegram status line ("Still working - 12 min in. Latest: ...") whenever the agent has been quiet past the silence threshold (default 90s, minimum 5 min gap between updates). Tune or disable with the progress notifier knobs.
+- **Idle wall-clock timeout**: `MAX_ORCHESTRATOR_WALL_TIMEOUT_S` (default 1800s) bounds idle time only - active work resets it, so genuinely busy tasks are never cut off. Set `ORCHESTRATOR_TIMEOUT_ENABLED=0` to disable the timeout entirely.
+- **Context hygiene**: tool results are truncated to `MAX_TOOL_RESULT_CHARS`, and past `MAX_RUN_CONTEXT_CHARS` older tool results inside a run are compacted so a long task does not blow the model context window.
+- **Model call patience**: reasoning models think slowly, so each model call gets a generous idle timeout (`MODEL_CALL_TIMEOUT_S`, default 300s) with retries of the same model on timeout - no mid-task model switching.
 
 ## Advanced File Support
 
