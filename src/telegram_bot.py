@@ -45,6 +45,7 @@ import claistore
 import system_stats
 import whatsapp_bot
 import discord_bot
+import webrtc_audio
 from auth_policy import MIN_DASHBOARD_PASSWORD_LENGTH, validate_dashboard_password
 
 SCRIPT_DIR = app_paths.resource_root()
@@ -209,6 +210,7 @@ async def _post_init(application: Application) -> None:
         BotCommand("speed", "Set response speed (quick|fast|normal)"),
         BotCommand("reasoning", "Toggle deep reasoning (on|off)"),
         BotCommand("fast", "Use fast model for next message"),
+        BotCommand("voice", "Toggle voice mode (respond with voice)"),
         BotCommand("clear", "Clear chat history"),
         BotCommand("help", "Show help message"),
         BotCommand("checkupdate", "Check for OTA updates"),
@@ -4323,6 +4325,78 @@ async def handle_api_restart(request):
         return web.json_response({"error": "Restart failed."}, status=500)
 
 
+async def handle_call_page(request):
+    """Serve the voice call web UI."""
+    # Check authentication
+    token = request.cookies.get(SESSION_COOKIE)
+    if not validate_session(token):
+        return web.HTTPFound("/login")
+
+    # Read the call.html template
+    call_html_path = os.path.join(WEB_DIR, "call.html")
+    try:
+        with open(call_html_path, "r", encoding="utf-8") as f:
+            html_content = f.read()
+        return web.Response(text=html_content, content_type="text/html")
+    except Exception as e:
+        logger.error(f"Failed to load call.html: {e}")
+        return web.Response(text="Call page not available", status=500)
+
+
+async def handle_webrtc_signaling(request):
+    """WebSocket endpoint for WebRTC signaling - delegates to webrtc_audio module."""
+    # Check authentication
+    token = request.cookies.get(SESSION_COOKIE)
+    if not validate_session(token):
+        ws = web.WebSocketResponse()
+        await ws.prepare(request)
+        await ws.close(code=4001, message=b'Authentication required')
+        return ws
+
+    # Get username from session
+    session = sessions.get(token)
+    username = session.get('username') if session else None
+
+    if not username:
+        ws = web.WebSocketResponse()
+        await ws.prepare(request)
+        await ws.close(code=4001, message=b'Authentication required')
+        return ws
+
+    # Store username in request for webrtc_audio to access
+    request['username'] = username
+
+    # Delegate to webrtc_audio module
+    return await webrtc_audio.handle_webrtc_signaling(request)
+
+
+async def handle_incoming_call_ws(request):
+    """WebSocket endpoint for incoming call notifications - delegates to webrtc_audio module."""
+    # Check authentication
+    token = request.cookies.get(SESSION_COOKIE)
+    if not validate_session(token):
+        ws = web.WebSocketResponse()
+        await ws.prepare(request)
+        await ws.close(code=4001, message=b'Authentication required')
+        return ws
+
+    # Get username from session
+    session = sessions.get(token)
+    username = session.get('username') if session else None
+
+    if not username:
+        ws = web.WebSocketResponse()
+        await ws.prepare(request)
+        await ws.close(code=4001, message=b'Authentication required')
+        return ws
+
+    # Store username in request for webrtc_audio to access
+    request['username'] = username
+
+    # Delegate to webrtc_audio module
+    return await webrtc_audio.handle_incoming_call_ws(request)
+
+
 def _ollama_models_to_keep_warm() -> list[str]:
     """The Ollama models TALOS is actually configured to use, if any."""
     main_model = os.getenv("MAIN_MODEL", "").strip()
@@ -4368,7 +4442,7 @@ async def main():
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(self), geolocation=()"
         if _is_secure(request):
             response.headers["Strict-Transport-Security"] = "max-age=31536000"
         # Pages carry session-scoped CSRF tokens and APIs return private data;
@@ -4379,7 +4453,7 @@ async def main():
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; script-src 'self' 'unsafe-inline'; "
             "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
-            "connect-src 'self'; font-src 'self'"
+            "connect-src 'self' wss: ws:; font-src 'self'"
         )
         return response
 
@@ -4455,6 +4529,9 @@ async def main():
     web_app.router.add_post("/api/diagnostics/autorepair", handle_api_diagnostics_autorepair)
     web_app.router.add_post("/api/reload", handle_api_reload)
     web_app.router.add_post("/api/restart", handle_api_restart)
+    web_app.router.add_get("/call", handle_call_page)
+    web_app.router.add_get("/api/webrtc", handle_webrtc_signaling)
+    web_app.router.add_get("/api/incoming-call", handle_incoming_call_ws)
     web_app.router.add_static("/static", STATIC_DIR)
     gateway.setup_routes(web_app, auth_decorator=require_auth)
     whatsapp_bot.setup_routes(web_app)

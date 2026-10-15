@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Call - TALOS AI</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+        }
+        .container {
+            text-align: center;
+            max-width: 400px;
+            padding: 2rem;
+        }
+        .avatar {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.2);
+            margin: 0 auto 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 3rem;
+            backdrop-filter: blur(10px);
+            border: 3px solid rgba(255, 255, 255, 0.3);
+        }
+        .status {
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+            min-height: 2rem;
+        }
+        .timer {
+            font-size: 1rem;
+            opacity: 0.8;
+            margin-bottom: 2rem;
+        }
+        .controls {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+        }
+        button {
+            width: 70px;
+            height: 70px;
+            border-radius: 50%;
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            transition: all 0.3s ease;
+            background: rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(10px);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+        }
+        button:hover {
+            transform: scale(1.1);
+            background: rgba(255, 255, 255, 0.3);
+        }
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .call-btn {
+            background: #4caf50;
+            border-color: #4caf50;
+        }
+        .call-btn:hover {
+            background: #45a049;
+        }
+        .hangup-btn {
+            background: #f44336;
+            border-color: #f44336;
+        }
+        .hangup-btn:hover {
+            background: #da190b;
+        }
+        .muted {
+            background: rgba(255, 255, 255, 0.1);
+        }
+        .transcript {
+            margin-top: 2rem;
+            padding: 1rem;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+            min-height: 100px;
+            text-align: left;
+            font-size: 0.9rem;
+            line-height: 1.5;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .visualizer {
+            margin: 1rem 0;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+        }
+        .bar {
+            width: 4px;
+            background: rgba(255, 255, 255, 0.6);
+            border-radius: 2px;
+            animation: pulse 1s ease-in-out infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { height: 20%; }
+            50% { height: 100%; }
+        }
+        .bar:nth-child(1) { animation-delay: 0s; }
+        .bar:nth-child(2) { animation-delay: 0.1s; }
+        .bar:nth-child(3) { animation-delay: 0.2s; }
+        .bar:nth-child(4) { animation-delay: 0.3s; }
+        .bar:nth-child(5) { animation-delay: 0.4s; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="avatar">🤖</div>
+        <div class="status" id="status">Ready to call</div>
+        <div class="timer" id="timer"></div>
+
+        <div class="visualizer" id="visualizer" style="display: none;">
+            <div class="bar"></div>
+            <div class="bar"></div>
+            <div class="bar"></div>
+            <div class="bar"></div>
+            <div class="bar"></div>
+        </div>
+
+        <div class="controls">
+            <button id="callBtn" class="call-btn" onclick="startCall()">📞</button>
+            <button id="answerBtn" class="call-btn" onclick="answerIncomingCall()" style="display: none;">✓</button>
+            <button id="declineBtn" class="hangup-btn" onclick="declineIncomingCall()" style="display: none;">✗</button>
+            <button id="hangupBtn" class="hangup-btn" onclick="endCall()" style="display: none;">📴</button>
+            <button id="muteBtn" class="muted" onclick="toggleMute()" style="display: none;">🎤</button>
+        </div>
+
+        <div class="transcript" id="transcript"></div>
+    </div>
+
+    <script>
+        let peerConnection = null;
+        let localStream = null;
+        let remoteStream = null;
+        let isMuted = false;
+        let callStartTime = null;
+        let timerInterval = null;
+        let incomingCallWs = null;
+        let incomingCallMessage = null;
+
+        let incomingCallReconnecting = false;
+
+        // Connect to incoming call notifications WebSocket
+        function connectIncomingCallWs() {
+            if (incomingCallReconnecting) return;
+            const wsUrl = `wss://${window.location.host}/api/incoming-call`;
+            incomingCallWs = new WebSocket(wsUrl);
+
+            incomingCallWs.onopen = () => {
+                console.log('Connected to incoming call notifications');
+            };
+
+            incomingCallWs.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (data.type === 'incoming-call') {
+                    handleIncomingCall(data.message);
+                }
+            };
+
+            incomingCallWs.onerror = (error) => {
+                console.error('Incoming call WebSocket error:', error);
+            };
+
+            incomingCallWs.onclose = () => {
+                if (incomingCallReconnecting) return; // page unloading
+                console.log('Incoming call WebSocket closed, reconnecting...');
+                setTimeout(connectIncomingCallWs, 5000);
+            };
+        }
+
+        function handleIncomingCall(message) {
+            // Show incoming call UI
+            incomingCallMessage = message;
+            updateStatus('Incoming call...');
+
+            // Show answer button
+            const callBtn = document.getElementById('callBtn');
+            const answerBtn = document.getElementById('answerBtn');
+            const declineBtn = document.getElementById('declineBtn');
+
+            callBtn.style.display = 'none';
+            answerBtn.style.display = 'flex';
+            declineBtn.style.display = 'flex';
+
+            // Play ringtone (if browser allows)
+            playRingtone();
+
+            // Show message
+            const transcript = document.getElementById('transcript');
+            const div = document.createElement('div');
+            div.style.color = '#ffd700';
+            div.textContent = '📞 ' + message;
+            transcript.appendChild(div);
+        }
+
+        function playRingtone() {
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            audioContext.resume().then(() => {
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+                oscillator.frequency.value = 440;
+                oscillator.type = 'sine';
+                gainNode.gain.value = 0.3;
+                oscillator.start();
+                setTimeout(() => { oscillator.stop(); audioContext.close(); }, 1000);
+            });
+        }
+
+        function answerIncomingCall() {
+            // Hide answer/decline buttons
+            document.getElementById('answerBtn').style.display = 'none';
+            document.getElementById('declineBtn').style.display = 'none';
+
+            // Start the call
+            startCall();
+        }
+
+        function declineIncomingCall() {
+            // Hide answer/decline buttons
+            document.getElementById('answerBtn').style.display = 'none';
+            document.getElementById('declineBtn').style.display = 'none';
+            document.getElementById('callBtn').style.display = 'flex';
+
+            updateStatus('Call declined');
+            incomingCallMessage = null;
+        }
+
+        async function startCall() {
+            try {
+                updateStatus('Requesting microphone...');
+
+                // Get user media
+                localStream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    }
+                });
+
+                updateStatus('Connecting...');
+
+                // Create peer connection
+                peerConnection = new RTCPeerConnection({
+                    iceServers: []  // Tailscale network - direct connection
+                });
+
+                // Add local audio track
+                localStream.getTracks().forEach(track => {
+                    peerConnection.addTrack(track, localStream);
+                });
+
+                // Handle incoming audio
+                remoteStream = new MediaStream();
+                const remoteAudio = new Audio();
+                remoteStream && (remoteAudio.srcObject = remoteStream);
+                peerConnection.ontrack = (event) => {
+                    remoteStream.addTrack(event.track);
+                    remoteAudio.play().catch(e => console.warn('Autoplay blocked:', e));
+                };
+
+                // Setup WebSocket for signaling BEFORE creating offer
+                // so ICE candidates can be sent immediately
+                const ws = new WebSocket(`wss://${window.location.host}/api/webrtc`);
+                peerConnection.signalingWs = ws;
+
+                // Buffer ICE candidates until WS opens
+                const pendingCandidates = [];
+
+                peerConnection.onicecandidate = (event) => {
+                    if (event.candidate) {
+                        const msg = JSON.stringify({
+                            type: 'ice-candidate',
+                            candidate: event.candidate
+                        });
+                        if (ws.readyState === WebSocket.OPEN) {
+                            ws.send(msg);
+                        } else {
+                            pendingCandidates.push(msg);
+                        }
+                    }
+                };
+
+                // Create offer
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+
+                ws.onopen = () => {
+                    ws.send(JSON.stringify({
+                        type: 'offer',
+                        sdp: offer.sdp,
+                        type: offer.type
+                    }));
+                    // Send buffered ICE candidates
+                    pendingCandidates.forEach(msg => ws.send(msg));
+                    pendingCandidates.length = 0;
+                };
+
+                ws.onmessage = async (event) => {
+                    const data = JSON.parse(event.data);
+
+                    if (data.type === 'answer') {
+                        await peerConnection.setRemoteDescription(
+                            new RTCSessionDescription({ sdp: data.sdp, type: data.type })
+                        );
+                        updateStatus('Connected');
+                        document.getElementById('visualizer').style.display = 'flex';
+                        startTimer();
+                    } else if (data.type === 'transcript') {
+                        addTranscript(data.text);
+                    }
+                };
+
+                ws.onerror = (error) => {
+                    console.error('WebSocket error:', error);
+                    updateStatus('Connection failed');
+                    endCall();
+                };
+
+                // Show hangup button
+                document.getElementById('callBtn').style.display = 'none';
+                document.getElementById('hangupBtn').style.display = 'flex';
+                document.getElementById('muteBtn').style.display = 'flex';
+
+            } catch (error) {
+                console.error('Call error:', error);
+                updateStatus('Call failed: ' + error.message);
+                cleanup();
+            }
+        }
+
+        function endCall() {
+            if (peerConnection && peerConnection.signalingWs) {
+                peerConnection.signalingWs.close();
+            }
+            cleanup();
+            updateStatus('Call ended');
+        }
+
+        function cleanup() {
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                localStream = null;
+            }
+            if (peerConnection) {
+                peerConnection.close();
+                peerConnection = null;
+            }
+            stopTimer();
+            document.getElementById('visualizer').style.display = 'none';
+            document.getElementById('callBtn').style.display = 'flex';
+            document.getElementById('hangupBtn').style.display = 'none';
+            document.getElementById('muteBtn').style.display = 'none';
+        }
+
+        function toggleMute() {
+            if (!localStream) return;
+
+            isMuted = !isMuted;
+            localStream.getAudioTracks().forEach(track => {
+                track.enabled = !isMuted;
+            });
+
+            const muteBtn = document.getElementById('muteBtn');
+            muteBtn.textContent = isMuted ? '🔇' : '🎤';
+            muteBtn.classList.toggle('muted', isMuted);
+        }
+
+        function sendSignalingMessage(data) {
+            if (peerConnection && peerConnection.signalingWs) {
+                peerConnection.signalingWs.send(JSON.stringify(data));
+            }
+        }
+
+        function updateStatus(text) {
+            document.getElementById('status').textContent = text;
+        }
+
+        function startTimer() {
+            callStartTime = Date.now();
+            timerInterval = setInterval(() => {
+                const elapsed = Math.floor((Date.now() - callStartTime) / 1000);
+                const minutes = Math.floor(elapsed / 60);
+                const seconds = elapsed % 60;
+                document.getElementById('timer').textContent =
+                    `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            }, 1000);
+        }
+
+        function stopTimer() {
+            if (timerInterval) {
+                clearInterval(timerInterval);
+                timerInterval = null;
+            }
+            document.getElementById('timer').textContent = '';
+        }
+
+        function addTranscript(text) {
+            const transcript = document.getElementById('transcript');
+            const div = document.createElement('div');
+            div.textContent = text;
+            transcript.appendChild(div);
+            transcript.scrollTop = transcript.scrollHeight;
+        }
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            incomingCallReconnecting = true; // prevent reconnect after close
+            if (peerConnection) {
+                endCall();
+            }
+            if (incomingCallWs) {
+                incomingCallWs.close();
+            }
+        });
+
+        // Connect to incoming call notifications on page load
+        window.addEventListener('load', () => {
+            connectIncomingCallWs();
+        });
+    </script>
+</body>
+</html>

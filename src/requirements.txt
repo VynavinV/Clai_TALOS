@@ -14,3 +14,7 @@ scrapy
 pandas
 openpyxl
 pytest
+aiortc
+numpy
+discord.py[voice]
+PyNaCl

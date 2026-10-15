@@ -37,6 +37,7 @@ HELP_TEXT = (
     "/speed - Set response speed (quick|fast|normal)\n"
     "/reasoning - Toggle deep reasoning (on|off)\n"
     "/fast - Use Cerebras for next message\n"
+    "/voice - Toggle voice mode (respond with voice)\n"
     "/clear - Clear chat history\n"
     "/help - Show this message\n"
     "Dashboard: http://localhost:8080"
@@ -481,6 +482,20 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(HELP_TEXT)
 
 
+async def cmd_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Toggle voice mode on/off."""
+    current = context.user_data.get("voice_mode", False)
+    context.user_data["voice_mode"] = not current
+    new_state = not current
+    status = "ON" if new_state else "OFF"
+    message = f"Voice mode {status}. "
+    if new_state:
+        message += "I'll respond with voice messages."
+    else:
+        message += "I'll respond with text messages."
+    await update.message.reply_text(message)
+
+
 async def cmd_checkupdate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Check for OTA updates."""
     import ota_update
@@ -842,6 +857,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     uid = update.effective_user.id
     send_func = _make_send_func(chat)
 
+    # If voice mode is on, wrap send_func to force voice responses
+    if context.user_data.get("voice_mode", False):
+        async def voice_send_func(msg="", voice=False, **kwargs):
+            await send_func(msg, voice=True, **kwargs)
+        send_func = voice_send_func
+
     model_override = context.user_data.pop("_fast_next", None)
 
     async def _runner():
@@ -906,10 +927,17 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
             await update.message.reply_text(f"Transcription: {text}")
 
+            # Enable voice mode for this conversation
+            context.user_data["voice_mode"] = True
+
             send_func = _make_send_func(chat)
 
+            # Wrap send_func to force voice responses during voice conversations
+            async def voice_send_func(msg="", voice=False, **kwargs):
+                await send_func(msg, voice=True, **kwargs)
+
             async def _runner():
-                await core.process_message(uid, text, send_func)
+                await core.process_message(uid, text, voice_send_func)
 
             await _run_with_user_lock(uid, chat, _runner)
 
@@ -957,6 +985,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
             send_func = _make_send_func(chat)
 
+            # If voice mode is on, wrap send_func to force voice responses
+            if context.user_data.get("voice_mode", False):
+                async def voice_send_func(msg="", voice=False, **kwargs):
+                    await send_func(msg, voice=True, **kwargs)
+                send_func = voice_send_func
+
             async def _runner():
                 await core.process_image_message(uid, caption, b64_data, send_func)
 
@@ -979,6 +1013,7 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("reasoning", cmd_reasoning))
     app.add_handler(CommandHandler("clear", cmd_clear))
     app.add_handler(CommandHandler("fast", cmd_fast))
+    app.add_handler(CommandHandler("voice", cmd_voice))
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("checkupdate", cmd_checkupdate))
     app.add_handler(CommandHandler("update", cmd_update))

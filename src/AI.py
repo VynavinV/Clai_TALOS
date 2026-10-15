@@ -1777,6 +1777,25 @@ def _get_all_tools(include_subagent: bool = True, include_telegram: bool = False
         tools.append({
             "type": "function",
             "function": {
+                "name": "initiate_voice_call",
+                "description": (
+                    "Initiate a proactive voice call to the user via the web app. "
+                    "Use when you need user input during a task, want to clarify requirements, "
+                    "or need to discuss something complex. The user will receive an incoming call notification."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "username": {"type": "string", "description": "The username of the user to call"},
+                        "message": {"type": "string", "description": "The message to display with the incoming call (e.g., 'I need your input on the deployment strategy')"}
+                    },
+                    "required": ["username"]
+                }
+            }
+        })
+        tools.append({
+            "type": "function",
+            "function": {
                 "name": "send_telegram_photo",
                 "description": (
                     "Send an existing image file to the user on Telegram. "
@@ -2492,6 +2511,24 @@ async def _execute_tool_call(
                 await _send_via_send_func(send_func, text, voice=True)
                 return json.dumps({"sent": True})
             return json.dumps({"error": "No Telegram send function available"})
+
+        elif tool_name == "initiate_voice_call":
+            # Initiate a proactive voice call to the user
+            username = str(tool_args.get("username", "")).strip()
+            message = str(tool_args.get("message", "I need your input on something. Can we talk?")).strip()
+            if not username:
+                return json.dumps({"error": "No username provided"})
+
+            # Try to initiate web call
+            try:
+                import webrtc_audio
+                success = await webrtc_audio.initiate_proactive_web_call(username, message)
+                if success:
+                    return json.dumps({"sent": True, "method": "web"})
+                else:
+                    return json.dumps({"sent": False, "error": "User not connected"})
+            except Exception as e:
+                return json.dumps({"error": f"Failed to initiate call: {e}"})
 
         elif tool_name == "send_telegram_photo":
             path = str(tool_args.get("path", "")).strip()
