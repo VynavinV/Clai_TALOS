@@ -190,17 +190,60 @@ if not defined TAILSCALE_BIN if exist "%LOCALAPPDATA%\Tailscale\tailscale.exe" s
 
 if defined TAILSCALE_BIN (
     "%TAILSCALE_BIN%" status >nul 2>nul
-    if %ERRORLEVEL% equ 0 (
+    if !ERRORLEVEL! equ 0 (
         "%TAILSCALE_BIN%" funnel --bg %WEB_PORT% >nul 2>nul
-        if %ERRORLEVEL% equ 0 (
+        if !ERRORLEVEL! equ 0 (
             echo [  OK] Tailscale Funnel active
         )
     )
 ) else (
-    echo [ info] Tailscale not installed. Install from: https://tailscale.com/download
-    echo [ info] If you just installed it, restart this terminal and run start.bat again.
-    echo [ info] You can set this up later from the dashboard.
+    echo [info] Tailscale not found. Attempting auto-install...
+    where winget >nul 2>nul
+    if !ERRORLEVEL! neq 0 (
+        echo [ info] Tailscale not installed and winget not available.
+        echo [ info] Install from: https://tailscale.com/download
+        echo [ info] Then restart this terminal and run start.bat again.
+        goto :tailscale_done
+    )
+    echo [setup] Installing Tailscale via winget...
+    winget install --id Tailscale.Tailscale --accept-source-agreements --accept-package-agreements --silent
+    if !ERRORLEVEL! neq 0 (
+        echo [warn] Could not install Tailscale via winget.
+        echo [ info] Install manually: https://tailscale.com/download
+        goto :tailscale_done
+    )
+    echo [  OK] Tailscale installed.
+
+    :: Refresh PATH to find newly installed tailscale
+    set "TSPATH=%ProgramFiles%\Tailscale"
+    if exist "!TSPATH!\tailscale.exe" (
+        set "PATH=!TSPATH!;!PATH!"
+        set "TAILSCALE_BIN=!TSPATH!\tailscale.exe"
+    ) else (
+        :: Retry detection after install
+        where tailscale >nul 2>nul
+        if !ERRORLEVEL! equ 0 set "TAILSCALE_BIN=tailscale"
+    )
+
+    if defined TAILSCALE_BIN (
+        echo [ info] Starting Tailscale...
+        "!TAILSCALE_BIN!" up >nul 2>nul
+        if !ERRORLEVEL! equ 0 (
+            "!TAILSCALE_BIN!" funnel --bg %WEB_PORT% >nul 2>nul
+            if !ERRORLEVEL! equ 0 (
+                echo [  OK] Tailscale Funnel active
+            )
+        ) else (
+            echo [ info] Tailscale installed. Run: tailscale up
+            echo [ info] Then: tailscale funnel %WEB_PORT%
+        )
+    ) else (
+        echo [warn] Tailscale was installed but could not be found in PATH.
+        echo [ info] Restart this terminal and run start.bat again.
+    )
 )
+
+:tailscale_done
 
 :: ── Step 7: Install service or run foreground ────────────────────────
 
