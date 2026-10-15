@@ -63,6 +63,9 @@ _MAX_TIMEOUT_MS = 180000
 _session_lock = asyncio.Lock()
 _session = None
 _launched_process = None
+_xvfb_process = None
+_vnc_process = None
+_xvfb_display = None
 
 
 class BrowserSession:
@@ -255,7 +258,12 @@ def _headless_launch_flags() -> list[str]:
     GUI Chrome on a display-less host exits immediately with
     "Missing X server or $DISPLAY", which previously surfaced as a
     "debug endpoint did not become ready" timeout.
+
+    Set BROWSER_HEADED=1 to force headed mode (requires Xvfb on servers).
     """
+    if _to_bool(os.getenv("BROWSER_HEADED", "0"), False):
+        return []  # Headed mode - no headless flags
+
     if sys.platform.startswith("linux"):
         if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
             return [
@@ -266,6 +274,69 @@ def _headless_launch_flags() -> list[str]:
                 "--window-size=1920,1080",
             ]
     return []
+
+
+def _ensure_xvfb_display() -> str | None:
+    """Start Xvfb if BROWSER_HEADED=1 and no DISPLAY is set. Returns DISPLAY value."""
+    global _xvfb_process, _xvfb_display
+
+    if not _to_bool(os.getenv("BROWSER_HEADED", "0"), False):
+        return None
+
+    if os.environ.get("DISPLAY"):
+        return None  # Already have a display
+
+    if _xvfb_display:
+        return _xvfb_display
+
+    if not shutil.which("Xvfb"):
+        logger.warning("BROWSER_HEADED=1 but Xvfb not found. Install: apt install xvfb")
+        return None
+
+    try:
+        display_num = ":99"
+        proc = subprocess.Popen(
+            ["Xvfb", display_num, "-screen", "0", "1920x1080x24", "-ac"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        _xvfb_process = proc
+        _xvfb_display = display_num
+        os.environ["DISPLAY"] = display_num
+        logger.info("Started Xvfb on display %s (PID %d)", display_num, proc.pid)
+        time.sleep(1)  # Give Xvfb time to initialize
+        return display_num
+    except Exception as exc:
+        logger.error("Failed to start Xvfb: %s", exc)
+        return None
+
+
+def _start_vnc_server(display: str) -> None:
+    """Start x11vnc if available and BROWSER_VNC=1."""
+    global _vnc_process
+
+    if not _to_bool(os.getenv("BROWSER_VNC", "0"), False):
+        return
+
+    if not shutil.which("x11vnc"):
+        logger.warning("BROWSER_VNC=1 but x11vnc not found. Install: apt install x11vnc")
+        return
+
+    vnc_port = _to_int(os.getenv("BROWSER_VNC_PORT", "5900"), 5900, 1, 65535)
+
+    try:
+        proc = subprocess.Popen(
+            ["x11vnc", "-display", display, "-rfbport", str(vnc_port),
+             "-forever", "-shared", "-noxdamage"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        _vnc_process = proc
+        logger.info("Started x11vnc on port %d (PID %d)", vnc_port, proc.pid)
+    except Exception as exc:
+        logger.error("Failed to start x11vnc: %s", exc)
 
 
 def _default_isolated_profile_dir() -> str:
@@ -373,7 +444,7 @@ def _runtime_connect_defaults() -> dict:
 
 
 async def _close_session_locked(terminate_launched: bool = False) -> None:
-    global _session, _launched_process
+    global _session, _launched_process, _xvfb_process, _vnc_process, _xvfb_display
 
     if _session is not None:
         try:
@@ -397,6 +468,33 @@ async def _close_session_locked(terminate_launched: bool = False) -> None:
         except Exception:
             pass
         _launched_process = None
+
+    if _vnc_process is not None:
+        try:
+            if _vnc_process.poll() is None:
+                _vnc_process.terminate()
+                try:
+                    _vnc_process.wait(timeout=2)
+                except Exception:
+                    _vnc_process.kill()
+        except Exception:
+            pass
+        _vnc_process = None
+
+    if _xvfb_process is not None:
+        try:
+            if _xvfb_process.poll() is None:
+                _xvfb_process.terminate()
+                try:
+                    _xvfb_process.wait(timeout=2)
+                except Exception:
+                    _xvfb_process.kill()
+        except Exception:
+            pass
+        _xvfb_process = None
+        if _xvfb_display:
+            os.environ.pop("DISPLAY", None)
+            _xvfb_display = None
 
 
 async def start_chrome_debug(
@@ -434,6 +532,11 @@ async def start_chrome_debug(
     endpoint_port = _maybe_port_from_endpoint(endpoint)
     if endpoint_port:
         effective_port = endpoint_port
+
+    # Start Xvfb + VNC if headed mode requested on a display-less host
+    display = _ensure_xvfb_display()
+    if display:
+        _start_vnc_server(display)
 
     cmd = [
         chrome_binary,

@@ -124,6 +124,9 @@ def ensure_browser_env_defaults(env: dict[str, str]) -> bool:
         "BROWSER_PROFILE_DIRECTORY": "auto",
         "BROWSER_STARTUP_TIMEOUT_S": "20",
         "BROWSER_ISOLATED_PROFILE_DIR": _default_isolated_profile_dir(),
+        "BROWSER_HEADED": "1",
+        "BROWSER_VNC": "1",
+        "BROWSER_VNC_PORT": "5900",
     }
 
     chrome_user_data = _default_chrome_user_data_dir()

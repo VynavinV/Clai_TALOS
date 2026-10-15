@@ -171,10 +171,14 @@ ensure_browser() {
       || sudo apt-get install -y -qq chromium-browser 2>/dev/null \
       || sudo snap install chromium 2>/dev/null \
       || true
+    # Install Xvfb + x11vnc for headed mode on headless servers
+    sudo apt-get install -y -qq xvfb x11vnc 2>/dev/null || true
   elif command -v dnf &>/dev/null; then
     sudo dnf install -y chromium 2>/dev/null || true
+    sudo dnf install -y xorg-x11-server-Xvnc x11vnc 2>/dev/null || true
   elif command -v pacman &>/dev/null; then
     sudo pacman -Sy --noconfirm chromium 2>/dev/null || true
+    sudo pacman -Sy --noconfirm xorg-server-xvfb x11vnc 2>/dev/null || true
   elif command -v snap &>/dev/null; then
     sudo snap install chromium 2>/dev/null || true
   fi

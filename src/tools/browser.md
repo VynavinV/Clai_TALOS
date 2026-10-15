@@ -99,6 +99,7 @@ Disconnect the active browser session.
 - Isolated fallback profile data is stored outside the repo by default; override with `BROWSER_ISOLATED_PROFILE_DIR`.
 - **Structured DOM state:** for grids, datasets, computed styles, or synthetic events, use the `eval` step — do not fall back to writing one-off Python/Playwright scripts. The `eval` action exists precisely so interactive-webapp tasks stay inside browser_run.
 - **Python-side browser tool calls are audited** to `logs/audit.log` (same file as terminal commands), so post-mortems cover the full session, not just shell activity.
+- **Headed mode on headless servers:** Set `BROWSER_HEADED=1` to launch Chrome in headed mode (auto-starts Xvfb on servers without a display). Install: `apt install xvfb`. For remote access, set `BROWSER_VNC=1` (install: `apt install x11vnc`), then VNC to port 5900 (override with `BROWSER_VNC_PORT`). Log into Google once manually via VNC; the bot reuses the persistent profile for all future sessions.
 
 ## Troubleshooting
 
