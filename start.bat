@@ -5,8 +5,13 @@ cd /d "%~dp0src"
 
 set "WEB_PORT=8080"
 set "HEADLESS=0"
+set "INSTALL_SERVICE=0"
 
 if /I "%~1"=="--headless" set "HEADLESS=1"
+if /I "%~1"=="--install-service" (
+    set "HEADLESS=1"
+    set "INSTALL_SERVICE=1"
+)
 
 if exist ".env" (
     for /f "usebackq tokens=1,* delims==" %%A in (".env") do (
@@ -16,19 +21,6 @@ if exist ".env" (
 set "WEB_PORT=%WEB_PORT:\"=%"
 set "WEB_PORT=%WEB_PORT: =%"
 
-set "PORT_IN_USE="
-for /f "tokens=*" %%L in ('netstat -ano ^| findstr /R /C:":%WEB_PORT% .*LISTENING"') do (
-    set "PORT_IN_USE=1"
-)
-
-if defined PORT_IN_USE (
-    echo [warn] Port %WEB_PORT% is already in use.
-    echo [warn] Another TALOS instance is likely running already.
-    echo [ info] Open this URL in your browser: http://localhost:%WEB_PORT%
-    start "" "http://localhost:%WEB_PORT%"
-    exit /b 0
-)
-
 echo.
 echo   ======================================
 echo            Clai  TALOS
@@ -36,13 +28,7 @@ echo       Personal AI Assistant
 echo   ======================================
 echo.
 
-:: ── Step 1: Ensure directories ───────────────────────────────────────
-
-if not exist "projects" mkdir projects
-if not exist "logs\web_uploads" mkdir "logs\web_uploads"
-if not exist "logs\browser" mkdir "logs\browser"
-
-:: ── Step 2: Find Python 3.10-3.13 ───────────────────────────────────
+:: ── Step 1: Find or install Python 3.10-3.13 ────────────────────────
 
 set "PYTHON="
 
@@ -71,19 +57,90 @@ if not defined PYTHON (
     )
 )
 
+:: Auto-install Python via winget if not found
 if not defined PYTHON (
-    echo [FAIL] Python 3.10-3.13 not found.
-    echo.
-    echo   Download Python from: https://www.python.org/downloads/
-    echo   Make sure to check "Add Python to PATH" during install.
-    echo.
-    pause
-    exit /b 1
+    echo [info] Python 3.10-3.13 not found. Attempting auto-install...
+    where winget >nul 2>nul
+    if !ERRORLEVEL! neq 0 (
+        echo [FAIL] Python not found and winget is not available.
+        echo.
+        echo   Download Python from: https://www.python.org/downloads/
+        echo   Make sure to check "Add Python to PATH" during install.
+        echo.
+        pause
+        exit /b 1
+    )
+    echo [setup] Installing Python 3.12 via winget...
+    winget install --id Python.Python.3.12 --accept-source-agreements --accept-package-agreements --silent
+    if !ERRORLEVEL! neq 0 (
+        echo [FAIL] Could not install Python via winget.
+        echo   Download manually: https://www.python.org/downloads/
+        pause
+        exit /b 1
+    )
+    echo [  OK] Python installed. Refreshing PATH...
+
+    :: Refresh PATH — find the newly installed Python
+    set "PYPATH=%LOCALAPPDATA%\Programs\Python\Python312"
+    if exist "!PYPATH!\python.exe" (
+        set "PATH=!PYPATH!;!PYPATH!\Scripts;!PATH!"
+    )
+
+    :: Retry py launcher
+    where py >nul 2>nul
+    if !ERRORLEVEL! equ 0 (
+        for /f "tokens=*" %%V in ('py -3.12 --version 2^>nul') do set "PYTHON=py -3.12"
+    )
+    if not defined PYTHON (
+        :: Try direct path
+        if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" (
+            set "PYTHON=%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
+        )
+    )
+    if not defined PYTHON (
+        echo [FAIL] Python was installed but could not be found. Restart your terminal and try again.
+        pause
+        exit /b 1
+    )
+    echo [  OK] Python found: !PYTHON!
+) else (
+    echo [  OK] Python found: %PYTHON%
 )
 
-echo [  OK] Python found: %PYTHON%
+:: ── Step 2: Ensure directories ───────────────────────────────────────
 
-:: ── Step 3: Create venv + install deps ───────────────────────────────
+if not exist "projects" mkdir projects
+if not exist "logs\web_uploads" mkdir "logs\web_uploads"
+if not exist "logs\browser" mkdir "logs\browser"
+
+:: ── Step 3: Check/install Chromium ───────────────────────────────────
+
+where chrome >nul 2>nul && goto :chromium_done
+if exist "%ProgramFiles%\Google\Chrome\Application\chrome.exe" goto :chromium_done
+if exist "%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe" goto :chromium_done
+if exist "%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe" goto :chromium_done
+
+:: Check for any browser
+if exist "%ProgramFiles%\Mozilla Firefox\firefox.exe" goto :chromium_done
+if exist "%ProgramFiles%\BraveSoftware\Brave-Browser\Application\brave.exe" goto :chromium_done
+if exist "%LOCALAPPDATA%\Microsoft\Edge\Application\msedge.exe" goto :chromium_done
+
+echo [info] No browser found. Installing Chromium via winget...
+where winget >nul 2>nul
+if %ERRORLEVEL% equ 0 (
+    winget install --id Google.Chrome --accept-source-agreements --accept-package-agreements --silent >nul 2>nul
+    if !ERRORLEVEL! equ 0 (
+        echo [  OK] Chromium installed.
+    ) else (
+        echo [warn] Could not install Chromium. Browser tools may not work.
+    )
+) else (
+    echo [warn] winget not found. Install a browser manually for browser tools.
+)
+
+:chromium_done
+
+:: ── Step 4: Create venv + install deps ───────────────────────────────
 
 if not exist "venv" (
     echo [setup] Creating virtual environment...
@@ -98,12 +155,7 @@ if not exist "venv" (
 :: Install deps
 if exist "requirements.txt" (
     echo [setup] Installing dependencies...
-    venv\Scripts\python -m pip install --upgrade pip
-    if %ERRORLEVEL% neq 0 (
-        echo [FAIL] Could not upgrade pip.
-        pause
-        exit /b 1
-    )
+    venv\Scripts\python -m pip install --upgrade pip >nul 2>nul
     venv\Scripts\python -m pip install -r requirements.txt
     if %ERRORLEVEL% neq 0 (
         echo [FAIL] Could not install requirements.
@@ -114,7 +166,7 @@ if exist "requirements.txt" (
 
 echo [  OK] Virtual environment ready
 
-:: ── Step 4: Run setup ────────────────────────────────────────────────
+:: ── Step 5: Run setup ────────────────────────────────────────────────
 
 venv\Scripts\python setup.py
 if %ERRORLEVEL% neq 0 (
@@ -125,7 +177,7 @@ if %ERRORLEVEL% neq 0 (
 
 echo [  OK] Configuration checked
 
-:: ── Step 5: Tailscale Funnel (best-effort) ───────────────────────────
+:: ── Step 6: Tailscale Funnel (best-effort) ───────────────────────────
 
 set "TAILSCALE_BIN="
 where tailscale >nul 2>nul
@@ -150,8 +202,59 @@ if defined TAILSCALE_BIN (
     echo [ info] You can set this up later from the dashboard.
 )
 
-:: ── Step 6: Open browser + start bot ─────────────────────────────────
+:: ── Step 7: Install service or run foreground ────────────────────────
 
+if "%INSTALL_SERVICE%"=="1" goto :do_install_service
+
+:: Check if already running as a service
+schtasks /query /tn "ClaiTALOS" >nul 2>nul
+if %ERRORLEVEL% equ 0 (
+    echo.
+    echo [info] Clai TALOS is already running as a background service.
+    echo [info] Dashboard: http://localhost:%WEB_PORT%
+    echo [info] Use: scripts\clai.bat status
+    echo [info] To run in foreground: stop the service first (scripts\clai.bat stop)
+    start "" "http://localhost:%WEB_PORT%"
+    exit /b 0
+)
+
+if "%HEADLESS%"=="1" goto :run_foreground
+
+:: Ask user if they want background mode
+echo.
+echo   Run Clai TALOS in the background?
+echo.
+echo     Y: starts now and every time you log in (recommended)
+echo     N: runs here in this terminal and stops when you close it
+echo.
+set /p "BG_CHOICE=  [Y/n]: "
+
+if /I "!BG_CHOICE!"=="n" goto :run_foreground
+if /I "!BG_CHOICE!"=="" goto :do_install_service
+
+:do_install_service
+echo.
+echo [setup] Installing background service...
+call "%~dp0scripts\install_service.bat" /install
+if %ERRORLEVEL% equ 0 (
+    echo.
+    echo   ======================================
+    echo    Clai TALOS is running in the background
+    echo   ======================================
+    echo.
+    echo   Dashboard:  http://localhost:%WEB_PORT%
+    echo.
+    echo   scripts\clai.bat status    check if healthy
+    echo   scripts\clai.bat logs -f   watch what it is doing
+    echo   scripts\clai.bat restart   restart it
+    echo   scripts\clai.bat stop      stop it
+    echo.
+    exit /b 0
+)
+echo [warn] Background setup failed — starting in the foreground instead.
+echo.
+
+:run_foreground
 echo.
 echo   Ready!
 echo   Dashboard: http://localhost:%WEB_PORT%
