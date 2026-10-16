@@ -768,25 +768,61 @@ async def disconnect_browser(terminate_launched: bool = False) -> dict:
         }
 
 
-_FREEZE_ANIMATIONS_CSS = """
+_STILL_STYLE_CSS = """
 *, *::before, *::after {
-    animation-play-state: paused !important;
+    animation: none !important;
     transition: none !important;
     caret-color: transparent !important;
 }
 """
 
 
-async def _freeze_animations(page) -> None:
-    """Pause all CSS animations/transitions on the page.
+async def _make_page_still(page) -> dict:
+    """Make the page visually static WITHOUT pausing mid-animation.
 
-    Used as a fallback when perpetual animations (spinners, marquees, ambient
-    motion) keep Playwright's screenshot capture from ever settling.
+    Replaces the old animation-freeze hack. `animation-play-state: paused`
+    parks elements at their current keyframe — including elements whose
+    entrance animation (fade-in, slide-in) was still at opacity:0 when the
+    pause hit, which produced BLANK screenshots. Worse, the injected style
+    persisted in the page, so every subsequent capture stayed white.
+
+    `animation: none` instead snaps every animation to its END state (final
+    keyframe), so content is fully visible. The style tag carries a data
+    attribute so repeated calls replace the previous tag instead of stacking.
+
+    Returns a small status dict for the caller to include in step results.
     """
+    removed = 0
     try:
-        await page.add_style_tag(content=_FREEZE_ANIMATIONS_CSS)
-    except PlaywrightError as exc:
-        logger.debug("Could not inject animation-freeze CSS: %s", exc)
+        # Remove stale freeze/still tags from previous calls (idempotency).
+        removed = await page.evaluate(
+            """() => {
+                let n = 0;
+                for (const s of Array.from(document.querySelectorAll('style'))) {
+                    const c = s.textContent || '';
+                    if (s.hasAttribute('data-talos-still') ||
+                        c.includes('animation-play-state: paused')) {
+                        s.remove();
+                        n += 1;
+                    }
+                }
+                return n;
+            }"""
+        )
+    except Exception as exc:
+        logger.debug("Could not clear stale still-style tags: %s", exc)
+
+    try:
+        tag = await page.add_style_tag(content=_STILL_STYLE_CSS)
+        # Mark OUR tag via its ElementHandle (document order is not reliable).
+        try:
+            await tag.evaluate("el => el.setAttribute('data-talos-still', '1')")
+        except Exception:
+            pass
+    except Exception as exc:
+        logger.debug("Could not inject still-style CSS: %s", exc)
+
+    return {"stale_styles_removed": int(removed or 0)}
 
 
 async def _cdp_session_for(page):
@@ -1083,17 +1119,49 @@ async def _execute_step(session: BrowserSession, page, step: dict, default_timeo
             await page.screenshot(path=path, full_page=full_page)
         except PlaywrightError as exc:
             # Pages with perpetual CSS animations never "settle", which can starve
-            # Playwright's screenshot waiting. Freeze animations and retry via CDP.
-            logger.warning("Screenshot failed (%s); retrying with animations frozen", exc)
-            await _freeze_animations(page)
+            # Playwright's screenshot waiting. Make the page visually static
+            # (animations snapped to end state) and retry via CDP.
+            logger.warning("Screenshot failed (%s); retrying with animations disabled", exc)
+            still_status = await _make_page_still(page)
             cdp = await _cdp_session_for(page)
             params = {"format": "png"}
             if full_page:
                 params["captureBeyondViewport"] = True
             result = await cdp.send("Page.captureScreenshot", params)
+            data = base64.b64decode(result["data"])
             with open(path, "wb") as fh:
-                fh.write(base64.b64decode(result["data"]))
-            return page, {"path": path, "full_page": full_page, "fallback": "animations_frozen_cdp_capture"}
+                fh.write(data)
+            # Verify the capture actually contains painted content. A blank
+            # (nearly-uniform) PNG means the page had nothing visible — likely
+            # the tab is in a background window or rendering is suppressed.
+            try:
+                from PIL import Image
+                img = Image.open(path).convert("L")
+                small = img.resize((160, 120))
+                pixels = list(small.getdata())
+                n = len(pixels)
+                dark = sum(1 for p in pixels if p < 200)
+                mean = sum(pixels) / n
+                if n and dark / n < 0.005 and mean > 240:
+                    return page, {
+                        "path": path,
+                        "full_page": full_page,
+                        "fallback": "animations_stilled_cdp_capture",
+                        "still_status": still_status,
+                        "warning": (
+                            "screenshot appears blank (dark-pixel ratio "
+                            f"{dark / n:.4f}, mean {mean:.1f}) — tab may be "
+                            "backgrounded or page not painted"
+                        ),
+                    }
+            except ImportError:
+                pass
+            return page, {
+                "path": path,
+                "full_page": full_page,
+                "fallback": "animations_stilled_cdp_capture",
+                "still_status": still_status,
+            }
         return page, {"path": path, "full_page": full_page}
 
     if action == "eval":
