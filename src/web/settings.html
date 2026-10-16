@@ -253,6 +253,93 @@
   </div>
 
   <div class="section">
+    <div class="section-title">Decision Model (System One)</div>
+    <div class="form-hint" style="margin-bottom:0.9rem;">
+      A small, fast decision model answers typed yes/no, choice, and score questions for
+      email triage, memory ranking, context compaction, and model routing — without a full
+      LLM call. It is optional: when it is off or unavailable, TALOS behaves exactly as before.
+    </div>
+    <div class="toggle-row">
+      <input type="checkbox" id="laya-enabled">
+      <div class="toggle-label"><strong>Enable fast typed decisions</strong>
+        <div class="toggle-sub">Uses laya (free, open source, local) or the hosted Jev model.</div>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Provider</label>
+      <select id="laya-provider">
+        <option value="auto">Auto (recommended)</option>
+        <option value="ollama">Local Ollama (laya)</option>
+        <option value="jev">Hosted Jev (API key)</option>
+        <option value="custom">Custom endpoint</option>
+      </select>
+      <div class="form-hint">Auto picks a Jev API key if you set one, otherwise local Ollama. Local laya needs Ollama 0.40+ and is pulled automatically when missing.</div>
+    </div>
+    <div class="form-group">
+      <label>Ollama Model Name</label>
+      <input type="text" id="laya-model" placeholder="laya">
+      <div class="form-hint"><code>laya</code> (English, 421M), <code>laya-multilingual</code> (100+ languages), or a tag like <code>laya:latest</code>.</div>
+    </div>
+    <div class="form-group">
+      <label>Jev API Key <span class="form-hint" style="display:inline;">(optional)</span></label>
+      <input type="password" id="jev-api-key" placeholder="jv_live_..." autocomplete="off">
+      <div class="form-hint">Uses TypeSafe AI's hosted Jev model instead of the local one. Leave empty for the free local model.</div>
+    </div>
+    <div class="form-group">
+      <label>Custom Endpoint URL <span class="form-hint" style="display:inline;">(optional)</span></label>
+      <input type="text" id="laya-base-url" placeholder="http://localhost:8000">
+      <div class="form-hint">Any Jev-compatible <code>/v1/systemone</code> endpoint, such as a self-hosted <code>laya-serve</code>.</div>
+    </div>
+    <div class="form-group">
+      <label>Confidence Threshold</label>
+      <input type="text" id="laya-confidence-min" placeholder="0.75">
+      <div class="form-hint">Decisions below this confidence are ignored and normal behavior is used (0 to 1).</div>
+    </div>
+    <div class="status-line" id="laya-status">Decision model: checking...</div>
+    <div class="form-hint" id="laya-last-failure" style="display:none; margin-bottom:0.8rem;"></div>
+    <div class="google-actions">
+      <button class="btn" id="laya-test-btn" onclick="testLaya()">Test Decision</button>
+      <button class="btn" id="laya-install-btn" onclick="installLaya()">Install laya via Ollama</button>
+    </div>
+    <div id="laya-install-area" style="display:none; margin-top:0.8rem;">
+      <div class="status-line" id="laya-install-status"></div>
+    </div>
+    <div class="form-group" style="margin-top:1.2rem;">
+      <label>Where it helps</label>
+      <div class="toggle-row">
+        <input type="checkbox" id="laya-email-triage">
+        <div class="toggle-label"><strong>Email triage</strong>
+          <div class="toggle-sub">Classifies inbox messages (urgent, needs reply, spam, phishing) in one fast pass.</div>
+        </div>
+      </div>
+      <div class="toggle-row">
+        <input type="checkbox" id="laya-memory-rerank">
+        <div class="toggle-label"><strong>Memory relevance ranking</strong>
+          <div class="toggle-sub">Picks which long-term memories matter for the current message.</div>
+        </div>
+      </div>
+      <div class="toggle-row">
+        <input type="checkbox" id="laya-context-compact">
+        <div class="toggle-label"><strong>Context compaction</strong>
+          <div class="toggle-sub">Decides which old tool results can be dropped on very long tasks.</div>
+        </div>
+      </div>
+      <div class="toggle-row">
+        <input type="checkbox" id="laya-model-triage">
+        <div class="toggle-label"><strong>Smart model routing</strong>
+          <div class="toggle-sub">Sends clearly simple messages to the Quick Reply model (needs one configured).</div>
+        </div>
+      </div>
+      <div class="toggle-row">
+        <input type="checkbox" id="laya-browser-auto">
+        <div class="toggle-label"><strong>Browser auto-pilot</strong>
+          <div class="toggle-sub">Experimental: a fast decision loop for repetitive browser tasks.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
     <div class="section-title">Google Connection</div>
     <div class="form-group"><label>Google API Key <span id="google-api-status"></span></label><input type="password" id="google-api-key"></div>
     <div class="form-group"><label>OAuth Client ID</label><input type="text" id="google-oauth-client-id"></div>
@@ -1328,6 +1415,20 @@ async function loadSettings() {
     document.getElementById('subagent-timeout').value = d.MAX_SUBAGENT_WALL_TIMEOUT_S || '900';
     updateToggleDim();
     loadHomeAssistantStatus();
+    loadLayaStatus();
+    document.getElementById('laya-enabled').checked = (d.LAYA_ENABLED || '1') !== '0';
+    var layaProvider = String(d.LAYA_PROVIDER || 'auto').toLowerCase();
+    if (['auto', 'ollama', 'jev', 'custom'].indexOf(layaProvider) === -1) layaProvider = 'auto';
+    document.getElementById('laya-provider').value = layaProvider;
+    document.getElementById('laya-model').value = d.LAYA_MODEL || 'laya';
+    document.getElementById('jev-api-key').value = d.JEV_API_KEY || '';
+    document.getElementById('laya-base-url').value = d.LAYA_BASE_URL || '';
+    document.getElementById('laya-confidence-min').value = d.LAYA_CONFIDENCE_MIN || '0.75';
+    document.getElementById('laya-email-triage').checked = (d.LAYA_EMAIL_TRIAGE || '1') !== '0';
+    document.getElementById('laya-memory-rerank').checked = (d.LAYA_MEMORY_RERANK || '1') !== '0';
+    document.getElementById('laya-context-compact').checked = (d.LAYA_CONTEXT_COMPACT || '1') !== '0';
+    document.getElementById('laya-model-triage').checked = (d.LAYA_MODEL_TRIAGE || '1') !== '0';
+    document.getElementById('laya-browser-auto').checked = (d.LAYA_BROWSER_AUTO || '1') !== '0';
     var otaChannel = String(d.OTA_CHANNEL || 'stable').toLowerCase();
     if (otaChannel !== 'stable' && otaChannel !== 'prerelease') otaChannel = 'stable';
     document.getElementById('ota-channel').value = otaChannel;
@@ -1976,8 +2077,21 @@ async function saveSettings() {
     TALOS_PROGRESS_MAX_AUTO_UPDATES: document.getElementById('progress-max').value.trim(),
     ORCHESTRATOR_TIMEOUT_ENABLED: document.getElementById('orchestrator-timeout-enabled').checked ? '1' : '0',
     MAX_ORCHESTRATOR_WALL_TIMEOUT_S: document.getElementById('orchestrator-timeout').value.trim(),
-    MAX_SUBAGENT_WALL_TIMEOUT_S: document.getElementById('subagent-timeout').value.trim()
+    MAX_SUBAGENT_WALL_TIMEOUT_S: document.getElementById('subagent-timeout').value.trim(),
+    LAYA_ENABLED: document.getElementById('laya-enabled').checked ? '1' : '0',
+    LAYA_PROVIDER: document.getElementById('laya-provider').value,
+    LAYA_MODEL: document.getElementById('laya-model').value.trim() || 'laya',
+    LAYA_BASE_URL: document.getElementById('laya-base-url').value.trim(),
+    LAYA_CONFIDENCE_MIN: document.getElementById('laya-confidence-min').value.trim() || '0.75',
+    LAYA_EMAIL_TRIAGE: document.getElementById('laya-email-triage').checked ? '1' : '0',
+    LAYA_MEMORY_RERANK: document.getElementById('laya-memory-rerank').checked ? '1' : '0',
+    LAYA_CONTEXT_COMPACT: document.getElementById('laya-context-compact').checked ? '1' : '0',
+    LAYA_MODEL_TRIAGE: document.getElementById('laya-model-triage').checked ? '1' : '0',
+    LAYA_BROWSER_AUTO: document.getElementById('laya-browser-auto').checked ? '1' : '0'
   };
+
+  // Always sent: a masked value keeps the stored secret, empty clears it.
+  p.JEV_API_KEY = document.getElementById('jev-api-key').value.trim();
 
   var haToken = document.getElementById('ha-token').value.trim();
   if (haToken && haToken.indexOf('****') === -1) p.HOMEASSISTANT_TOKEN = haToken;
@@ -2004,6 +2118,142 @@ async function saveSettings() {
     }
     else showMsg(d.error || 'Could not save settings.', false);
   } catch (e) { showMsg('Connection problem. Please try again.', false); }
+}
+
+async function loadLayaStatus() {
+  try {
+    var res = await fetch('/api/laya/status');
+    if (res.status === 401) return;
+    var d = await res.json();
+    var el = document.getElementById('laya-status');
+    var failEl = document.getElementById('laya-last-failure');
+    var provider = d.provider || 'ollama';
+    var friendly = {ollama: 'local Ollama', jev: 'hosted Jev', custom: 'custom endpoint', auto: 'auto'}[provider] || provider;
+    if (!d.available) {
+      var reasons = {
+        disabled: 'disabled',
+        ollama_unreachable: 'not reachable',
+        ollama_too_old: 'Ollama too old (needs 0.40+)',
+        model_missing: 'model not installed yet',
+        pulling: 'downloading now',
+        missing_key: 'missing Jev API key',
+        missing_url: 'missing endpoint URL',
+        error: 'error'
+      };
+      el.textContent = 'Decision model: unavailable (' + (reasons[d.reason] || d.reason || 'unknown') + '). ' + (d.detail || '');
+      el.style.color = '#d69e2e';
+    } else {
+      el.textContent = 'Decision model: ready (' + friendly + '). ' + (d.detail || '');
+      el.style.color = '#68d398';
+    }
+    if (d.last_failure && d.last_failure.error) {
+      failEl.style.display = 'block';
+      failEl.textContent = 'Last failure (' + d.last_failure.feature + '): ' + d.last_failure.error;
+    } else {
+      failEl.style.display = 'none';
+    }
+    document.getElementById('laya-test-btn').disabled = false;
+    document.getElementById('laya-install-btn').disabled = !!d.pull && d.pull.pulling;
+  } catch (e) {
+    document.getElementById('laya-status').textContent = 'Decision model: status unknown.';
+  }
+}
+
+async function testLaya() {
+  var btn = document.getElementById('laya-test-btn');
+  var el = document.getElementById('laya-status');
+  btn.disabled = true;
+  el.textContent = 'Decision model: running a test decision...';
+  el.style.color = '#63b3ed';
+  try {
+    var res = await fetch('/api/laya/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ csrf_token: _csrfToken })
+    });
+    if (res.status === 401) { window.location.href = '/'; return; }
+    var d = await res.json();
+    if (d.ok) {
+      var parts = [];
+      if (d.answers && d.answers.department) parts.push('department: ' + d.answers.department.choice);
+      if (d.answers && d.answers.urgent) parts.push('urgent: ' + d.answers.urgent.noul);
+      if (d.answers && d.answers.frustration) parts.push('frustration: ' + d.answers.frustration.score);
+      el.textContent = 'Decision model: working (' + d.provider + ', ' + Math.round(d.latency_ms) + ' ms) — ' + parts.join(', ');
+      el.style.color = '#68d398';
+      showMsg('Decision model test passed.', true);
+    } else {
+      el.textContent = 'Decision model: test failed — ' + (d.error || 'unknown error');
+      el.style.color = '#fc8181';
+      showMsg(d.error || 'Decision model test failed.', false);
+    }
+  } catch (e) {
+    el.textContent = 'Decision model: test could not run.';
+    el.style.color = '#fc8181';
+    showMsg('Connection problem while testing the decision model.', false);
+  }
+  btn.disabled = false;
+}
+
+var _layaInstalling = false;
+
+async function installLaya() {
+  if (_layaInstalling) return;
+  var modelName = document.getElementById('laya-model').value.trim() || 'laya';
+  var btn = document.getElementById('laya-install-btn');
+  var area = document.getElementById('laya-install-area');
+  var statusEl = document.getElementById('laya-install-status');
+  _layaInstalling = true;
+  btn.disabled = true;
+  area.style.display = 'block';
+  statusEl.textContent = 'Starting download of ' + modelName + '...';
+
+  try {
+    var res = await fetch('/api/laya/install', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model_name: modelName, csrf_token: _csrfToken })
+    });
+    if (!res.ok) {
+      var errBody = await res.json().catch(function() { return {}; });
+      throw new Error(errBody.error || ('Install failed with status ' + res.status));
+    }
+
+    var reader = res.body.getReader();
+    var decoder = new TextDecoder();
+    var buffer = '';
+    var lastPct = -1;
+
+    while (true) {
+      var chunk = await reader.read();
+      if (chunk.done) break;
+      buffer += decoder.decode(chunk.value, { stream: true });
+      var lines = buffer.split('\n');
+      buffer = lines.pop();
+      for (var i = 0; i < lines.length; i++) {
+        var line = lines[i].trim();
+        if (!line) continue;
+        var evt;
+        try { evt = JSON.parse(line); } catch (e) { continue; }
+        if (evt.stage === 'start' || evt.stage === 'progress' || evt.stage === 'finished') {
+          if (evt.message) statusEl.textContent = evt.message;
+          if (typeof evt.percent === 'number' && evt.percent > lastPct) {
+            lastPct = evt.percent;
+            statusEl.textContent = 'Downloading ' + modelName + ': ' + Math.round(evt.percent) + '%';
+          }
+        } else if (evt.stage === 'error') {
+          statusEl.textContent = 'Error: ' + evt.error;
+          statusEl.style.color = '#fc8181';
+        }
+      }
+    }
+    statusEl.style.color = '#68d398';
+    await loadLayaStatus();
+  } catch (e) {
+    statusEl.textContent = 'Error: ' + (e.message || e);
+    statusEl.style.color = '#fc8181';
+  }
+  _layaInstalling = false;
+  btn.disabled = false;
 }
 
 async function loadGoogleStatus() {

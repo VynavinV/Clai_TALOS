@@ -39,10 +39,7 @@
 
   body {
     font-family: 'Sora', -apple-system, BlinkMacSystemFont, 'Avenir Next', sans-serif;
-    background:
-      radial-gradient(900px 620px at 87% -10%, rgba(86, 206, 255, 0.2), transparent 70%),
-      radial-gradient(780px 520px at 6% -15%, rgba(85, 240, 203, 0.17), transparent 72%),
-      linear-gradient(160deg, var(--bg-1), var(--bg-0));
+    background: linear-gradient(180deg, #0a1220, var(--bg-0));
     background-attachment: fixed;
     background-color: #050912;
     color: var(--text-0);
@@ -56,23 +53,6 @@
     user-select: none;
   }
 
-  body::before {
-    content: '';
-    position: fixed;
-    top: 0; left: 0; right: 0; bottom: 0;
-    pointer-events: none;
-    background-image:
-      linear-gradient(rgba(180, 220, 255, 0.045) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(180, 220, 255, 0.045) 1px, transparent 1px);
-    background-size: 30px 30px;
-    opacity: 0.45;
-    z-index: 0;
-  }
-
-  .aurora { position: fixed; top: -18%; left: -12%; width: 66vmin; height: 66vmin; border-radius: 50%; background: radial-gradient(circle, rgba(86, 206, 255, 0.13), transparent 65%); animation: drift 26s ease-in-out infinite alternate; pointer-events: none; z-index: 0; }
-  .aurora.a2 { left: auto; right: -14%; top: auto; bottom: -24%; background: radial-gradient(circle, rgba(85, 240, 203, 0.11), transparent 65%); animation-duration: 34s; }
-  @keyframes drift { from { transform: translate(0, 0) scale(1); } to { transform: translate(11vw, 7vh) scale(1.14); } }
-
   .mono { font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; }
 
   /* ---------- topbar ---------- */
@@ -85,7 +65,7 @@
     height: var(--topbar-h);
     padding: 0 1rem;
     padding-top: env(safe-area-inset-top);
-    background: linear-gradient(180deg, rgba(6, 10, 20, 0.95), rgba(5, 9, 18, 0.86));
+    background: rgba(8, 13, 22, 0.94);
     border-bottom: 1px solid var(--stroke-soft);
     -webkit-backdrop-filter: blur(12px);
     backdrop-filter: blur(12px);
@@ -94,33 +74,26 @@
   .brand { display: flex; align-items: center; min-width: 0; }
   .brand > * + * { margin-left: 0.7rem; }
 
-  .pulse-ring {
-    position: relative;
-    width: 42px;
-    height: 42px;
+  .brand-icon {
+    width: 36px; height: 36px;
     display: flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
+    position: relative;
   }
-  .pulse-ring::before,
-  .pulse-ring::after {
+  .brand-icon::after {
     content: '';
     position: absolute;
-    top: 0; left: 0; right: 0; bottom: 0;
+    top: -4px; right: -2px;
+    width: 8px; height: 8px;
     border-radius: 50%;
-    border: 1px solid rgba(86, 206, 255, 0.45);
-    animation: pulse 2.5s ease-out infinite;
+    background: var(--ok);
+    border: 2px solid #0a1220;
   }
-  .pulse-ring::after { animation-delay: 1.15s; border-color: rgba(85, 240, 203, 0.55); }
-  @keyframes pulse {
-    0% { transform: scale(1); opacity: 0.65; }
-    100% { transform: scale(1.5); opacity: 0; }
-  }
-  .pulse-ring img {
-    width: 32px; height: 32px; border-radius: 50%;
-    border: 1px solid rgba(86, 206, 255, 0.5);
-    box-shadow: 0 0 18px rgba(86, 206, 255, 0.28);
+  .brand-icon img {
+    width: 30px; height: 30px; border-radius: 50%;
+    border: 1px solid rgba(86, 206, 255, 0.35);
     position: relative; z-index: 1;
   }
 
@@ -128,9 +101,9 @@
 
   .svc-dots { display: flex; align-items: center; margin-left: 0.9rem; cursor: pointer; padding: 6px 2px; }
   .svc-dots span { width: 7px; height: 7px; border-radius: 50%; margin-right: 4px; background: var(--text-2); opacity: 0.3; transition: all 0.3s ease; }
-  .svc-dots span.ok { background: var(--ok); opacity: 1; box-shadow: 0 0 7px rgba(66, 223, 173, 0.7); }
-  .svc-dots span.warn { background: var(--warn); opacity: 1; box-shadow: 0 0 7px rgba(255, 185, 105, 0.7); animation: pulse-dot 1.4s ease-in-out infinite; }
-  .svc-dots span.err { background: var(--danger); opacity: 1; box-shadow: 0 0 7px rgba(255, 111, 139, 0.7); }
+  .svc-dots span.ok { background: var(--ok); opacity: 1; }
+  .svc-dots span.warn { background: var(--warn); opacity: 1; animation: pulse-dot 1.4s ease-in-out infinite; }
+  .svc-dots span.err { background: var(--danger); opacity: 1; }
 
   .meta-pill {
     font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700;
@@ -161,7 +134,7 @@
   .zoom-ctl button:active { color: var(--accent); }
 
   .clock { margin-left: auto; text-align: right; flex-shrink: 0; }
-  .clock .time { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 1.28rem; font-weight: 700; letter-spacing: 0.03em; color: var(--text-0); text-shadow: 0 0 18px rgba(86, 206, 255, 0.35); }
+  .clock .time { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 1.28rem; font-weight: 700; letter-spacing: 0.03em; color: var(--text-0); }
   .clock .date { font-size: 0.58rem; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.12em; }
 
   .nav-links { display: flex; margin-left: 0.9rem; flex-shrink: 0; }
@@ -186,7 +159,10 @@
     height: 100%;
     min-height: 0;
   }
-  .board-col { display: flex; flex-direction: column; gap: 0.85rem; min-height: 0; min-width: 0; }
+  /* Flexbox `gap` is not supported on iOS 12 Safari (needs 14.1), so column
+     spacing uses sibling margins instead — identical layout, iPad-safe. */
+  .board-col { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+  .board-col > .section + .section { margin-top: 0.85rem; }
   #sec-ha { flex: 1.25 1 0; min-height: 0; }
   #sec-side { flex: 1 1 0; min-height: 0; }
   #sec-sensors { flex: 0 1 auto; max-height: 48%; min-height: 0; }
@@ -196,24 +172,78 @@
   /* ---------- sections ---------- */
 
   .section {
-    background: linear-gradient(165deg, var(--surface-1), var(--surface-0));
+    background: rgba(13, 21, 34, 0.92);
     border: 1px solid var(--stroke-soft);
     border-radius: var(--radius-lg);
-    box-shadow: 0 14px 34px rgba(3, 10, 20, 0.32);
+    box-shadow: 0 8px 20px rgba(2, 8, 16, 0.28);
     display: flex;
     flex-direction: column;
     min-height: 0;
     overflow: hidden;
     position: relative;
   }
-  .section::after {
-    content: '';
-    position: absolute;
-    top: 0; left: 10%; right: 10%;
-    height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(143, 217, 255, 0.4), transparent);
-    pointer-events: none;
+  .section.section-hidden { display: none !important; }
+
+  .cfg-btn {
+    font-family: inherit;
+    background: var(--surface-2);
+    border: 1px solid var(--stroke-soft);
+    color: var(--text-1);
+    cursor: pointer;
+    height: 30px;
+    line-height: 1;
+    width: 34px;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    flex-shrink: 0;
   }
+  .cfg-btn:active { color: var(--accent); border-color: var(--stroke-strong); }
+
+  .cfg-row {
+    display: flex;
+    align-items: center;
+    padding: 0.55rem 0.1rem;
+    border-bottom: 1px solid rgba(143, 217, 255, 0.08);
+  }
+  .cfg-row:last-child { border-bottom: none; }
+  .cfg-row .cfg-grip { color: var(--text-2); font-size: 0.85rem; width: 1.1rem; flex-shrink: 0; }
+  .cfg-row .cfg-name { font-size: 0.85rem; font-weight: 600; color: var(--text-0); min-width: 0; flex: 1; }
+  .cfg-row .cfg-name .cfg-sub { display: block; font-size: 0.62rem; font-weight: 400; color: var(--text-2); margin-top: 1px; }
+  .cfg-row.is-off .cfg-name { color: var(--text-2); }
+
+  .cfg-eye {
+    font-family: inherit;
+    border: 1px solid var(--stroke-soft);
+    background: var(--surface-2);
+    color: var(--text-1);
+    border-radius: 999px;
+    padding: 0.3rem 0.66rem;
+    font-size: 0.68rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    margin-left: 0.4rem;
+    flex-shrink: 0;
+    min-height: 34px;
+  }
+  .cfg-eye.on { color: #c8f0ff; border-color: rgba(86, 206, 255, 0.45); background: rgba(86, 206, 255, 0.14); }
+  .cfg-eye.off { color: var(--text-2); }
+
+  .cfg-arrows { display: flex; margin-left: 0.4rem; flex-shrink: 0; }
+  .cfg-arrows button {
+    font-family: inherit;
+    width: 30px; height: 30px;
+    border: 1px solid var(--stroke-soft);
+    background: var(--surface-2);
+    color: var(--text-1);
+    font-size: 0.8rem;
+    cursor: pointer;
+    line-height: 1;
+  }
+  .cfg-arrows button:first-child { border-radius: 8px 0 0 8px; border-right: none; }
+  .cfg-arrows button:last-child { border-radius: 0 8px 8px 0; }
+  .cfg-arrows button:disabled { opacity: 0.3; }
+  .cfg-arrows button:active { color: var(--accent); }
 
   .sec-head {
     display: flex;
@@ -232,9 +262,9 @@
   .sec-title { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-2); font-weight: 700; white-space: nowrap; }
 
   .sec-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-  .sec-dot.ok { background: var(--ok); box-shadow: 0 0 8px rgba(66, 223, 173, 0.6); }
-  .sec-dot.warn { background: var(--warn); box-shadow: 0 0 8px rgba(255, 185, 105, 0.6); }
-  .sec-dot.err { background: var(--danger); box-shadow: 0 0 8px rgba(255, 111, 139, 0.6); }
+  .sec-dot.ok { background: var(--ok); }
+  .sec-dot.warn { background: var(--warn); }
+  .sec-dot.err { background: var(--danger); }
   .sec-dot.idle { background: var(--text-2); }
 
   .sec-meta { margin-left: auto; font-size: 0.64rem; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -276,28 +306,14 @@
     height: 100%;
     min-height: 180px;
     border-radius: var(--radius-md);
-    border: 1px solid rgba(143, 217, 255, 0.16);
-    background:
-      radial-gradient(circle at 22% 50%, rgba(86, 206, 255, 0.14), transparent 45%),
-      radial-gradient(circle at 82% 18%, rgba(85, 240, 203, 0.12), transparent 48%),
-      linear-gradient(165deg, rgba(10, 18, 32, 0.78), rgba(8, 14, 24, 0.72));
+    border: 1px solid rgba(143, 217, 255, 0.14);
+    background: rgba(9, 15, 26, 0.65);
     overflow: hidden;
     isolation: isolate;
   }
-  .agents-web::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 0; right: 0; bottom: 0;
-    background-image:
-      linear-gradient(rgba(143, 217, 255, 0.06) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(143, 217, 255, 0.06) 1px, transparent 1px);
-    background-size: 34px 34px;
-    opacity: 0.35;
-    z-index: 0;
-  }
   .agents-web-links { position: absolute; top: 0; left: 0; right: 0; bottom: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; }
   .agents-web-links line { stroke: rgba(143, 217, 255, 0.2); stroke-width: 1.3; stroke-linecap: round; }
-  .agents-web-links line.active { stroke: rgba(86, 206, 255, 0.5); filter: drop-shadow(0 0 4px rgba(86, 206, 255, 0.44)); }
+  .agents-web-links line.active { stroke: rgba(86, 206, 255, 0.55); }
   .agents-web-stage { position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 2; pointer-events: none; }
 
   .agent-node {
@@ -307,47 +323,34 @@
     min-height: 74px;
     padding: 0.55rem 0.58rem;
     border-radius: 12px;
-    border: 1px solid rgba(143, 217, 255, 0.24);
-    background: linear-gradient(155deg, rgba(17, 29, 46, 0.92), rgba(11, 18, 31, 0.82));
-    box-shadow: 0 10px 22px rgba(3, 10, 20, 0.38);
+    border: 1px solid rgba(143, 217, 255, 0.22);
+    background: rgba(15, 24, 39, 0.94);
+    box-shadow: 0 8px 18px rgba(2, 8, 16, 0.32);
     overflow: hidden;
-    -webkit-backdrop-filter: blur(2px);
-    backdrop-filter: blur(2px);
     pointer-events: auto;
     cursor: pointer;
-  }
-  .agent-node::before {
-    content: '';
-    position: absolute;
-    width: 54px; height: 54px;
-    top: -22px; left: -18px;
-    border-radius: 50%;
-    background: radial-gradient(circle, rgba(86, 206, 255, 0.36), transparent 72%);
-    opacity: 0.45;
-    pointer-events: none;
   }
   .agent-node::after {
     content: '';
     position: absolute;
     top: 0; left: 0; right: 0;
     height: 2px;
-    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    background: var(--accent);
     opacity: 0;
   }
-  .agent-node.active::after { opacity: 1; animation: shimmer 2s ease-in-out infinite; }
-  @keyframes shimmer { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+  .agent-node.active::after { opacity: 0.8; }
 
   .agent-node.subagent { z-index: 3; }
   .agent-node.orchestrator {
     width: 184px;
     min-height: 90px;
-    border-color: rgba(86, 206, 255, 0.52);
-    background: linear-gradient(150deg, rgba(86, 206, 255, 0.2), rgba(13, 23, 38, 0.9));
-    box-shadow: 0 14px 28px rgba(6, 16, 30, 0.48);
+    border-color: rgba(86, 206, 255, 0.48);
+    background: rgba(19, 32, 51, 0.94);
+    box-shadow: 0 10px 22px rgba(2, 8, 16, 0.4);
     z-index: 4;
   }
   .agent-node.is-idle { opacity: 0.84; }
-  .agent-node.selected { border-color: var(--accent-2); box-shadow: 0 0 0 1px rgba(85, 240, 203, 0.35), 0 14px 28px rgba(6, 16, 30, 0.48); }
+  .agent-node.selected { border-color: var(--accent-2); box-shadow: 0 0 0 1px rgba(85, 240, 203, 0.35), 0 10px 22px rgba(2, 8, 16, 0.4); }
 
   .node-spin {
     position: absolute;
@@ -374,14 +377,12 @@
     font-size: 0.82rem;
     font-weight: 600;
     color: #f6fbff;
-    background: linear-gradient(135deg, rgba(139, 92, 246, 0.94), rgba(177, 151, 255, 0.92));
-    box-shadow: 0 0 10px rgba(139, 92, 246, 0.34), inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+    background: rgba(139, 92, 246, 0.85);
     flex-shrink: 0;
     line-height: 1;
   }
   .agent-node.orchestrator .agent-node-icon {
-    background: linear-gradient(135deg, rgba(59, 130, 246, 0.95), rgba(86, 206, 255, 0.94));
-    box-shadow: 0 0 10px rgba(86, 206, 255, 0.34), inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+    background: rgba(86, 206, 255, 0.85);
   }
   .agent-node-name { font-size: 0.74rem; font-weight: 600; color: var(--text-0); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .agent-node-status {
@@ -432,11 +433,11 @@
     max-width: 10px;
     margin-right: 2px;
     border-radius: 2px 2px 0 0;
-    background: linear-gradient(180deg, rgba(86, 206, 255, 0.75), rgba(86, 206, 255, 0.12));
+    background: rgba(86, 206, 255, 0.55);
     min-height: 2px;
     transition: height 0.5s ease;
   }
-  .wv-bar.hot { background: linear-gradient(180deg, var(--accent-2), rgba(85, 240, 203, 0.15)); box-shadow: 0 0 6px rgba(85, 240, 203, 0.4); }
+  .wv-bar.hot { background: var(--accent-2); }
 
   .out-tabs {
     display: flex; align-items: center;
@@ -815,7 +816,7 @@
   .ha-modal-card {
     width: 94%; max-width: 500px;
     max-height: 88%; overflow-y: auto; -webkit-overflow-scrolling: touch;
-    background: linear-gradient(165deg, rgba(17, 28, 44, 0.98), rgba(9, 15, 26, 0.96));
+    background: rgba(15, 24, 39, 0.98);
     border: 1px solid var(--stroke-strong);
     border-radius: 22px;
     padding: 1.05rem;
@@ -872,7 +873,6 @@
 
   /* ---------- iOS 12 perf mode: kill expensive effects ---------- */
 
-  .perf-lite .aurora, .perf-lite .pulse-ring::before, .perf-lite .pulse-ring::after,
   .perf-lite .svc-tile.warn .svc-emoji, .perf-lite .ha-tile.on::after,
   .perf-lite .agent-node.active::after, .perf-lite .node-spin { animation: none !important; }
   .perf-lite .topbar, .perf-lite .agent-node { -webkit-backdrop-filter: none; backdrop-filter: none; }
@@ -1050,7 +1050,7 @@
     .main { padding: 0.7rem; }
     .board { display: block; height: auto; }
     .board-col { display: block; }
-    .section { margin-bottom: 0.8rem; }
+    .board-col + .board-col { margin-top: 0.8rem; }
     #sec-agents .sec-body { height: 300px; }
     #sec-ha { max-height: none; }
     .sec-body { max-height: 60vh; }
@@ -1068,12 +1068,9 @@
 </head>
 <body>
 
-<div class="aurora"></div>
-<div class="aurora a2"></div>
-
 <div class="topbar">
   <div class="brand">
-    <div class="pulse-ring"><img src="/static/clai-icon.png" alt=""></div>
+    <div class="brand-icon"><img src="/static/clai-icon.png" alt=""></div>
     <span class="brand-name">{{BOT_NAME}}</span>
   </div>
   <div class="svc-dots" id="svc-dots" title="System health"></div>
@@ -1085,6 +1082,7 @@
     <button class="zpct" id="zoom-pct" onclick="zoomReset()" aria-label="Reset size">100%</button>
     <button class="zbtn plus" onclick="zoomStep(1)" aria-label="Bigger">+</button>
   </div>
+  <button class="cfg-btn" onclick="openSectionConfig()" title="Hide or reorder panels" aria-label="Customize panels">&#9776;</button>
   <div class="nav-links">
     <a href="/dashboard">&#9632; Home</a>
     <a href="/activity">&#9673; Activity</a>
@@ -1368,6 +1366,28 @@
   </div>
 </div>
 
+<div class="ha-modal" id="sections-modal">
+  <div class="ha-modal-card">
+    <div class="m-head">
+      <span class="m-icon">&#9776;</span>
+      <div class="m-title">
+        <div class="m-name">Customize panels</div>
+        <div class="m-state">Hide panels you don't use, or reorder them</div>
+      </div>
+      <button class="m-close" id="sections-m-close" aria-label="Close">&times;</button>
+    </div>
+    <div id="sections-cfg-list"></div>
+    <div class="m-actions">
+      <button class="btn" id="sections-reset">Reset to Default</button>
+      <button class="btn" id="sections-done">Done</button>
+    </div>
+    <div class="help-note">
+      Changes save automatically on this iPad and apply immediately.
+      Reordering moves a panel within its column (left or right); drag the bars between panels to resize them.
+    </div>
+  </div>
+</div>
+
 <script>
 (function () {
   'use strict';
@@ -1481,6 +1501,147 @@
     try { return JSON.parse(window.localStorage.getItem(COLLAPSE_KEY) || '{}') || {}; }
     catch (e) { return {}; }
   }
+
+  /* ---------- panel sections: hide + reorder (saved on this iPad) ---------- */
+
+  var SECTIONS_KEY = 'panel-sections-v1';
+  var SECTIONS = [
+    { id: 'sec-ha',      name: 'Home Assistant', sub: 'Lights, switches, scenes', col: 'col-a' },
+    { id: 'sec-side',    name: 'Vitals',          sub: 'Uptime, services, scheduled tasks', col: 'col-a' },
+    { id: 'sec-sys',     name: 'System',          sub: 'CPU, memory, disks, GPUs', col: 'col-b' },
+    { id: 'sec-sensors', name: 'Sensors',         sub: 'Temperature and other sensors', col: 'col-b' },
+    { id: 'sec-agents',  name: 'Live Agents',     sub: 'Who is working right now', col: 'col-b' },
+    { id: 'sec-output',  name: 'Agent Output',    sub: 'Live output and activity', col: 'col-b' }
+  ];
+
+  function readSectionPrefs() {
+    try {
+      var p = JSON.parse(window.localStorage.getItem(SECTIONS_KEY) || '{}') || {};
+      if (!p || typeof p !== 'object') return { order: [], hidden: [] };
+      if (!Array.isArray(p.order)) p.order = [];
+      if (!Array.isArray(p.hidden)) p.hidden = [];
+      return p;
+    } catch (e) { return { order: [], hidden: [] }; }
+  }
+
+  function saveSectionPrefs(p) {
+    try { window.localStorage.setItem(SECTIONS_KEY, JSON.stringify(p)); } catch (e) {}
+  }
+
+  function sectionOrder() {
+    var prefs = readSectionPrefs();
+    var known = [];
+    SECTIONS.forEach(function (s) { known.push(s.id); });
+    var order = [];
+    prefs.order.forEach(function (id) {
+      if (known.indexOf(id) !== -1 && order.indexOf(id) === -1) order.push(id);
+    });
+    known.forEach(function (id) { if (order.indexOf(id) === -1) order.push(id); });
+    return order;
+  }
+
+  function sectionDef(id) {
+    for (var i = 0; i < SECTIONS.length; i++) if (SECTIONS[i].id === id) return SECTIONS[i];
+    return null;
+  }
+
+  function applySectionPrefs() {
+    var order = sectionOrder();
+    var hidden = readSectionPrefs().hidden;
+    // Re-append in order within each column; appendChild moves existing nodes.
+    ['col-a', 'col-b'].forEach(function (colId) {
+      var col = $(colId);
+      order.forEach(function (id) {
+        var def = sectionDef(id);
+        var sec = $(id);
+        if (col && def && def.col === colId && sec) col.appendChild(sec);
+      });
+    });
+    order.forEach(function (id) {
+      var sec = $(id);
+      if (sec) {
+        if (hidden.indexOf(id) !== -1) sec.classList.add('section-hidden');
+        else sec.classList.remove('section-hidden');
+      }
+    });
+    applyGrid();
+    layoutSplitters();
+  }
+
+  window.openSectionConfig = function () {
+    renderSectionConfig();
+    $('sections-modal').classList.add('open');
+  };
+
+  function closeSectionConfig() { $('sections-modal').classList.remove('open'); }
+
+  function renderSectionConfig() {
+    var order = sectionOrder();
+    var hidden = readSectionPrefs().hidden;
+    var html = '';
+    order.forEach(function (id, idx) {
+      var def = sectionDef(id);
+      if (!def) return;
+      var off = hidden.indexOf(id) !== -1;
+      html += '<div class="cfg-row' + (off ? ' is-off' : '') + '" data-secid="' + id + '">' +
+        '<span class="cfg-grip">&#9776;</span>' +
+        '<span class="cfg-name">' + def.name +
+          '<span class="cfg-sub">' + def.sub + (def.col === 'col-a' ? ' &middot; left column' : ' &middot; right column') + '</span>' +
+        '</span>' +
+        '<span class="cfg-arrows">' +
+          '<button data-move="up"' + (idx === 0 ? ' disabled' : '') + ' aria-label="Move up">&#9650;</button>' +
+          '<button data-move="down"' + (idx === order.length - 1 ? ' disabled' : '') + ' aria-label="Move down">&#9660;</button>' +
+        '</span>' +
+        '<button class="cfg-eye ' + (off ? 'off' : 'on') + '" data-toggle="1">' + (off ? 'Hidden' : 'Shown') + '</button>' +
+      '</div>';
+    });
+    $('sections-cfg-list').innerHTML = html;
+  }
+
+  $('sections-cfg-list').addEventListener('click', function (ev) {
+    var row = ev.target;
+    while (row && row !== $('sections-cfg-list')) {
+      if (row.classList && row.classList.contains('cfg-row')) break;
+      row = row.parentNode;
+    }
+    if (!row || row === $('sections-cfg-list')) return;
+    var id = row.getAttribute('data-secid');
+    var prefs = readSectionPrefs();
+    var order = sectionOrder();
+
+    if (ev.target.getAttribute && ev.target.getAttribute('data-move')) {
+      var dir = ev.target.getAttribute('data-move') === 'up' ? -1 : 1;
+      var idx = order.indexOf(id);
+      var swap = idx + dir;
+      if (swap < 0 || swap >= order.length) return;
+      var tmp = order[idx]; order[idx] = order[swap]; order[swap] = tmp;
+      prefs.order = order;
+      saveSectionPrefs(prefs);
+      applySectionPrefs();
+      renderSectionConfig();
+      return;
+    }
+    if (ev.target.classList && ev.target.classList.contains('cfg-eye')) {
+      var pos = prefs.hidden.indexOf(id);
+      if (pos === -1) prefs.hidden.push(id);
+      else prefs.hidden.splice(pos, 1);
+      saveSectionPrefs(prefs);
+      applySectionPrefs();
+      renderSectionConfig();
+    }
+  });
+
+  $('sections-m-close').addEventListener('click', closeSectionConfig);
+  $('sections-done').addEventListener('click', closeSectionConfig);
+  $('sections-modal').addEventListener('click', function (ev) {
+    if (ev.target === $('sections-modal')) closeSectionConfig();
+  });
+
+  $('sections-reset').addEventListener('click', function () {
+    saveSectionPrefs({ order: [], hidden: [] });
+    applySectionPrefs();
+    renderSectionConfig();
+  });
 
   /* ---------- zoom (standalone web apps ignore pinch on iOS 12) ---------- */
 
@@ -1602,8 +1763,25 @@
     var seR = $('sec-sensors').getBoundingClientRect();
     var c = readCollapsed();
 
+    function sectionVisible(id) {
+      var el = $(id);
+      return !c[id] && el && !el.classList.contains('section-hidden');
+    }
+    // The next section physically below `id` in its column, skipping hidden ones.
+    function nextVisibleSection(id) {
+      var el = $(id);
+      if (!el) return null;
+      var n = el.nextElementSibling;
+      while (n) {
+        if (n.classList && n.classList.contains('section') && !n.classList.contains('section-hidden')) return n;
+        n = n.nextElementSibling;
+      }
+      return null;
+    }
+
     var s = $('split-ha');
-    if (!c['sec-ha'] && !c['sec-side']) {
+    // Show only when both sections are visible AND actually adjacent (reorder-safe).
+    if (sectionVisible('sec-ha') && sectionVisible('sec-side') && nextVisibleSection('sec-ha') === $('sec-side')) {
       s.style.top = (haR.bottom - hostR.top) + 'px';
       s.style.left = '0px';
       s.style.width = haR.width + 'px';
@@ -1613,7 +1791,7 @@
     }
 
     s = $('split-mid');
-    if (!c['sec-agents'] && !c['sec-output']) {
+    if (sectionVisible('sec-agents') && sectionVisible('sec-output') && nextVisibleSection('sec-agents') === $('sec-output')) {
       s.style.top = (agR.bottom - hostR.top) + 'px';
       s.style.left = (agR.left - hostR.left) + 'px';
       s.style.width = agR.width + 'px';
@@ -1625,7 +1803,7 @@
     s = $('split-col');
     var syR = $('sec-sys').getBoundingClientRect();
     var colTop = (syR.height > 0) ? syR.top : ((seR.height > 0) ? seR.top : agR.top);
-    if (!c['sec-agents'] || !c['sec-output']) {
+    if (sectionVisible('sec-agents') || sectionVisible('sec-output')) {
       s.style.left = (agR.left - hostR.left) + 'px';
       s.style.top = (colTop - hostR.top) + 'px';
       s.style.height = (opR.bottom - colTop) + 'px';
@@ -1713,6 +1891,7 @@
     ['sec-agents', 'sec-output', 'sec-side', 'sec-ha', 'sec-sensors', 'sec-sys'].forEach(function (id) {
       if (c[id]) $(id).classList.add('collapsed');
     });
+    applySectionPrefs();
     applyGrid();
     applyZoom(getZoom());
     setTimeout(layoutSplitters, 150);

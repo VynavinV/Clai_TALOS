@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import re
 import time
 import base64
 import asyncio
@@ -16,6 +17,11 @@ from urllib import request, error
 from urllib.parse import urlparse
 
 import app_paths
+
+try:
+    import laya_decisions
+except Exception:  # pragma: no cover - defensive: decision layer is optional
+    laya_decisions = None
 
 logger = logging.getLogger("talos.browser")
 
@@ -1335,4 +1341,323 @@ async def run_steps(
             "active_page_index": active_index,
             "tabs": tabs,
             "results": results,
+        }
+
+
+# ---------------------------------------------------------------------------
+# Auto-pilot: a fast decision loop for repetitive browser tasks (experimental)
+# ---------------------------------------------------------------------------
+
+_AUTO_PILOT_MAX_ELEMENTS = 30
+_AUTO_PILOT_MAX_STEPS = 50
+_AUTO_PILOT_REPEAT_LIMIT = 3
+
+_AUTO_PILOT_RISKY_TEXT = re.compile(
+    r"pay\b|checkout|purchase|buy now|transfer\b|donate|password|confirm order",
+    re.IGNORECASE,
+)
+
+_AUTO_PILOT_COLLECT_ELEMENTS_JS = r"""
+() => {
+  const selector = 'a[href], button, input:not([type="hidden"]), select, textarea, [role="button"], [role="link"], [role="tab"]';
+  const nodes = Array.from(document.querySelectorAll(selector));
+  const visible = nodes.filter(el => {
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 && r.height === 0) return false;
+    const s = getComputedStyle(el);
+    return s.visibility !== 'hidden' && s.display !== 'none';
+  });
+  function selFor(el) {
+    if (el.id) {
+      const candidate = '#' + CSS.escape(el.id);
+      if (document.querySelectorAll(candidate).length === 1) return candidate;
+    }
+    const parts = [];
+    let node = el;
+    while (node && node.nodeType === 1 && parts.length < 8) {
+      let seg = node.tagName.toLowerCase();
+      if (node.parentElement) {
+        const same = Array.from(node.parentElement.children).filter(c => c.tagName === node.tagName);
+        if (same.length > 1) seg += ':nth-of-type(' + (same.indexOf(node) + 1) + ')';
+      }
+      parts.unshift(seg);
+      node = node.parentElement;
+    }
+    return parts.join(' > ');
+  }
+  return visible.slice(0, 30).map((el, i) => ({
+    i: i,
+    tag: el.tagName.toLowerCase(),
+    kind: el.getAttribute('type') || el.getAttribute('role') || '',
+    text: (el.innerText || el.value || el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.getAttribute('title') || '').trim().replace(/\s+/g, ' ').slice(0, 60),
+    selector: selFor(el)
+  }));
+}
+"""
+
+
+def _auto_pilot_type_texts(goal: str, type_texts: list | None) -> list[str]:
+    if type_texts is not None:
+        return [str(t) for t in type_texts if str(t).strip()][:8]
+    found = re.findall(r'"([^"]{2,80})"', goal) + re.findall(r"'([^']{2,80})'", goal)
+    return list(dict.fromkeys(found))[:8]
+
+
+async def _auto_pilot_elements(page) -> list[dict]:
+    try:
+        raw = await page.evaluate(_AUTO_PILOT_COLLECT_ELEMENTS_JS)
+    except Exception as exc:
+        logger.debug("Auto-pilot element collection failed", exc_info=True)
+        return []
+    if not isinstance(raw, list):
+        return []
+    elements = []
+    for item in raw:
+        if isinstance(item, dict) and item.get("selector"):
+            elements.append({
+                "index": int(item.get("i", len(elements))),
+                "selector": str(item["selector"]),
+                "description": f"{str(item.get('tag') or 'el')}{'/' + str(item.get('kind')) if item.get('kind') else ''}: {str(item.get('text') or '(no text)')[:60]}",
+            })
+    return elements[:_AUTO_PILOT_MAX_ELEMENTS]
+
+
+async def browser_auto(
+    goal: str,
+    max_steps: int = 25,
+    type_texts: list | None = None,
+    default_timeout_ms: int = _DEFAULT_TIMEOUT_MS,
+    auto_connect: bool | None = None,
+) -> dict:
+    """Drive the active tab toward `goal` with fast typed decisions.
+
+    Experimental: one small decision-model call per step picks the next
+    action from the page state. It never types free text of its own — only
+    strings quoted in the goal or passed via `type_texts`. Falls back with a
+    clear error when the decision layer is unavailable; use browser_run for
+    exact step-by-step control.
+    """
+    if laya_decisions is None:
+        return {"error": "Decision layer module unavailable."}
+    if not laya_decisions.feature_enabled("browser_auto"):
+        return {"error": "Browser auto-pilot is disabled (LAYA_BROWSER_AUTO=0)."}
+    availability = await laya_decisions.availability()
+    if not availability.get("available"):
+        return {
+            "error": f"Decision model unavailable: {availability.get('detail') or availability.get('reason')}",
+        }
+
+    goal = str(goal or "").strip()
+    if not goal:
+        return {"error": "goal is required: describe what to achieve on the page."}
+    try:
+        max_steps = max(1, min(int(max_steps), _AUTO_PILOT_MAX_STEPS))
+    except (TypeError, ValueError):
+        max_steps = 25
+
+    dependency_error = _playwright_not_available_error()
+    if dependency_error:
+        return dependency_error
+
+    if auto_connect is None:
+        auto_connect = _to_bool(os.getenv("BROWSER_AUTO_CONNECT_ON_RUN", "1"), True)
+
+    if _session is None and auto_connect:
+        cfg = _runtime_connect_defaults()
+        connect_result = await connect_browser(
+            endpoint=cfg["endpoint"],
+            start_if_needed=cfg["start_if_needed"],
+            allow_isolated_fallback=cfg["allow_isolated_fallback"],
+            isolated_profile_dir=cfg["isolated_profile_dir"],
+            port=cfg["port"],
+            chrome_path=cfg["chrome_path"],
+            user_data_dir=cfg["user_data_dir"],
+            profile_directory=cfg["profile_directory"],
+            startup_timeout_s=cfg["startup_timeout_s"],
+        )
+        if "error" in connect_result:
+            return {"error": "No browser session. Automatic connect/start failed.", "connect_attempt": connect_result}
+
+    async with _session_lock:
+        if _session is None:
+            return {"error": "No browser session. Call browser_connect first."}
+        session = _session
+        page = session.page
+
+        available_texts = _auto_pilot_type_texts(goal, type_texts)
+        transcript: list[dict] = []
+        recent_actions: list[str] = []
+        repeat_run = 1
+        last_action_key = ""
+        audit_start = time.monotonic()
+        status = "max_steps"
+
+        _audit("browser_auto", "start", {"goal": goal[:300], "max_steps": max_steps})
+
+        for step_no in range(1, max_steps + 1):
+            try:
+                url = page.url
+                title = await page.title()
+                try:
+                    body_text = (await page.locator("body").inner_text())[:1500]
+                except Exception:
+                    body_text = ""
+                elements = await _auto_pilot_elements(page)
+            except Exception as exc:
+                status = "error"
+                transcript.append({"step": step_no, "action": None, "ok": False, "error": f"Could not read page state: {exc}"})
+                break
+
+            state = {
+                "goal": goal[:1500],
+                "current_url": url,
+                "page_title": title,
+                "page_text": body_text,
+                "interactive_elements": {str(e["index"]): e["description"] for e in elements},
+                "typeable_texts": available_texts,
+                "recent_actions": recent_actions[-5:],
+                "step": step_no,
+            }
+
+            questions = {
+                "next_action": laya_decisions.choice(
+                    "Which action should be taken next to make progress toward `goal`?",
+                    {
+                        "click": "Click one of the interactive elements.",
+                        "type": "Type one of the typeable texts into one of the elements.",
+                        "press_enter": "Press Enter (e.g. to submit a search or form).",
+                        "scroll_down": "Scroll down to reveal more of the page.",
+                        "scroll_up": "Scroll back up.",
+                        "back": "Go back to the previous page.",
+                        "wait": "Wait briefly for the page to load or update.",
+                        "done": "The goal has been achieved; stop.",
+                        "give_up": "The goal cannot be achieved from this page; stop.",
+                    },
+                ),
+                "goal_complete": laya_decisions.noul(
+                    "Looking at `current_url`, `page_title`, and `page_text`, has `goal` been fully achieved?"
+                ),
+            }
+            if elements:
+                questions["element"] = laya_decisions.choice(
+                    "If clicking or typing, which `interactive_elements` entry should be used?",
+                    {str(e["index"]): e["description"] for e in elements},
+                )
+            if available_texts:
+                questions["type_text"] = laya_decisions.choice(
+                    "If typing, which `typeable_texts` entry should be typed?",
+                    {str(i): text for i, text in enumerate(available_texts)},
+                )
+
+            result = await laya_decisions.try_decide(state, questions, feature="browser_auto")
+            if not result:
+                status = "decision_unavailable"
+                transcript.append({"step": step_no, "action": None, "ok": False, "error": "Decision model call failed."})
+                break
+
+            answers = result.get("answers") or {}
+            action_answer = answers.get("next_action") or {}
+            action = action_answer.get("choice")
+            confidence = action_answer.get("confidence") or 0.0
+            goal_complete = (answers.get("goal_complete") or {}).get("noul")
+
+            if action == "done" or (goal_complete is not None and goal_complete >= laya_decisions.confidence_min()):
+                status = "completed"
+                transcript.append({"step": step_no, "action": "done", "ok": True, "goal_complete": goal_complete})
+                break
+            if action == "give_up":
+                status = "gave_up"
+                transcript.append({"step": step_no, "action": "give_up", "ok": True})
+                break
+            if not action or action not in {"click", "type", "press_enter", "scroll_down", "scroll_up", "back", "wait"}:
+                transcript.append({"step": step_no, "action": None, "ok": False, "error": f"Invalid action {action!r}."})
+                status = "error"
+                break
+
+            element_index = (answers.get("element") or {}).get("choice")
+            element = next((e for e in elements if str(e["index"]) == str(element_index)), None)
+            type_index = (answers.get("type_text") or {}).get("choice")
+            type_value = available_texts[int(type_index)] if type_index is not None and type_index.isdigit() and int(type_index) < len(available_texts) else None
+
+            action_key = f"{action}:{element_index}:{type_index}"
+            if action_key == last_action_key:
+                repeat_run += 1
+                if repeat_run >= _AUTO_PILOT_REPEAT_LIMIT:
+                    status = "stuck"
+                    transcript.append({"step": step_no, "action": action, "ok": False, "error": "Same action repeated; stopping."})
+                    break
+            else:
+                repeat_run = 1
+                last_action_key = action_key
+
+            if action == "click" and element and _AUTO_PILOT_RISKY_TEXT.search(f"{element['description']} {goal}"):
+                status = "needs_user"
+                transcript.append({
+                    "step": step_no, "action": action, "ok": False,
+                    "error": "Stopped before a risky click (payment/checkout/password). Ask the user before continuing.",
+                })
+                break
+
+            step: dict
+            if action == "click":
+                if not element:
+                    transcript.append({"step": step_no, "action": "click", "ok": False, "error": "No valid element chosen."})
+                    status = "error"
+                    break
+                step = {"action": "click", "selector": element["selector"]}
+            elif action == "type":
+                if not element or type_value is None:
+                    transcript.append({"step": step_no, "action": "type", "ok": False, "error": "Type needs an element and a text choice."})
+                    status = "error"
+                    break
+                step = {"action": "type", "selector": element["selector"], "text": type_value}
+            elif action == "press_enter":
+                step = {"action": "press", "key": "Enter"}
+            elif action == "scroll_down":
+                step = {"action": "scroll", "x": 0, "y": 700}
+            elif action == "scroll_up":
+                step = {"action": "scroll", "x": 0, "y": -700}
+            elif action == "back":
+                step = {"action": "eval", "expression": "history.back()"}
+            else:
+                step = {"action": "wait_for", "milliseconds": 1500}
+
+            entry = {"step": step_no, "action": action, "ok": True, "url": url}
+            try:
+                page, step_result = await _execute_step(session, page, step, default_timeout_ms)
+                entry["result"] = step_result
+                recent_actions.append(f"{action}({element['description'] if element else action})")
+            except Exception as exc:
+                entry["ok"] = False
+                entry["error"] = str(exc)
+            transcript.append(entry)
+
+            try:
+                await page.wait_for_load_state("domcontentloaded", timeout=4000)
+            except Exception:
+                pass
+
+        session.page = page
+
+        _audit("browser_auto", "success" if status == "completed" else "stopped", {
+            "goal": goal[:300],
+            "status": status,
+            "steps_taken": len(transcript),
+            "final_url": page.url,
+            "duration_ms": int((time.monotonic() - audit_start) * 1000),
+        })
+
+        ok = status == "completed"
+        return {
+            "ok": ok,
+            "status": status,
+            "goal": goal,
+            "steps_taken": len(transcript),
+            "final_url": page.url,
+            "transcript": transcript,
+            "note": (
+                "Goal completed."
+                if ok
+                else "Auto-pilot stopped early. Use browser_state/browser_run to finish the task manually."
+            ),
         }

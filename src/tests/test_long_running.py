@@ -45,7 +45,11 @@ def test_compact_run_context_noop_under_threshold(monkeypatch):
     messages = [
         {"role": "tool", "tool_call_id": "1", "content": "x" * 5000},
     ]
-    assert AI._compact_run_context(messages) is False
+
+    async def run():
+        assert await AI._compact_run_context(messages) is False
+
+    asyncio.run(run())
     assert len(messages[0]["content"]) == 5000
 
 
@@ -54,7 +58,11 @@ def test_compact_run_context_stubs_old_tool_results(monkeypatch):
     messages = [{"role": "system", "content": "sys"}]
     for i in range(20):
         messages.append({"role": "tool", "tool_call_id": str(i), "content": f"result-{i}-" + "y" * 900})
-    changed = AI._compact_run_context(messages, keep_recent=3)
+
+    async def run():
+        return await AI._compact_run_context(messages, keep_recent=3)
+
+    changed = asyncio.run(run())
     assert changed is True
     tool_msgs = [m for m in messages if m.get("role") == "tool"]
     # The 3 most recent tool results are preserved verbatim.
@@ -62,6 +70,30 @@ def test_compact_run_context_stubs_old_tool_results(monkeypatch):
     # Older ones are stubbed.
     assert all("compacted" in m["content"] for m in tool_msgs[:-3])
     assert all(len(m["content"]) < 700 for m in tool_msgs[:-3])
+
+
+def test_compact_run_context_honors_laya_keep_and_drop(monkeypatch):
+    """The decision layer can keep an old result verbatim or drop it entirely."""
+    monkeypatch.setattr(AI, "_MAX_RUN_CONTEXT_CHARS", 1000)
+    messages = [{"role": "system", "content": "sys"}]
+    for i in range(8):
+        messages.append({"role": "tool", "tool_call_id": str(i), "content": f"result-{i}-" + "y" * 900})
+
+    async def fake_decide_compaction(targets, msgs, task_text):
+        # Keep the first candidate verbatim, drop the second, leave the rest default.
+        return {0: "keep", 1: "drop"} if len(targets) > 2 else None
+
+    monkeypatch.setattr(AI, "_decide_compaction", fake_decide_compaction)
+
+    async def run():
+        return await AI._compact_run_context(messages, keep_recent=2)
+
+    changed = asyncio.run(run())
+    assert changed is True
+    tool_msgs = [m for m in messages if m.get("role") == "tool"]
+    assert "y" * 900 in tool_msgs[0]["content"]  # kept verbatim
+    assert "dropped" in tool_msgs[1]["content"]  # dropped
+    assert "compacted" in tool_msgs[2]["content"]  # default truncate
 
 
 # ---------------------------------------------------------------------------

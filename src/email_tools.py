@@ -14,10 +14,55 @@ from typing import Any
 
 import app_paths
 
+try:
+    import laya_decisions
+except Exception:  # pragma: no cover - defensive: decision layer is optional
+    laya_decisions = None
+
 
 _DEFAULT_TIMEOUT_S = 90
 _DEFAULT_EXPORT_DIR = app_paths.data_path("email_exports")
 _BLOCKED_ATTACHMENT_HINT = "Attachment path points to a protected file and is blocked for safety."
+
+# Email triage question set for the laya decision model. The checkpoint is
+# fine-tuned on exactly this workflow family, so the phrasing stays close to
+# its training distribution: one focused judgment per question.
+_TRIAGE_QUESTIONS = {
+    "category": {
+        "type": "choice",
+        "instructions": "What kind of email is this, based on what it needs from the recipient?",
+        "criteria": {
+            "needs_reply": "The sender is waiting for an answer to this email.",
+            "urgent": "Time-critical: something breaks or a deadline is missed if not handled today.",
+            "spam": "Unsolicited bulk or marketing spam.",
+            "phishing": "An attempt to steal credentials, money, or personal data.",
+            "newsletter": "Subscription or mailing-list content.",
+            "notification": "Automated notification (build, calendar, service, receipt).",
+            "fyi": "Informational; no action needed.",
+            "other": "None of the above.",
+        },
+    },
+    "needs_reply_today": {
+        "type": "noul",
+        "instructions": "Does this email need a reply today?",
+    },
+    "urgency": {
+        "type": "score",
+        "instructions": "How urgent is this email for the recipient?",
+        "criteria": ["can wait", "this week", "today"],
+    },
+}
+
+_TRIAGE_ORDER = {
+    "urgent": 0,
+    "needs_reply": 1,
+    "phishing": 2,
+    "spam": 3,
+    "other": 4,
+    "notification": 5,
+    "newsletter": 6,
+    "fyi": 7,
+}
 
 
 def _is_protected_attachment(path: str) -> bool:
@@ -621,6 +666,197 @@ def _str_opt(kwargs: dict, key: str, default: str = "") -> str:
     return str(value)
 
 
+def _envelope_summary(envelope: dict) -> str:
+    """One line describing an envelope, used inside the triage state text."""
+    sender = envelope.get("sender") or {}
+    if isinstance(sender, dict):
+        name = str(sender.get("name") or "").strip()
+        email = str(sender.get("email") or "").strip()
+        from_txt = name or email
+        if name and email:
+            from_txt = f"{name} <{email}>"
+    else:
+        from_txt = str(sender or "").strip()
+    subject = str(envelope.get("subject") or "").strip() or "(no subject)"
+    date = str(envelope.get("date") or "").strip()
+    return f"From: {from_txt}\nSubject: {subject}\nDate: {date}"
+
+
+async def _read_triage_body(message_id: str, folder: str | None, account: str | None, body_chars: int) -> str:
+    """Fetch the message body (preview) for triage; empty on any failure."""
+    args = ["message", "read", "--preview"]
+    if folder:
+        args.extend(["--folder", folder])
+    args.append(message_id)
+    _add_account_arg(args, account)
+    result = await _run_himalaya(args, output_format="plain")
+    if not result.get("ok"):
+        return ""
+    return result.get("stdout", "")[:body_chars]
+
+
+def _triage_digest(entries: list[dict]) -> str:
+    counts: dict[str, int] = {}
+    for entry in entries:
+        category = entry.get("category") or "unclassified"
+        counts[category] = counts.get(category, 0) + 1
+    order = ["urgent", "needs_reply", "phishing", "spam", "other", "notification", "newsletter", "fyi"]
+    total = len(entries)
+    headline = f"Inbox triage: {total} message{'s' if total != 1 else ''} — " + ", ".join(
+        f"{counts[k]} {k}" for k in order if counts.get(k)
+    )
+    lines = [headline]
+    for category in order:
+        bucket = [e for e in entries if e.get("category") == category]
+        if not bucket:
+            continue
+        lines.append("")
+        lines.append(f"{category.upper()} ({len(bucket)}):")
+        for entry in sorted(bucket, key=lambda e: -float(e.get("urgency") or 0.0)):
+            flags = []
+            if entry.get("needs_reply_today") is not None:
+                flags.append(f"reply today: {round(float(entry['needs_reply_today']), 2)}")
+            if entry.get("urgency") is not None:
+                flags.append(f"urgency: {round(float(entry['urgency']), 1)}/3")
+            if entry.get("confidence") is not None:
+                flags.append(f"conf: {round(float(entry['confidence']), 2)}")
+            lines.append(f"- [{entry.get('id')}] {entry.get('from')}: \"{entry.get('subject')}\"" + (f" ({', '.join(flags)})" if flags else ""))
+    unclassified = [e for e in entries if not e.get("category")]
+    if unclassified:
+        lines.append("")
+        lines.append(f"UNCLASSIFIED ({len(unclassified)}): the decision model could not be reached for these.")
+    return "\n".join(lines)
+
+
+async def _triage_messages(kwargs: dict, folder: str | None, account: str | None) -> dict:
+    """Classify inbox messages with the laya decision model, one call per message."""
+    if laya_decisions is None:
+        return {"ok": False, "error": "Decision layer module unavailable."}
+    if not laya_decisions.feature_enabled("email_triage"):
+        return {"ok": False, "error": "Email triage is disabled (LAYA_EMAIL_TRIAGE=0)."}
+    availability = await laya_decisions.availability()
+    if not availability.get("available"):
+        return {
+            "ok": False,
+            "error": f"Decision model unavailable: {availability.get('detail') or availability.get('reason')}",
+        }
+
+    limit_raw = kwargs.get("limit", 20)
+    try:
+        limit = max(1, min(int(limit_raw), 50))
+    except (TypeError, ValueError):
+        limit = 20
+    body_chars = max(200, min(int(kwargs.get("body_chars", 1500) or 1500), 8000))
+    include_body = bool(kwargs.get("include_body", True))
+    move_spam_to = _str_opt(kwargs, "move_spam_to").strip()
+
+    args = ["envelope", "list"]
+    if folder:
+        args.extend(["--folder", folder])
+    page = kwargs.get("page")
+    if isinstance(page, (int, float)) and int(page) > 0:
+        args.extend(["--page", str(int(page))])
+    _add_account_arg(args, account)
+
+    list_result = await _run_himalaya(args, output_format="json")
+    if not list_result.get("ok"):
+        return list_result
+
+    envelopes = list_result.get("data") or []
+    if not isinstance(envelopes, list) or not envelopes:
+        return {
+            "ok": True,
+            "triaged": 0,
+            "messages": [],
+            "digest": "No messages found to triage.",
+        }
+
+    envelopes = envelopes[:limit]
+    confidence_min = laya_decisions.confidence_min()
+    entries: list[dict] = []
+    unclassified = 0
+
+    async def _classify(envelope: dict) -> dict | None:
+        message_id = str(envelope.get("id") or "").strip()
+        if not message_id:
+            return None
+        state = _envelope_summary(envelope)
+        if include_body:
+            body = await _read_triage_body(message_id, folder, account, body_chars)
+            if body:
+                state += f"\n\n{body}"
+        result = await laya_decisions.try_decide(state, _TRIAGE_QUESTIONS, feature="email_triage")
+        if not result:
+            return {
+                "id": message_id,
+                "from": str((envelope.get("sender") or {}).get("email", "") if isinstance(envelope.get("sender"), dict) else ""),
+                "subject": str(envelope.get("subject") or ""),
+                "category": None,
+            }
+        answers = result.get("answers") or {}
+        category_ans = answers.get("category") or {}
+        reply_ans = answers.get("needs_reply_today") or {}
+        urgency_ans = answers.get("urgency") or {}
+        category = category_ans.get("choice")
+        confidence = category_ans.get("confidence")
+        # Below the configured confidence the label is not trustworthy:
+        # report it, but do not act on it (no auto-move, no top billing).
+        return {
+            "id": message_id,
+            "from": str((envelope.get("sender") or {}).get("email", "") if isinstance(envelope.get("sender"), dict) else ""),
+            "subject": str(envelope.get("subject") or ""),
+            "category": category,
+            "confidence": confidence,
+            "needs_reply_today": reply_ans.get("noul"),
+            "urgency": urgency_ans.get("score"),
+            "low_confidence": bool(confidence is not None and confidence < confidence_min),
+        }
+
+    classified = await asyncio.gather(*[_classify(e) for e in envelopes])
+    for entry in classified:
+        if entry is None:
+            continue
+        if not entry.get("category"):
+            unclassified += 1
+        entries.append(entry)
+
+    entries.sort(key=lambda e: (_TRIAGE_ORDER.get(e.get("category") or "", 8), -float(e.get("urgency") or 0.0)))
+
+    moved: list[str] = []
+    move_errors: list[str] = []
+    if move_spam_to:
+        movable = [
+            e["id"] for e in entries
+            if e.get("category") in {"spam", "phishing"}
+            and not e.get("low_confidence")
+            and (e.get("confidence") or 0.0) >= confidence_min
+        ]
+        if movable:
+            move_result = await _run_himalaya(
+                ["message", "move"] + (["--folder", folder] if folder else []) + [move_spam_to] + movable,
+                output_format="plain",
+            )
+            if move_result.get("ok"):
+                moved = movable
+            else:
+                move_errors.append(str(move_result.get("error") or move_result.get("stderr") or "move failed"))
+
+    result = {
+        "ok": True,
+        "provider": laya_decisions.resolve_provider(),
+        "triaged": len(entries),
+        "unclassified": unclassified,
+        "messages": entries,
+        "digest": _triage_digest(entries),
+    }
+    if moved:
+        result["moved_to"] = move_spam_to
+        result["moved_ids"] = moved
+    if move_errors:
+        result["move_errors"] = move_errors
+    return result
+
+
 async def execute(action: str, **kwargs) -> dict:
     action_name = str(action or "").strip().lower()
     if not action_name:
@@ -942,6 +1178,9 @@ async def execute(action: str, **kwargs) -> dict:
         _add_account_arg(args, account)
         return await _run_himalaya(args, output_format="plain")
 
+    if action_name == "triage_messages":
+        return await _triage_messages(kwargs, folder=folder, account=account)
+
     return {
         "ok": False,
         "error": f"Unsupported action: {action_name}",
@@ -951,6 +1190,7 @@ async def execute(action: str, **kwargs) -> dict:
             "list_messages",
             "read_message",
             "thread_message",
+            "triage_messages",
             "send_message",
             "download_attachments",
             "extract_message",

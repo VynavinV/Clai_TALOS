@@ -81,6 +81,38 @@ Get current connection state, URL, title, and tabs.
 - `include_page_text` (boolean, optional)
 - `text_limit` (number, optional)
 
+## browser_auto
+
+Experimental: drive the browser toward a goal with a fast decision loop instead
+of hand-written steps. One small decision-model call per step reads the page
+(URL, visible text, clickable elements) and picks the next action until the
+goal is complete, the step budget runs out, or it stops itself.
+
+**Parameters:**
+- `goal` (string, required): what to achieve on the page. Quote any text to
+  type, e.g. `search for "best laptops" and open the first result`
+- `max_steps` (number, optional, default 25, cap 50)
+- `type_texts` (array of strings, optional): strings the loop may type
+  (default: strings quoted in the goal)
+- `auto_connect` (boolean, optional, default true)
+- `default_timeout_ms` (number, optional, default 15000)
+
+**Behavior:**
+- Never types text of its own — only strings quoted in the goal or passed in
+  `type_texts`.
+- Stops before risky clicks (payment, checkout, password) with
+  `status: "needs_user"` — ask the user before continuing.
+- Stops after the same action repeated 3 times (`status: "stuck"`).
+- Returns a per-step transcript, final URL, and one of:
+  `completed`, `max_steps`, `gave_up`, `stuck`, `needs_user`,
+  `decision_unavailable`, `error`.
+- Requires the decision model (Settings → Decision Model); otherwise it
+  returns an error — use `browser_run` for exact step-by-step control.
+- Every step is audited to `logs/audit.log` like all browser calls.
+
+Use it for repetitive multi-click flows; use `browser_run` when you need
+deterministic, exact control over each action.
+
 ## browser_disconnect
 
 Disconnect the active browser session.

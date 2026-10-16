@@ -37,6 +37,7 @@ import homeassistant
 import interrupt_hub
 import activity_tracker
 import ollama_setup
+import laya_decisions
 import app_paths
 import ota_update
 import email_tools
@@ -2972,7 +2973,7 @@ _SECRET_KEYS = frozenset({
     "TELEGRAM_BOT_TOKEN", "ZHIPUAI_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY",
     "ANTHROPIC_API_KEY", "NVIDIA_API_KEY", "CEREBRAS_API_KEY", "GROQ_API_KEY", "QWEN_API_KEY", "OPENROUTER_API_KEY",
     "MISTRAL_API_KEY", "OTHER_API_KEY", "GOOGLE_API_KEY", "GOOGLE_OAUTH_CLIENT_SECRET",
-    "CLAISTORE_GITHUB_TOKEN", "CLAISTORE_WORKER_AUTH_TOKEN", "HOMEASSISTANT_TOKEN",
+    "CLAISTORE_GITHUB_TOKEN", "CLAISTORE_WORKER_AUTH_TOKEN", "HOMEASSISTANT_TOKEN", "JEV_API_KEY",
 })
 
 
@@ -3063,6 +3064,19 @@ async def handle_api_settings_get(request):
         "CLAISTORE_GITHUB_TOKEN": env_vars.get("CLAISTORE_GITHUB_TOKEN", ""),
         "CLAISTORE_GITHUB_BRANCH": env_vars.get("CLAISTORE_GITHUB_BRANCH", "main"),
         "CLAISTORE_WORKER_AUTH_TOKEN": env_vars.get("CLAISTORE_WORKER_AUTH_TOKEN", ""),
+        "LAYA_ENABLED": env_vars.get("LAYA_ENABLED", "1"),
+        "LAYA_PROVIDER": env_vars.get("LAYA_PROVIDER", "auto"),
+        "LAYA_MODEL": env_vars.get("LAYA_MODEL", "laya"),
+        "LAYA_BASE_URL": env_vars.get("LAYA_BASE_URL", ""),
+        "JEV_BASE_URL": env_vars.get("JEV_BASE_URL", ""),
+        "LAYA_TIMEOUT_S": env_vars.get("LAYA_TIMEOUT_S", "5"),
+        "LAYA_AUTO_PULL": env_vars.get("LAYA_AUTO_PULL", "1"),
+        "LAYA_CONFIDENCE_MIN": env_vars.get("LAYA_CONFIDENCE_MIN", "0.75"),
+        "LAYA_EMAIL_TRIAGE": env_vars.get("LAYA_EMAIL_TRIAGE", "1"),
+        "LAYA_MEMORY_RERANK": env_vars.get("LAYA_MEMORY_RERANK", "1"),
+        "LAYA_CONTEXT_COMPACT": env_vars.get("LAYA_CONTEXT_COMPACT", "1"),
+        "LAYA_MODEL_TRIAGE": env_vars.get("LAYA_MODEL_TRIAGE", "1"),
+        "LAYA_BROWSER_AUTO": env_vars.get("LAYA_BROWSER_AUTO", "1"),
     }
     # Per-user fallback model from DB
     try:
@@ -3318,10 +3332,16 @@ async def handle_api_settings_post(request):
         "OTA_CHANNEL", "TALOS_LAZY_TOOLS",
         "CLAISTORE_GITHUB_REPO", "CLAISTORE_GITHUB_TOKEN", "CLAISTORE_GITHUB_BRANCH", "CLAISTORE_WORKER_AUTH_TOKEN",
         "HOMEASSISTANT_URL", "HOMEASSISTANT_TOKEN",
+        "LAYA_PROVIDER", "LAYA_MODEL", "LAYA_TIMEOUT_S",
     ]
 
     # On/off switches, stored as "1"/"0" so they survive the flat .env format.
-    _BOOL_KEYS = ["HOMEASSISTANT_ENABLED", "WHATSAPP_ENABLED", "DISCORD_ENABLED", "TALOS_STUCK_ENABLED", "ORCHESTRATOR_TIMEOUT_ENABLED", "TALOS_PROGRESS_ENABLED"]
+    _BOOL_KEYS = [
+        "HOMEASSISTANT_ENABLED", "WHATSAPP_ENABLED", "DISCORD_ENABLED",
+        "TALOS_STUCK_ENABLED", "ORCHESTRATOR_TIMEOUT_ENABLED", "TALOS_PROGRESS_ENABLED",
+        "LAYA_ENABLED", "LAYA_AUTO_PULL", "LAYA_EMAIL_TRIAGE", "LAYA_MEMORY_RERANK",
+        "LAYA_CONTEXT_COMPACT", "LAYA_MODEL_TRIAGE", "LAYA_BROWSER_AUTO",
+    ]
 
     for key in _BOOL_KEYS:
         if key in body:
@@ -3338,6 +3358,49 @@ async def handle_api_settings_post(request):
                 env_vars[key] = value
             elif key in env_vars:
                 del env_vars[key]
+
+    # Decision-model keys: empty clears them (they all have code defaults), and
+    # a masked JEV_API_KEY keeps the stored secret instead of overwriting it.
+    for key in ("LAYA_BASE_URL", "JEV_BASE_URL", "JEV_API_KEY"):
+        if key in body:
+            value = str(body[key]).strip()
+            if not value:
+                env_vars.pop(key, None)
+            elif key == "JEV_API_KEY" and _is_masked(value):
+                continue
+            else:
+                env_vars[key] = value
+
+    if "LAYA_PROVIDER" in body:
+        laya_provider = str(body["LAYA_PROVIDER"]).strip().lower() or "auto"
+        if laya_provider not in {"auto", "ollama", "jev", "custom"}:
+            return web.json_response(
+                {"error": "LAYA_PROVIDER must be one of auto, ollama, jev, custom."},
+                status=400,
+            )
+        env_vars["LAYA_PROVIDER"] = laya_provider
+
+    if "LAYA_CONFIDENCE_MIN" in body:
+        raw = str(body["LAYA_CONFIDENCE_MIN"]).strip()
+        if raw:
+            try:
+                val = float(raw)
+            except ValueError:
+                return web.json_response({"error": "LAYA_CONFIDENCE_MIN must be a number between 0 and 1."}, status=400)
+            if not (0.0 <= val <= 1.0):
+                return web.json_response({"error": "LAYA_CONFIDENCE_MIN must be between 0 and 1."}, status=400)
+            env_vars["LAYA_CONFIDENCE_MIN"] = str(val)
+
+    if "LAYA_TIMEOUT_S" in body:
+        raw = str(body["LAYA_TIMEOUT_S"]).strip()
+        if raw:
+            try:
+                val = int(float(raw))
+            except ValueError:
+                return web.json_response({"error": "LAYA_TIMEOUT_S must be a number."}, status=400)
+            if not (1 <= val <= 300):
+                return web.json_response({"error": "LAYA_TIMEOUT_S must be between 1 and 300."}, status=400)
+            env_vars["LAYA_TIMEOUT_S"] = str(val)
 
     for key in _TEXT_KEYS:
         if key in body and body[key].strip():
@@ -3400,6 +3463,7 @@ async def handle_api_settings_post(request):
 
     _write_env_vars(env_vars)
     saved_main_model = str(env_vars.get("MAIN_MODEL", "")).strip()
+    laya_decisions.invalidate_availability()
     if saved_main_model:
         try:
             db.set_model_for_all(saved_main_model)
@@ -3508,6 +3572,128 @@ async def handle_api_ollama_model_info(request):
     if not model_name:
         return web.json_response({"error": "Model name is required."}, status=400)
     return web.json_response(await ollama_setup.show_model(model_name, request.query.get("base_url") or None))
+
+
+_LAYA_FEATURE_SETTINGS_KEYS = {
+    "email_triage": "LAYA_EMAIL_TRIAGE",
+    "memory_rerank": "LAYA_MEMORY_RERANK",
+    "context_compact": "LAYA_CONTEXT_COMPACT",
+    "model_triage": "LAYA_MODEL_TRIAGE",
+    "browser_auto": "LAYA_BROWSER_AUTO",
+}
+
+
+@require_auth
+async def handle_api_laya_status(request):
+    """Config, provider health, and recent failures for the decision-model card."""
+    env_vars = _read_env_file()
+    force = str(request.query.get("force", "")).strip().lower() in {"1", "true", "yes"}
+    result = await laya_decisions.availability(force=force)
+    result["config"] = {
+        "LAYA_ENABLED": env_vars.get("LAYA_ENABLED", "1"),
+        "LAYA_PROVIDER": env_vars.get("LAYA_PROVIDER", "auto"),
+        "LAYA_MODEL": env_vars.get("LAYA_MODEL", "laya"),
+        "LAYA_BASE_URL": env_vars.get("LAYA_BASE_URL", ""),
+        "JEV_BASE_URL": env_vars.get("JEV_BASE_URL", laya_decisions.DEFAULT_JEV_BASE_URL),
+        "JEV_API_KEY": _mask_secret(env_vars.get("JEV_API_KEY", "")),
+        "LAYA_TIMEOUT_S": env_vars.get("LAYA_TIMEOUT_S", "5"),
+        "LAYA_AUTO_PULL": env_vars.get("LAYA_AUTO_PULL", "1"),
+        "LAYA_CONFIDENCE_MIN": env_vars.get("LAYA_CONFIDENCE_MIN", "0.75"),
+    }
+    result["features"] = {
+        feature: laya_decisions.feature_enabled(feature)
+        for feature in _LAYA_FEATURE_SETTINGS_KEYS
+    }
+    result["last_failure"] = laya_decisions.last_failure()
+    result["pull"] = laya_decisions.pull_progress()
+    return web.json_response(result)
+
+
+@require_auth_csrf
+async def handle_api_laya_test(request):
+    """Run one real typed decision and return the answer with latency."""
+    result = await laya_decisions.test_decision()
+    return web.json_response(result, status=200 if result.get("ok") else 502)
+
+
+@require_auth_csrf
+async def handle_api_laya_install(request):
+    """Pull the laya decision model via Ollama, streaming progress as NDJSON."""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid request."}, status=400)
+
+    model_name = str(body.get("model_name", "")).strip() or laya_decisions.laya_model()
+
+    env_vars = _read_env_file()
+    base_url = env_vars.get("OLLAMA_BASE_URL", ollama_setup.DEFAULT_BASE_URL)
+    status = await ollama_setup.get_status(base_url)
+    if not status.get("reachable"):
+        return web.json_response({"error": status.get("error") or "Could not reach the Ollama server."}, status=400)
+
+    version = str(status.get("version", ""))
+    parsed = laya_decisions._parse_version(version)
+    if parsed is not None and parsed < laya_decisions.MIN_OLLAMA_VERSION:
+        return web.json_response({"error": (
+            f"Ollama {version} is installed, but the laya decision model needs Ollama 0.40.0+ "
+            "(the /v1/systemone endpoint). Upgrade from https://ollama.com, or configure "
+            "JEV_API_KEY in Settings to use the hosted Jev model instead."
+        )}, status=400)
+
+    laya_decisions.mark_pull_requested(model_name)
+
+    resp = web.StreamResponse(
+        status=200,
+        headers={
+            "Content-Type": "application/x-ndjson",
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+    await resp.prepare(request)
+
+    async def send(event: dict) -> None:
+        await resp.write((json.dumps(event, separators=(",", ":")) + "\n").encode())
+
+    already_installed = any(
+        m.get("name", "") == model_name or m.get("name", "").split(":")[0] == model_name
+        for m in status.get("models", [])
+    )
+    await send({
+        "stage": "start",
+        "model": model_name,
+        "already_installed": already_installed,
+        "message": (
+            f"{model_name} is already downloaded — verifying."
+            if already_installed
+            else f"Downloading {model_name} (~850 MB) from the Ollama library."
+        ),
+    })
+
+    failed = ""
+    try:
+        async for event in ollama_setup.pull_model(model_name, base_url):
+            if event.get("stage") == "error":
+                failed = str(event.get("error", "Pull failed."))
+                await send(event)
+                break
+            await send(event)
+    except (asyncio.CancelledError, ConnectionResetError):
+        return resp
+
+    if failed:
+        await send({"stage": "finished", "ok": False, "error": failed})
+        return resp
+
+    ollama_setup.forget_model_info()
+    await send({
+        "stage": "finished",
+        "ok": True,
+        "model": model_name,
+        "message": f"{model_name} is installed. The decision layer will use it on the next call.",
+    })
+    return resp
 
 
 _OLLAMA_ADVANCED_KEYS = {
@@ -3855,6 +4041,7 @@ async def handle_api_tools_get(request):
         "delete_memory": True,
         "update_memory": True,
         "set_model_prefs": True,
+        "laya_decide": True,
         "web_search": True,
         "scrape_url": True,
         "google_execute": True,
@@ -3863,6 +4050,7 @@ async def handle_api_tools_get(request):
         "browser_start_chrome_debug": True,
         "browser_connect": True,
         "browser_run": True,
+        "browser_auto": True,
         "browser_state": True,
         "browser_disconnect": True,
         "read_file": True,
@@ -4520,6 +4708,9 @@ async def main():
     web_app.router.add_post("/api/ollama/setup", handle_api_ollama_setup)
     web_app.router.add_get("/api/ollama/status", handle_api_ollama_status)
     web_app.router.add_get("/api/ollama/model-info", handle_api_ollama_model_info)
+    web_app.router.add_get("/api/laya/status", handle_api_laya_status)
+    web_app.router.add_post("/api/laya/test", handle_api_laya_test)
+    web_app.router.add_post("/api/laya/install", handle_api_laya_install)
     web_app.router.add_post("/api/chat", handle_api_chat)
     web_app.router.add_get("/api/activity/history", handle_api_activity_history)
     web_app.router.add_get("/api/activity/stream", handle_api_activity_stream)

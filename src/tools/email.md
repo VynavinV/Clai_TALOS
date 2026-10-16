@@ -19,6 +19,7 @@ Run one Himalaya action.
 - `list_messages`
 - `read_message`
 - `thread_message`
+- `triage_messages`
 - `send_message`
 - `download_attachments`
 - `extract_message`
@@ -34,11 +35,15 @@ Run one Himalaya action.
 - `folder` (string): Source folder (defaults to inbox)
 
 **Action-specific parameters:**
-- `page` (number): Page number for `list_messages`
+- `page` (number): Page number for `list_messages` and `triage_messages`
 - `message_id` (number|string): Single id for read/reply/forward/thread
 - `message_ids` (array<number|string>): Multi-id actions for move/copy/delete
 - `target_folder` (string): Required for move/copy actions
 - `preview` (boolean): Read/thread without marking seen (default true)
+- `limit` (number): Max messages to triage for `triage_messages` (default 20, cap 50)
+- `include_body` (boolean): Read each message body for `triage_messages` (default true)
+- `body_chars` (number): Body characters read per message for `triage_messages` (default 1500)
+- `move_spam_to` (string): Optional folder for `triage_messages` — moves only confident spam/phishing there
 - `output_path` (string): Optional path for `read_message`/`thread_message` output text. Relative paths are saved under `data/email_exports`.
 - `download_dir` (string): Optional directory for `download_attachments` (and fallback destination for `extract_message`/`export_message`). Relative paths are saved under `data/email_exports`.
 - `destination_path` (string): Optional destination path for `extract_message`/`export_message`.
@@ -49,6 +54,32 @@ Run one Himalaya action.
 - `body` (string): For send/reply/forward
 - `attachments` (array<string>): For `send_message` — file paths to attach (absolute, workspace-relative, or data-relative)
 - `headers` (object): Optional custom headers
+
+## triage_messages
+
+Classifies inbox messages with the fast decision model (laya/Jev, Settings →
+Decision Model) and returns a ready-to-read digest:
+
+```json
+{
+  "ok": true,
+  "triaged": 18,
+  "messages": [
+    {"id": "123", "from": "a@x.com", "subject": "Server down",
+     "category": "urgent", "needs_reply_today": 0.9, "urgency": 3.0, "confidence": 0.88},
+    ...
+  ],
+  "digest": "Inbox triage: 18 messages — 2 urgent, 3 needs_reply, 5 spam, ..."
+}
+```
+
+- Categories: `urgent`, `needs_reply`, `spam`, `phishing`, `newsletter`,
+  `notification`, `fyi`, `other`
+- Low-confidence labels are reported but never acted on (no auto-move, and
+  `move_spam_to` only moves confident spam/phishing)
+- Requires the decision model; returns a clear error when it is off or
+  unavailable
+- Great as a cron job: `self:run email triage on my inbox and send me the digest`
 
 ## Configuration
 

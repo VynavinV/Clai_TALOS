@@ -623,6 +623,9 @@ Main pages:
 | GET | `/api/models` | List models |
 | POST | `/api/models/fetch` | Refresh provider model list |
 | POST | `/api/ollama/setup` | Install and set Ollama model |
+| GET | `/api/laya/status` | Decision model health + configuration |
+| POST | `/api/laya/test` | Run one test decision |
+| POST | `/api/laya/install` | Pull the laya model via Ollama (NDJSON progress) |
 | POST | `/api/chat` | Web chat message endpoint |
 | POST | `/api/reload` | Hot reload env + clients |
 | POST | `/api/restart` | Process restart |
@@ -700,6 +703,32 @@ TALOS reads `.env` and supports hot reload for most runtime settings.
 | `OLLAMA_BASE_URL` | `http://localhost:11434/v1` | Ollama API base URL |
 
 Ollama runs models locally with no API key. Install from [ollama.com](https://ollama.com), start it, then set `OLLAMA_MODEL` to any model name. The model is pulled automatically on first use. Browse available models at [ollama.com/library](https://ollama.com/library).
+
+### Decision model (System One)
+
+Optional fast typed decisions (choice / score / yes-no probability) used by email
+triage, memory ranking, context compaction, smart model routing, and the
+experimental browser auto-pilot. Defaults to the free local `laya` model
+(needs Ollama 0.40+, pulled automatically); a `JEV_API_KEY` switches to the
+hosted Jev model. Everything falls back safely when it is off or unavailable.
+See `LAYA_DOCS.md` and Settings → Decision Model.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LAYA_ENABLED` | `1` | Master switch for the decision layer |
+| `LAYA_PROVIDER` | `auto` | `auto` (Jev key if set, else Ollama), `ollama`, `jev`, `custom` |
+| `LAYA_MODEL` | `laya` | Ollama model name (`laya`, `laya-multilingual`, ...) |
+| `LAYA_BASE_URL` | empty | Custom Jev-compatible `/v1/systemone` endpoint |
+| `JEV_API_KEY` | empty | Hosted Jev backend key |
+| `JEV_BASE_URL` | `https://api.typesafe.ai/v1` | Hosted Jev base URL |
+| `LAYA_TIMEOUT_S` | `5` | Per-decision timeout |
+| `LAYA_AUTO_PULL` | `1` | Auto `ollama pull laya` when missing |
+| `LAYA_CONFIDENCE_MIN` | `0.75` | Minimum confidence before acting on a decision |
+| `LAYA_EMAIL_TRIAGE` | `1` | Email triage feature toggle |
+| `LAYA_MEMORY_RERANK` | `1` | Memory relevance ranking toggle |
+| `LAYA_CONTEXT_COMPACT` | `1` | Context compaction toggle |
+| `LAYA_MODEL_TRIAGE` | `1` | Smart model routing toggle |
+| `LAYA_BROWSER_AUTO` | `1` | Browser auto-pilot toggle |
 
 ### Google integration
 
@@ -824,12 +853,14 @@ These tools are exposed by the orchestrator and can be toggled in the dashboard.
 | `set_model_prefs` | Set user model preferences |
 | `web_search` | Perform web search |
 | `scrape_url` | Local Scrapy content extraction |
+| `laya_decide` | Ask the fast decision model typed questions (choice/score/noul) and get calibrated answers |
 | `google_execute` | Execute Google actions |
 | `email_execute` | Execute Himalaya email actions |
 | `homeassistant_execute` | Read and control Home Assistant entities |
 | `browser_start_chrome_debug` | Launch Chrome with debug port |
 | `browser_connect` | Connect to browser CDP |
 | `browser_run` | Execute browser action steps |
+| `browser_auto` | Experimental goal-driven browser loop powered by the decision model |
 | `browser_state` | Inspect browser session state |
 | `browser_disconnect` | Disconnect browser session |
 | `read_file` | Read text files safely |
@@ -992,6 +1023,7 @@ Supported action families:
 - thread retrieval
 - send/reply/forward
 - move/copy/delete
+- inbox triage (`triage_messages`): the decision model classifies messages (urgent, needs reply, spam, phishing, newsletter) and returns a ready-to-read digest, with optional confident-spam folder moves
 
 Onboarding helper can auto-configure Gmail with app password, writing config under `.himalaya/config.toml` and setting env keys.
 

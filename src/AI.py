@@ -32,6 +32,7 @@ import homeassistant
 import pa_system
 import activity_tracker
 import interrupt_hub
+import laya_decisions
 
 app_paths.ensure_runtime_dirs()
 load_dotenv(dotenv_path=app_paths.env_file_path())
@@ -210,7 +211,12 @@ def _is_email_configured() -> bool:
     return False
 
 
-def _build_system(user_id: int, current_message: str = "", include_memories: bool = True) -> str | None:
+def _build_system(
+    user_id: int,
+    current_message: str = "",
+    include_memories: bool = True,
+    relevant_memories: list[dict] | None = None,
+) -> str | None:
     parts = []
     prompt = db.read_system_prompt()
     if prompt:
@@ -277,12 +283,113 @@ def _build_system(user_id: int, current_message: str = "", include_memories: boo
         parts.append(f"[Previous conversation summary]\n{summary}")
 
     if include_memories and current_message:
-        relevant_memories = memory.get_relevant_memories(user_id, current_message)
+        if relevant_memories is None:
+            relevant_memories = memory.get_relevant_memories(user_id, current_message)
         if relevant_memories:
             memories_str = memory.format_memories_for_context(relevant_memories)
             parts.append(memories_str)
 
     return "\n\n".join(parts) if parts else None
+
+
+async def _rerank_memories(user_id: int, message: str) -> list[dict] | None:
+    """Rank keyword-matched memories with the decision layer.
+
+    Returns the reordered top memories, or None to keep the default keyword
+    ranking (decision layer off, unavailable, or it had nothing to say).
+    """
+    if not laya_decisions.feature_enabled("memory_rerank"):
+        return None
+    if not message.strip():
+        return None
+    candidates = memory.get_relevant_memories(user_id, message, limit=12)
+    if len(candidates) <= 1:
+        return None
+
+    state = {
+        "current_message": message[:2000],
+        "candidate_memories": [
+            {"n": i + 1, "memory": str(m.get("content") or "")[:300]}
+            for i, m in enumerate(candidates)
+        ],
+    }
+    questions = {
+        f"relevant_{i + 1}": laya_decisions.noul(
+            f"Is `candidate_memories[{i}].memory` useful context for answering `current_message`?"
+        )
+        for i in range(len(candidates))
+    }
+    result = await laya_decisions.try_decide(state, questions, feature="memory_rerank")
+    if not result:
+        return None
+
+    answers = result.get("answers") or {}
+    scored: list[dict] = []
+    for i, m in enumerate(candidates):
+        prob = (answers.get(f"relevant_{i + 1}") or {}).get("noul")
+        if prob is None:
+            continue
+        m = dict(m)
+        m["relevance"] = round(float(prob), 2)
+        scored.append(m)
+    if not scored:
+        return None
+    scored.sort(key=lambda m: m["relevance"] * max(1, int(m.get("importance") or 5)), reverse=True)
+    return [m for m in scored if m["relevance"] >= 0.5][:5]
+
+
+async def _triage_model(base_model: str, text: str) -> str | None:
+    """Route clearly simple messages to the fast model. None keeps base_model.
+
+    Runs once before the turn starts — TALOS never switches models mid-task.
+    """
+    if not laya_decisions.feature_enabled("model_triage"):
+        return None
+    fast_model = os.getenv("FAST_MODEL", "").strip()
+    if not fast_model or fast_model == base_model:
+        return None
+    provider, _ = model_router.resolve_model(fast_model)
+    if not model_router._provider_enabled(provider):
+        return None
+    if not await laya_decisions.available():
+        return None
+
+    result = await laya_decisions.try_decide(
+        text[:4000],
+        {
+            "complexity": laya_decisions.choice(
+                "How complex is this user request for an AI assistant?",
+                {
+                    "simple": "A greeting, quick factual question, small talk, or a one-step ask.",
+                    "standard": "A normal request needing a thoughtful answer or a couple of steps.",
+                    "complex": "Multi-step work, analysis, planning, or anything needing many tools.",
+                },
+            ),
+            "needs_tools": laya_decisions.noul(
+                "Answering this request well requires tools (terminal, browser, email, search) rather than a direct reply."
+            ),
+        },
+        feature="model_triage",
+    )
+    if not result:
+        return None
+
+    answers = result.get("answers") or {}
+    complexity = answers.get("complexity") or {}
+    needs_tools = (answers.get("needs_tools") or {}).get("noul")
+    confidence = complexity.get("confidence") or 0.0
+    if (
+        complexity.get("choice") == "simple"
+        and confidence >= laya_decisions.confidence_min()
+        and (needs_tools is not None and needs_tools < 0.5)
+    ):
+        logger.info(
+            "Model triage: routing simple message to fast model %s (confidence %.2f)",
+            fast_model,
+            confidence,
+        )
+        return fast_model
+    return None
 
 
 def _build_subagent_system(user_id: int, role: str, task: str, context: str = "") -> str | None:
@@ -460,13 +567,60 @@ def _truncate_tool_result(result_text: str, cap: int | None = None) -> str:
     )
 
 
-def _compact_run_context(messages: list[dict], keep_recent: int = 12) -> bool:
+async def _decide_compaction(targets: list[int], messages: list[dict], task_text: str) -> dict[int, str] | None:
+    """One decision-model call: keep / truncate / drop for each old tool result.
+
+    Returns {candidate index -> decision} for the confident answers, or None to
+    use the deterministic default (truncate everything selected).
+    """
+    if not targets or len(targets) > 30:
+        return None
+    if not task_text.strip():
+        return None
+    if not laya_decisions.feature_enabled("context_compact"):
+        return None
+    if not await laya_decisions.available():
+        return None
+
+    candidates = [
+        {"n": n + 1, "head": str(messages[i].get("content") or "")[:300]}
+        for n, i in enumerate(targets)
+    ]
+    state = {"task": task_text[:2000], "old_tool_results": candidates}
+    questions = {
+        f"result_{n + 1}": laya_decisions.choice(
+            f"Is `old_tool_results[{n}].head` still needed to finish `task`?",
+            {
+                "keep": "Still needed to finish the task; must stay verbatim.",
+                "truncate": "Partly useful; keeping the beginning is enough.",
+                "drop": "No longer relevant to finishing the task.",
+            },
+        )
+        for n in range(len(candidates))
+    }
+    result = await laya_decisions.try_decide(state, questions, feature="context_compact")
+    if not result:
+        return None
+
+    answers = result.get("answers") or {}
+    decisions: dict[int, str] = {}
+    for n in range(len(candidates)):
+        answer = answers.get(f"result_{n + 1}") or {}
+        decision = answer.get("choice")
+        if decision in {"keep", "truncate", "drop"} and (answer.get("confidence") or 0.0) >= laya_decisions.confidence_min():
+            decisions[n] = decision
+    return decisions
+
+
+async def _compact_run_context(messages: list[dict], keep_recent: int = 12, task_text: str = "") -> bool:
     """Shrink old tool results once a run's context grows past the budget.
 
-    Deterministic (no model call): the system prompt, user/assistant messages,
-    and the most recent tool results are preserved verbatim; older tool results
-    become short stubs. Lets an agent run for hours without drowning in its own
-    earlier output. Returns True when compaction changed anything.
+    Default (no model call): the system prompt, user/assistant messages, and
+    the most recent tool results are preserved verbatim; older tool results
+    become short stubs. When the decision layer is available, it decides per
+    result whether to keep it verbatim, truncate it, or drop it entirely, so
+    important early findings survive long runs. Returns True when the size
+    threshold was crossed and a compaction pass ran.
     """
     if _estimate_messages_chars(messages) <= _MAX_RUN_CONTEXT_CHARS:
         return False
@@ -475,16 +629,32 @@ def _compact_run_context(messages: list[dict], keep_recent: int = 12) -> bool:
         i for i, m in enumerate(messages)
         if m.get("role") == "tool" and len(str(m.get("content") or "")) > 600
     ]
-    for i in tool_indexes[:-keep_recent] if keep_recent else tool_indexes:
+    targets = tool_indexes[:-keep_recent] if keep_recent else tool_indexes
+
+    decisions = await _decide_compaction(targets, messages, task_text) if targets else None
+
+    for n, i in enumerate(targets):
         content = str(messages[i].get("content") or "")
-        messages[i] = {
-            **messages[i],
-            "content": (
-                content[:300].rstrip()
-                + "\n...[older result compacted to save context — if you need it "
-                "again, re-run that tool or read the file it produced]"
-            ),
-        }
+        decision = (decisions or {}).get(n, "truncate")
+        if decision == "keep":
+            continue
+        if decision == "drop":
+            messages[i] = {
+                **messages[i],
+                "content": (
+                    "[dropped by context compaction — judged no longer relevant; "
+                    "re-run that tool if it turns out you need it]"
+                ),
+            }
+        else:
+            messages[i] = {
+                **messages[i],
+                "content": (
+                    content[:300].rstrip()
+                    + "\n...[older result compacted to save context — if you need it "
+                    "again, re-run that tool or read the file it produced]"
+                ),
+            }
     return True
 
 
@@ -1076,6 +1246,41 @@ def _get_all_tools(include_subagent: bool = True, include_telegram: bool = False
         {
             "type": "function",
             "function": {
+                "name": "laya_decide",
+                "description": (
+                    "Ask the fast decision model typed questions about a text and get structured answers "
+                    "with probabilities in one call — much cheaper and faster than a full model round. "
+                    "Give it the text to judge in `state` and 1-10 focused questions. Each question needs: "
+                    "type (choice|score|noul), instructions (the question), and criteria (choice: {option_id: description}; "
+                    "score: ordered level descriptions; noul: none). Answers come back as your option ids / level numbers / "
+                    "yes-probabilities with a confidence each. Use it to classify, route, verify, or gate your own steps; "
+                    "do not use it to generate text or reason through multi-step plans."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "state": {
+                            "type": "string",
+                            "description": "The text to judge: an email, ticket, message, document, or JSON-serialized record"
+                        },
+                        "questions": {
+                            "type": "object",
+                            "description": (
+                                "Map of question id -> question object. Each object: "
+                                "{type: 'choice', instructions: 'which team should handle this?', criteria: {billing: 'payment issues', technical: 'bugs and outages'}} "
+                                "or {type: 'noul', instructions: 'does the sender request a refund?'} "
+                                "or {type: 'score', instructions: 'how urgent is this?', criteria: ['not urgent', 'soon', 'blocking']}"
+                            ),
+                            "additionalProperties": {"type": "object"}
+                        }
+                    },
+                    "required": ["state", "questions"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
                 "name": "web_search",
                 "description": "Search the web for current information. Use for news, real-time data, documentation, or fact-checking.",
                 "parameters": {
@@ -1179,13 +1384,17 @@ def _get_all_tools(include_subagent: bool = True, include_telegram: bool = False
                             "type": "string",
                             "description": (
                                 "Email action to run: list_accounts, list_folders, list_messages, read_message, "
-                                "thread_message, send_message, download_attachments, extract_message, export_message, "
-                                "reply_message, forward_message, move_messages, copy_messages, delete_messages"
+                                "thread_message, triage_messages, send_message, download_attachments, extract_message, "
+                                "export_message, reply_message, forward_message, move_messages, copy_messages, delete_messages. "
+                                "triage_messages classifies inbox messages (urgent / needs_reply / spam / phishing / newsletter) "
+                                "with the fast decision model and returns a ready-to-read digest."
                             ),
                         },
                         "account": {"type": "string", "description": "Optional Himalaya account name"},
                         "folder": {"type": "string", "description": "Optional source folder (defaults to inbox)"},
                         "page": {"type": "number", "description": "Optional page number for list_messages"},
+                        "limit": {"type": "number", "description": "Max messages to triage (triage_messages, default 20)"},
+                        "move_spam_to": {"type": "string", "description": "Folder to move confident spam/phishing into (triage_messages, optional)"},
                         "message_id": {
                             "description": "Single message/envelope id for read/reply/forward/thread",
                             "oneOf": [{"type": "number"}, {"type": "string"}],
@@ -1368,6 +1577,37 @@ def _get_all_tools(include_subagent: bool = True, include_telegram: bool = False
                         "page_index": {"type": "number", "description": "Optional page index to use as active tab"}
                     },
                     "required": ["steps"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "browser_auto",
+                "description": (
+                    "Experimental: drive the connected browser toward a goal with a fast decision loop instead of "
+                    "hand-written steps. Give a short goal; each step the decision model reads the page (URL, text, "
+                    "clickable elements) and picks the next action. It only types strings quoted in the goal or given "
+                    "in type_texts, stops before risky clicks (payment/checkout/password), and returns a transcript. "
+                    "Use browser_run when you need exact control; use this for repetitive multi-click flows."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "goal": {
+                            "type": "string",
+                            "description": "What to achieve on the page. Quote any text to type, e.g. search for \"best laptops\""
+                        },
+                        "max_steps": {"type": "number", "description": "Maximum steps before stopping (default: 25, cap 50)"},
+                        "type_texts": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Optional list of strings the loop may type (default: strings quoted in the goal)",
+                        },
+                        "auto_connect": {"type": "boolean", "description": "Auto-connect/start browser when no session exists (default: true)"},
+                        "default_timeout_ms": {"type": "number", "description": "Per-step timeout in ms (default: 15000)"}
+                    },
+                    "required": ["goal"]
                 }
             }
         },
@@ -1886,7 +2126,7 @@ _TOOL_CATEGORIES: dict[str, tuple[str, tuple[str, ...]]] = {
     "email": ("read, search, send and reply to email", ("email_execute",)),
     "browser": (
         "drive a real browser, scrape pages",
-        ("browser_start_chrome_debug", "browser_connect", "browser_run",
+        ("browser_start_chrome_debug", "browser_connect", "browser_run", "browser_auto",
          "browser_state", "browser_disconnect", "scrape_url"),
     ),
     "documents": ("spreadsheets and Word documents", ("spreadsheet_execute", "docx_execute")),
@@ -2136,6 +2376,34 @@ async def _execute_tool_call(
                 indent=2,
             )
 
+        elif tool_name == "laya_decide":
+            state = tool_args.get("state")
+            questions = tool_args.get("questions")
+            if state is None or not str(state).strip():
+                return json.dumps({"error": "state is required: the text to judge"}, indent=2)
+            if not isinstance(questions, dict) or not questions:
+                return json.dumps({"error": "questions is required: a map of question id -> typed question"}, indent=2)
+            try:
+                result = await laya_decisions.decide(state, questions)
+            except laya_decisions.LayaError as exc:
+                return json.dumps({"error": str(exc)}, indent=2)
+            answers = {
+                qid: {
+                    kk: vv for kk, vv in answer.items()
+                    if kk in ("choice", "score", "noul", "confidence", "probabilities")
+                }
+                for qid, answer in result["answers"].items()
+            }
+            return json.dumps(
+                {
+                    "ok": True,
+                    "provider": result["provider"],
+                    "latency_ms": result["latency_ms"],
+                    "answers": answers,
+                },
+                indent=2,
+            )
+
         elif tool_name == "web_search":
             query = tool_args.get("query")
             scope = tool_args.get("scope", "")
@@ -2326,6 +2594,22 @@ async def _execute_tool_call(
                 stop_on_error=stop_on_error,
                 default_timeout_ms=default_timeout_ms,
                 page_index=page_index,
+                auto_connect=tool_args.get("auto_connect"),
+            )
+            return json.dumps(result, indent=2)
+
+        elif tool_name == "browser_auto":
+            goal = str(tool_args.get("goal", "")).strip()
+            if not goal:
+                return json.dumps({"error": "goal is required: describe what to achieve on the page."}, indent=2)
+            type_texts = tool_args.get("type_texts")
+            if type_texts is not None and not isinstance(type_texts, list):
+                return json.dumps({"error": "type_texts must be a list of strings."}, indent=2)
+            result = await browser_automation.browser_auto(
+                goal=goal,
+                max_steps=tool_args.get("max_steps", 25),
+                type_texts=type_texts,
+                default_timeout_ms=tool_args.get("default_timeout_ms", 15000),
                 auto_connect=tool_args.get("auto_connect"),
             )
             return json.dumps(result, indent=2)
@@ -3596,7 +3880,7 @@ async def _run_agent(
             continuations_used += 1
             # A longer task legitimately needs more user-facing updates.
             guard.grant_messages(2)
-            compacted = _compact_run_context(messages)
+            compacted = await _compact_run_context(messages, task_text=prompt)
             if compacted:
                 await _t.emit(
                     "thinking", _agent_id, "Context compacted",
@@ -3793,10 +4077,14 @@ async def respond(
     reasoning_enabled = db.get_reasoning_enabled(user_id)
     base_model = model_override or db.get_model(user_id)
     model = base_model if model_override else _pick_runtime_model(base_model, speed_mode)
+    if not model_override and speed_mode == "normal":
+        triaged_model = await _triage_model(base_model, text)
+        if triaged_model:
+            model = triaged_model
     agent_rounds, agent_calls, orchestrator_timeout = _agent_limits_for_speed(speed_mode)
     run_activity = {"start": time.monotonic(), "last": time.monotonic()}
     history = db.get_history(user_id)
-    system = _build_system(user_id, text)
+    system = _build_system(user_id, text, relevant_memories=await _rerank_memories(user_id, text))
     
     messages = []
     if system:
