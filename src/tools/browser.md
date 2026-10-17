@@ -94,8 +94,23 @@ goal is complete, the step budget runs out, or it stops itself.
 - `max_steps` (number, optional, default 25, cap 50)
 - `type_texts` (array of strings, optional): strings the loop may type
   (default: strings quoted in the goal)
+- `screenshot_every` (number, optional): capture a screenshot every N steps
+  into `data/browser_auto/` and return their paths — e.g. 4 to show a game
+  every 4 moves
 - `auto_connect` (boolean, optional, default true)
 - `default_timeout_ms` (number, optional, default 15000)
+
+**Actions it can pick:** click an element, type a quoted string, press Enter,
+**press the arrow keys (up/down/left/right — browser games like 2048 work)**,
+scroll up/down, go back, wait, done, or give up.
+
+**Canvas pages (games like the new play2048.co):** when the page draws its
+board on a `<canvas>`, the decision model cannot see the board — the state is
+flagged `canvas_app` with a note to use keyboard arrows and judge progress
+from the score text instead. It will play blind but legally, using the DOM
+score as feedback; expect random-ish strategy, not skill. For guaranteed move
+sequences (e.g. "25 arrow presses"), `browser_run` with `press` steps is the
+right tool — synthetic KeyboardEvents work on canvas games.
 
 **Behavior:**
 - Never types text of its own — only strings quoted in the goal or passed in

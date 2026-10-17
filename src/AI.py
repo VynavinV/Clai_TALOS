@@ -1587,9 +1587,13 @@ def _get_all_tools(include_subagent: bool = True, include_telegram: bool = False
                 "description": (
                     "Experimental: drive the connected browser toward a goal with a fast decision loop instead of "
                     "hand-written steps. Give a short goal; each step the decision model reads the page (URL, text, "
-                    "clickable elements) and picks the next action. It only types strings quoted in the goal or given "
-                    "in type_texts, stops before risky clicks (payment/checkout/password), and returns a transcript. "
-                    "Use browser_run when you need exact control; use this for repetitive multi-click flows."
+                    "clickable elements) and picks the next action, including arrow keys for games. It only types "
+                    "strings quoted in the goal or given in type_texts, stops before risky clicks "
+                    "(payment/checkout/password), and returns a transcript plus periodic screenshots when "
+                    "screenshot_every is set. Canvas-rendered games are detected and played blind via keyboard "
+                    "controls with the score text as feedback. Use browser_run when you need exact, guaranteed "
+                    "step-by-step control (e.g. a fixed sequence of arrow presses); use this for repetitive "
+                    "multi-click flows and open-ended game play."
                 ),
                 "parameters": {
                     "type": "object",
@@ -1603,6 +1607,10 @@ def _get_all_tools(include_subagent: bool = True, include_telegram: bool = False
                             "type": "array",
                             "items": {"type": "string"},
                             "description": "Optional list of strings the loop may type (default: strings quoted in the goal)",
+                        },
+                        "screenshot_every": {
+                            "type": "number",
+                            "description": "Capture a screenshot every N steps and return their paths (e.g. 4 for every 4 moves in a game)",
                         },
                         "auto_connect": {"type": "boolean", "description": "Auto-connect/start browser when no session exists (default: true)"},
                         "default_timeout_ms": {"type": "number", "description": "Per-step timeout in ms (default: 15000)"}
@@ -2611,6 +2619,7 @@ async def _execute_tool_call(
                 type_texts=type_texts,
                 default_timeout_ms=tool_args.get("default_timeout_ms", 15000),
                 auto_connect=tool_args.get("auto_connect"),
+                screenshot_every=tool_args.get("screenshot_every", 0),
             )
             return json.dumps(result, indent=2)
 

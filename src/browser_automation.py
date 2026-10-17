@@ -1471,6 +1471,36 @@ def _auto_pilot_type_texts(goal: str, type_texts: list | None) -> list[str]:
     return list(dict.fromkeys(found))[:8]
 
 
+_AUTO_PILOT_DETECT_CANVAS_JS = r"""
+() => {
+  const canvases = Array.from(document.querySelectorAll('canvas'));
+  if (!canvases.length) return {count: 0, largest: null};
+  let largest = null;
+  for (const c of canvases) {
+    const r = c.getBoundingClientRect();
+    const area = r.width * r.height;
+    if (!largest || area > largest.w * largest.h) {
+      largest = {w: Math.round(r.width), h: Math.round(r.height)};
+    }
+  }
+  return {count: canvases.length, largest: largest};
+}
+"""
+
+
+async def _auto_pilot_canvas_info(page) -> dict:
+    """Detect canvas-rendered content: the state the model cannot see."""
+    try:
+        raw = await page.evaluate(_AUTO_PILOT_DETECT_CANVAS_JS)
+    except Exception:
+        return {"count": 0, "largest": None}
+    if not isinstance(raw, dict):
+        return {"count": 0, "largest": None}
+    count = int(raw.get("count") or 0)
+    largest = raw.get("largest") if isinstance(raw.get("largest"), dict) else None
+    return {"count": count, "largest": largest}
+
+
 async def _auto_pilot_elements(page) -> list[dict]:
     try:
         raw = await page.evaluate(_AUTO_PILOT_COLLECT_ELEMENTS_JS)
@@ -1496,6 +1526,7 @@ async def browser_auto(
     type_texts: list | None = None,
     default_timeout_ms: int = _DEFAULT_TIMEOUT_MS,
     auto_connect: bool | None = None,
+    screenshot_every: int = 0,
 ) -> dict:
     """Drive the active tab toward `goal` with fast typed decisions.
 
@@ -1504,6 +1535,10 @@ async def browser_auto(
     strings quoted in the goal or passed via `type_texts`. Falls back with a
     clear error when the decision layer is unavailable; use browser_run for
     exact step-by-step control.
+
+    `screenshot_every` (e.g. 4) captures a screenshot every N executed steps
+    into data/browser_auto/ and returns their paths, so games and long flows
+    can be shown to the user afterwards.
     """
     if laya_decisions is None:
         return {"error": "Decision layer module unavailable."}
@@ -1554,6 +1589,7 @@ async def browser_auto(
 
         available_texts = _auto_pilot_type_texts(goal, type_texts)
         transcript: list[dict] = []
+        screenshots: list[str] = []
         recent_actions: list[str] = []
         repeat_run = 1
         last_action_key = ""
@@ -1571,29 +1607,53 @@ async def browser_auto(
                 except Exception:
                     body_text = ""
                 elements = await _auto_pilot_elements(page)
+                canvas_info = await _auto_pilot_canvas_info(page)
             except Exception as exc:
                 status = "error"
                 transcript.append({"step": step_no, "action": None, "ok": False, "error": f"Could not read page state: {exc}"})
                 break
 
+            is_canvas_app = bool(canvas_info.get("count"))
             state = {
                 "goal": goal[:1500],
                 "current_url": url,
                 "page_title": title,
-                "page_text": body_text,
+                "page_text": body_text or "(no visible page text)",
                 "interactive_elements": {str(e["index"]): e["description"] for e in elements},
                 "typeable_texts": available_texts,
                 "recent_actions": recent_actions[-5:],
                 "step": step_no,
             }
+            if is_canvas_app:
+                # The board is drawn on a canvas and is invisible to text-based
+                # state. Say so, or the model flails on header buttons.
+                state["page_kind"] = "canvas_app"
+                state["canvas_note"] = (
+                    "The main content of this page is drawn on a canvas, which is NOT visible "
+                    "as text or elements. Games rendered this way are controlled with the "
+                    "keyboard arrow keys; judge progress from the score text in `page_text` "
+                    "instead of looking for board elements. Clicking header links is usually wrong."
+                )
+                state["canvas"] = canvas_info
+
+            click_description = "Click one of the interactive elements."
+            if is_canvas_app:
+                click_description = (
+                    "Click one of the interactive elements (avoid this for canvas game goals "
+                    "— only for New Game / menu buttons when clearly needed)."
+                )
 
             questions = {
                 "next_action": laya_decisions.choice(
                     "Which action should be taken next to make progress toward `goal`?",
                     {
-                        "click": "Click one of the interactive elements.",
+                        "click": click_description,
                         "type": "Type one of the typeable texts into one of the elements.",
                         "press_enter": "Press Enter (e.g. to submit a search or form).",
+                        "press_up": "Press the Up arrow (e.g. game controls, list navigation).",
+                        "press_down": "Press the Down arrow.",
+                        "press_left": "Press the Left arrow.",
+                        "press_right": "Press the Right arrow.",
                         "scroll_down": "Scroll down to reveal more of the page.",
                         "scroll_up": "Scroll back up.",
                         "back": "Go back to the previous page.",
@@ -1637,7 +1697,11 @@ async def browser_auto(
                 status = "gave_up"
                 transcript.append({"step": step_no, "action": "give_up", "ok": True})
                 break
-            if not action or action not in {"click", "type", "press_enter", "scroll_down", "scroll_up", "back", "wait"}:
+            if not action or action not in {
+                "click", "type", "press_enter",
+                "press_up", "press_down", "press_left", "press_right",
+                "scroll_down", "scroll_up", "back", "wait",
+            }:
                 transcript.append({"step": step_no, "action": None, "ok": False, "error": f"Invalid action {action!r}."})
                 status = "error"
                 break
@@ -1681,6 +1745,14 @@ async def browser_auto(
                 step = {"action": "type", "selector": element["selector"], "text": type_value}
             elif action == "press_enter":
                 step = {"action": "press", "key": "Enter"}
+            elif action == "press_up":
+                step = {"action": "press", "key": "ArrowUp"}
+            elif action == "press_down":
+                step = {"action": "press", "key": "ArrowDown"}
+            elif action == "press_left":
+                step = {"action": "press", "key": "ArrowLeft"}
+            elif action == "press_right":
+                step = {"action": "press", "key": "ArrowRight"}
             elif action == "scroll_down":
                 step = {"action": "scroll", "x": 0, "y": 700}
             elif action == "scroll_up":
@@ -1705,6 +1777,20 @@ async def browser_auto(
             except Exception:
                 pass
 
+            # Periodic screenshots, e.g. "every 4 moves" for a game run.
+            if screenshot_every and step_no % screenshot_every == 0:
+                try:
+                    shots_dir = app_paths.data_path("browser_auto")
+                    os.makedirs(shots_dir, exist_ok=True)
+                    shot_path = os.path.join(
+                        shots_dir, f"auto-{int(time.time())}-step{step_no:03d}.png"
+                    )
+                    await page.screenshot(path=shot_path)
+                    entry["screenshot"] = shot_path
+                    screenshots.append(shot_path)
+                except Exception as exc:
+                    entry["screenshot_error"] = str(exc)
+
         session.page = page
 
         _audit("browser_auto", "success" if status == "completed" else "stopped", {
@@ -1723,6 +1809,7 @@ async def browser_auto(
             "steps_taken": len(transcript),
             "final_url": page.url,
             "transcript": transcript,
+            "screenshots": screenshots,
             "note": (
                 "Goal completed."
                 if ok
