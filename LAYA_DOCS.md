@@ -115,6 +115,7 @@ All questions in one call are evaluated in parallel against the same state.
 | `LAYA_AUTO_INSTALL` | `1` | Self-healing: auto `pip install laya` into the venv when the built-in backend is needed |
 | `JEV_API_KEY` | empty | Hosted Jev backend |
 | `JEV_BASE_URL` | `https://api.typesafe.ai/v1` | Hosted Jev base URL |
+| `LAYA_JEV_MODEL` | `jev-1` | Model id for the hosted Jev API |
 | `LAYA_BASE_URL` | empty | Custom Jev-compatible endpoint (e.g. `http://localhost:8000` for `laya-serve`) |
 | `LAYA_TIMEOUT_S` | `5` | Per-call timeout |
 | `LAYA_AUTO_PULL` | `1` | Self-healing: auto `ollama pull laya` when missing |

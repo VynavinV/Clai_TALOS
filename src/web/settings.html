@@ -150,6 +150,23 @@
   .msg-ok { color: #48bb78; } .msg-err { color: #f56565; }
   .status-line { font-size: 0.8rem; color: #888; margin-top: 0.5rem; }
   .google-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.8rem; }
+
+  .laya-status-row { display: flex; align-items: baseline; margin-top: 0.6rem; }
+  .laya-dot { width: 9px; height: 9px; border-radius: 50%; background: #999; flex-shrink: 0; position: relative; top: -1px; }
+  .laya-dot.ok { background: #42dfad; }
+  .laya-dot.warn { background: #ffb969; }
+  .laya-dot.err { background: #ff6f8b; }
+  .laya-dot.active { background: #56ceff; animation: layaPulse 1.2s ease-in-out infinite; }
+  @keyframes layaPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+  .laya-progress { margin-top: 0.55rem; }
+  .laya-progress-track { height: 8px; border-radius: 999px; background: rgba(86, 206, 255, 0.12); overflow: hidden; }
+  .laya-progress-fill { height: 100%; width: 0%; border-radius: 999px; background: #56ceff; transition: width 0.4s ease; }
+  .laya-progress.indeterminate .laya-progress-track { position: relative; }
+  .laya-progress.indeterminate .laya-progress-fill { width: 30% !important; animation: layaSlide 1.1s ease-in-out infinite; }
+  @keyframes layaSlide { 0% { margin-left: -30%; } 100% { margin-left: 100%; } }
+  .laya-progress-text { font-size: 0.74rem; color: #555; margin-top: 0.3rem; }
+  .laya-progress-error { font-size: 0.74rem; color: #c0392b; margin-top: 0.3rem; white-space: pre-wrap; }
   .usage-wrap { margin-top: 0.3rem; }
   .usage-slider { width: 100%; height: 10px; border-radius: 999px; appearance: none; outline: none; background: rgba(255,255,255,0.12); pointer-events: none; }
   .usage-slider.safe { accent-color: #48bb78; }
@@ -269,22 +286,36 @@
       <label>Provider</label>
       <select id="laya-provider">
         <option value="auto">Auto (recommended)</option>
-        <option value="local">Built-in model (no Ollama needed)</option>
-        <option value="ollama">Local Ollama (laya)</option>
+        <option value="local">Built-in Python model (laya package)</option>
+        <option value="ollama">Ollama (separate app)</option>
         <option value="jev">Hosted Jev (API key)</option>
         <option value="custom">Custom endpoint</option>
       </select>
-      <div class="form-hint">Auto picks a Jev API key if you set one, then Ollama 0.40+, and falls back to the built-in model when Ollama is too old — everything just works. The built-in model runs inside TALOS (installed automatically, ~850 MB of weights download once).</div>
+      <div class="form-hint">Where typed decisions come from. Auto tries a Jev key if set, then Ollama (upgraded automatically when too old), then the built-in Python model — so it always works. The built-in model runs inside TALOS; Ollama runs it as a separate app.</div>
+    </div>
+    <div class="form-group">
+      <label>Built-in Model Checkpoint</label>
+      <select id="laya-local-model">
+        <option value="english">english — 421M, fast and accurate</option>
+        <option value="multilingual">multilingual — 100+ languages</option>
+        <option value="typed-decisions">typed-decisions — benchmark variant</option>
+      </select>
+      <div class="form-hint">Which checkpoint the built-in Python model uses.</div>
     </div>
     <div class="form-group">
       <label>Ollama Model Name</label>
       <input type="text" id="laya-model" placeholder="laya">
-      <div class="form-hint"><code>laya</code> (English, 421M), <code>laya-multilingual</code> (100+ languages), or a tag like <code>laya:latest</code>.</div>
+      <div class="form-hint"><code>laya</code> (English, 421M), <code>laya-multilingual</code> (100+ languages), or a poll tag like <code>laya:latest</code>.</div>
     </div>
     <div class="form-group">
       <label>Jev API Key <span class="form-hint" style="display:inline;">(optional)</span></label>
       <input type="password" id="jev-api-key" placeholder="jv_live_..." autocomplete="off">
       <div class="form-hint">Uses TypeSafe AI's hosted Jev model instead of the local one. Leave empty for the free local model.</div>
+    </div>
+    <div class="form-group">
+      <label>Jev Model Name <span class="form-hint" style="display:inline;">(optional)</span></label>
+      <input type="text" id="laya-jev-model" placeholder="jev-1">
+      <div class="form-hint">Model id for the hosted Jev API.</div>
     </div>
     <div class="form-group">
       <label>Custom Endpoint URL <span class="form-hint" style="display:inline;">(optional)</span></label>
@@ -296,15 +327,25 @@
       <input type="text" id="laya-confidence-min" placeholder="0.75">
       <div class="form-hint">Decisions below this confidence are ignored and normal behavior is used (0 to 1).</div>
     </div>
-    <div class="status-line" id="laya-status">Decision model: checking...</div>
+    <div class="form-group">
+      <label>Decision Timeout (seconds)</label>
+      <input type="text" id="laya-timeout" placeholder="5">
+      <div class="form-hint">How long to wait for one decision before falling back to normal behavior.</div>
+    </div>
+    <div class="laya-status-row">
+      <span class="laya-dot" id="laya-status-dot"></span>
+      <span class="status-line" id="laya-status" style="margin-top:0; margin-left:0.5rem;">Decision model: checking...</span>
+    </div>
+    <div class="laya-progress" id="laya-progress" style="display:none;">
+      <div class="laya-progress-track"><div class="laya-progress-fill" id="laya-progress-fill"></div></div>
+      <div class="laya-progress-text" id="laya-progress-text"></div>
+      <div class="laya-progress-error" id="laya-progress-error" style="display:none;"></div>
+    </div>
     <div class="form-hint" id="laya-last-failure" style="display:none; margin-bottom:0.8rem;"></div>
     <div class="google-actions">
       <button class="btn" id="laya-test-btn" onclick="testLaya()">Test Decision</button>
       <button class="btn" id="laya-install-btn" onclick="installLaya()">Install laya via Ollama</button>
       <button class="btn" id="ollama-upgrade-btn" onclick="upgradeOllama()">Upgrade Ollama</button>
-    </div>
-    <div id="laya-install-area" style="display:none; margin-top:0.8rem;">
-      <div class="status-line" id="laya-install-status"></div>
     </div>
     <div class="form-group" style="margin-top:1.2rem;">
       <label>Where it helps</label>
@@ -342,6 +383,12 @@
         <input type="checkbox" id="laya-auto-upgrade-ollama">
         <div class="toggle-label"><strong>Upgrade Ollama automatically</strong>
           <div class="toggle-sub">When the decision model needs Ollama 0.40+ and an older one is installed, TALOS upgrades it by itself (disable only if you manage Ollama yourself).</div>
+        </div>
+      </div>
+      <div class="toggle-row">
+        <input type="checkbox" id="laya-auto-install">
+        <div class="toggle-label"><strong>Install the built-in model automatically</strong>
+          <div class="toggle-sub">When the built-in Python model is chosen and its package is missing, TALOS installs it into its own venv by itself.</div>
         </div>
       </div>
     </div>
@@ -1429,15 +1476,21 @@ async function loadSettings() {
     if (['auto', 'ollama', 'jev', 'custom', 'local'].indexOf(layaProvider) === -1) layaProvider = 'auto';
     document.getElementById('laya-provider').value = layaProvider;
     document.getElementById('laya-model').value = d.LAYA_MODEL || 'laya';
+    var localModel = String(d.LAYA_LOCAL_MODEL || 'english').toLowerCase();
+    if (['english', 'multilingual', 'typed-decisions'].indexOf(localModel) === -1) localModel = 'english';
+    document.getElementById('laya-local-model').value = localModel;
+    document.getElementById('laya-jev-model').value = d.LAYA_JEV_MODEL || '';
     document.getElementById('jev-api-key').value = d.JEV_API_KEY || '';
     document.getElementById('laya-base-url').value = d.LAYA_BASE_URL || '';
     document.getElementById('laya-confidence-min').value = d.LAYA_CONFIDENCE_MIN || '0.75';
+    document.getElementById('laya-timeout').value = d.LAYA_TIMEOUT_S || '5';
     document.getElementById('laya-email-triage').checked = (d.LAYA_EMAIL_TRIAGE || '1') !== '0';
     document.getElementById('laya-memory-rerank').checked = (d.LAYA_MEMORY_RERANK || '1') !== '0';
     document.getElementById('laya-context-compact').checked = (d.LAYA_CONTEXT_COMPACT || '1') !== '0';
     document.getElementById('laya-model-triage').checked = (d.LAYA_MODEL_TRIAGE || '1') !== '0';
     document.getElementById('laya-browser-auto').checked = (d.LAYA_BROWSER_AUTO || '1') !== '0';
     document.getElementById('laya-auto-upgrade-ollama').checked = (d.LAYA_AUTO_UPDATE_OLLAMA || '1') !== '0';
+    document.getElementById('laya-auto-install').checked = (d.LAYA_AUTO_INSTALL || '1') !== '0';
     var otaChannel = String(d.OTA_CHANNEL || 'stable').toLowerCase();
     if (otaChannel !== 'stable' && otaChannel !== 'prerelease') otaChannel = 'stable';
     document.getElementById('ota-channel').value = otaChannel;
@@ -2165,14 +2218,18 @@ async function saveSettings() {
     LAYA_ENABLED: document.getElementById('laya-enabled').checked ? '1' : '0',
     LAYA_PROVIDER: document.getElementById('laya-provider').value,
     LAYA_MODEL: document.getElementById('laya-model').value.trim() || 'laya',
+    LAYA_LOCAL_MODEL: document.getElementById('laya-local-model').value,
+    LAYA_JEV_MODEL: document.getElementById('laya-jev-model').value.trim(),
     LAYA_BASE_URL: document.getElementById('laya-base-url').value.trim(),
     LAYA_CONFIDENCE_MIN: document.getElementById('laya-confidence-min').value.trim() || '0.75',
+    LAYA_TIMEOUT_S: document.getElementById('laya-timeout').value.trim() || '5',
     LAYA_EMAIL_TRIAGE: document.getElementById('laya-email-triage').checked ? '1' : '0',
     LAYA_MEMORY_RERANK: document.getElementById('laya-memory-rerank').checked ? '1' : '0',
     LAYA_CONTEXT_COMPACT: document.getElementById('laya-context-compact').checked ? '1' : '0',
     LAYA_MODEL_TRIAGE: document.getElementById('laya-model-triage').checked ? '1' : '0',
     LAYA_BROWSER_AUTO: document.getElementById('laya-browser-auto').checked ? '1' : '0',
-    LAYA_AUTO_UPDATE_OLLAMA: document.getElementById('laya-auto-upgrade-ollama').checked ? '1' : '0'
+    LAYA_AUTO_UPDATE_OLLAMA: document.getElementById('laya-auto-upgrade-ollama').checked ? '1' : '0',
+    LAYA_AUTO_INSTALL: document.getElementById('laya-auto-install').checked ? '1' : '0'
   };
 
   // Always sent: a masked value keeps the stored secret, empty clears it.
@@ -2205,46 +2262,129 @@ async function saveSettings() {
   } catch (e) { showMsg('Connection problem. Please try again.', false); }
 }
 
-async function loadLayaStatus() {
+var _layaPollTimer = null;
+var _layaBusy = { install: false, upgrade: false, test: false };
+
+function layaSetDot(kind) {
+  var dot = document.getElementById('laya-status-dot');
+  dot.className = 'laya-dot' + (kind ? ' ' + kind : '');
+}
+
+function layaSetProgress(visible, percent, message, error, indeterminate) {
+  var wrap = document.getElementById('laya-progress');
+  var fill = document.getElementById('laya-progress-fill');
+  var text = document.getElementById('laya-progress-text');
+  var errEl = document.getElementById('laya-progress-error');
+  if (!visible) {
+    wrap.style.display = 'none';
+    return;
+  }
+  wrap.style.display = 'block';
+  if (indeterminate) {
+    wrap.classList.add('indeterminate');
+    fill.style.width = '30%';
+  } else {
+    wrap.classList.remove('indeterminate');
+    fill.style.width = Math.max(0, Math.min(100, Number(percent) || 0)) + '%';
+  }
+  text.textContent = message || '';
+  if (error) {
+    errEl.style.display = 'block';
+    errEl.textContent = error;
+  } else {
+    errEl.style.display = 'none';
+  }
+}
+
+function layaPollMaybe(active) {
+  if (active) {
+    if (!_layaPollTimer) _layaPollTimer = setInterval(function () { loadLayaStatus(true); }, 2500);
+  } else if (_layaPollTimer) {
+    clearInterval(_layaPollTimer);
+    _layaPollTimer = null;
+  }
+}
+
+var _LAYA_REASON_LABELS = {
+  disabled: 'disabled',
+  ollama_unreachable: 'Ollama not reachable',
+  ollama_too_old: 'Ollama too old',
+  upgrading_ollama: 'upgrading Ollama',
+  model_missing: 'model not installed',
+  pulling: 'downloading model',
+  missing_key: 'missing Jev API key',
+  missing_url: 'missing endpoint URL',
+  package_missing: 'built-in model not installed yet',
+  installing: 'installing built-in model',
+  no_disk_space: 'not enough free disk space',
+  weights_pending: 'ready (weights download on first use)',
+  local_fallback: 'ready',
+  error: 'error'
+};
+
+var _LAYA_OP_LABELS = {
+  pull: 'Downloading the decision model',
+  upgrade_ollama: 'Upgrading Ollama',
+  install_local: 'Installing the built-in model',
+  test: 'Running a test decision'
+};
+
+async function loadLayaStatus(force) {
   try {
-    var res = await fetch('/api/laya/status');
+    var url = force ? '/api/laya/status?force=1' : '/api/laya/status';
+    var res = await fetch(url);
     if (res.status === 401) return;
     var d = await res.json();
     var el = document.getElementById('laya-status');
     var failEl = document.getElementById('laya-last-failure');
     var provider = d.provider || 'ollama';
-    var friendly = {ollama: 'local Ollama', jev: 'hosted Jev', custom: 'custom endpoint', local: 'built-in model', auto: 'auto'}[provider] || provider;
-    var reasons = {
-      disabled: 'disabled',
-      ollama_unreachable: 'not reachable',
-      ollama_too_old: 'Ollama too old — using built-in model instead',
-      upgrading_ollama: 'upgrading Ollama automatically',
-      model_missing: 'model not installed yet',
-      pulling: 'downloading now',
-      missing_key: 'missing Jev API key',
-      missing_url: 'missing endpoint URL',
-      package_missing: 'built-in model not installed',
-      installing: 'installing built-in model now',
-      no_disk_space: 'not enough free disk space',
-      weights_pending: 'ready (weights download on first use)',
-      local_fallback: 'ready',
-      error: 'error'
-    };
-    if (!d.available) {
-      el.textContent = 'Decision model: unavailable (' + (reasons[d.reason] || d.reason || 'unknown') + '). ' + (d.detail || '');
-      el.style.color = '#d69e2e';
+    var friendly = {
+      ollama: 'Ollama', jev: 'hosted Jev', custom: 'custom endpoint',
+      local: 'built-in Python model', auto: 'auto'
+    }[provider] || provider;
+
+    // Live operation (download / upgrade / install) takes over the progress bar.
+    var op = d.operation || {};
+    if (op.active && op.operation) {
+      layaSetDot('active');
+      layaSetProgress(true, op.percent, op.message || (_LAYA_OP_LABELS[op.operation] || op.operation) + '...', op.error, op.percent === null || op.percent === undefined);
+      if (!op.error) el.textContent = 'Decision model: ' + (_LAYA_OP_LABELS[op.operation] || 'working') + '...';
+    } else if (op.error && !d.available) {
+      layaSetProgress(true, 0, '', op.error, false);
     } else {
-      el.textContent = 'Decision model: ready (' + friendly + '). ' + (d.detail || '');
-      el.style.color = '#68d398';
+      layaSetProgress(false);
     }
+
+    if (!(op.active)) {
+      if (!d.available) {
+        layaSetDot('warn');
+        el.style.color = '#d69e2e';
+        el.textContent = 'Decision model: unavailable (' + (_LAYA_REASON_LABELS[d.reason] || d.reason || 'unknown') + '). ' + (d.detail || '');
+      } else {
+        layaSetDot('ok');
+        el.style.color = '#68d398';
+        el.textContent = 'Decision model: ready (' + friendly + '). ' + (d.detail || '');
+      }
+    }
+
     if (d.last_failure && d.last_failure.error) {
       failEl.style.display = 'block';
       failEl.textContent = 'Last failure (' + d.last_failure.feature + '): ' + d.last_failure.error;
     } else {
       failEl.style.display = 'none';
     }
-    document.getElementById('laya-test-btn').disabled = false;
-    document.getElementById('laya-install-btn').disabled = !!d.pull && d.pull.pulling;
+
+    // Button states match what is running.
+    var pulling = op.active && op.operation === 'pull';
+    var upgrading = op.active && op.operation === 'upgrade_ollama';
+    var installing = op.active && op.operation === 'install_local';
+    document.getElementById('laya-install-btn').disabled = pulling || _layaBusy.install;
+    document.getElementById('ollama-upgrade-btn').disabled = upgrading || _layaBusy.upgrade;
+    document.getElementById('laya-test-btn').disabled = _layaBusy.test;
+
+    // Keep polling while anything is in flight, including self-healing kicks.
+    var transientReason = ['pulling', 'installing', 'upgrading_ollama'].indexOf(d.reason) !== -1;
+    layaPollMaybe(!!(op.active || transientReason || installing));
   } catch (e) {
     document.getElementById('laya-status').textContent = 'Decision model: status unknown.';
   }
@@ -2253,9 +2393,11 @@ async function loadLayaStatus() {
 async function testLaya() {
   var btn = document.getElementById('laya-test-btn');
   var el = document.getElementById('laya-status');
+  _layaBusy.test = true;
   btn.disabled = true;
+  layaSetDot('active');
   el.textContent = 'Decision model: running a test decision...';
-  el.style.color = '#63b3ed';
+  layaSetProgress(true, null, 'Running a test decision...', '', true);
   try {
     var res = await fetch('/api/laya/test', {
       method: 'POST',
@@ -2269,34 +2411,42 @@ async function testLaya() {
       if (d.answers && d.answers.department) parts.push('department: ' + d.answers.department.choice);
       if (d.answers && d.answers.urgent) parts.push('urgent: ' + d.answers.urgent.noul);
       if (d.answers && d.answers.frustration) parts.push('frustration: ' + d.answers.frustration.score);
-      el.textContent = 'Decision model: working (' + d.provider + ', ' + Math.round(d.latency_ms) + ' ms) — ' + parts.join(', ');
+      layaSetDot('ok');
       el.style.color = '#68d398';
+      el.textContent = 'Decision model: working (' + d.provider + ', ' + Math.round(d.latency_ms) + ' ms) — ' + parts.join(', ');
+      layaSetProgress(false);
       showMsg('Decision model test passed.', true);
+    } else if (d.operation && d.operation.active) {
+      layaSetDot('active');
+      el.style.color = '#63b3ed';
+      el.textContent = 'Decision model: ' + (d.error || 'busy setting up.');
+      layaPollMaybe(true);
+      showMsg(d.error || 'Setup in progress.', true);
     } else {
-      el.textContent = 'Decision model: test failed — ' + (d.error || 'unknown error');
+      layaSetDot('err');
       el.style.color = '#fc8181';
+      el.textContent = 'Decision model: test failed — ' + (d.error || 'unknown error');
+      layaSetProgress(false);
       showMsg(d.error || 'Decision model test failed.', false);
     }
   } catch (e) {
+    layaSetDot('err');
     el.textContent = 'Decision model: test could not run.';
-    el.style.color = '#fc8181';
+    layaSetProgress(false);
     showMsg('Connection problem while testing the decision model.', false);
   }
+  _layaBusy.test = false;
   btn.disabled = false;
 }
 
-var _layaInstalling = false;
-
 async function installLaya() {
-  if (_layaInstalling) return;
+  if (_layaBusy.install) return;
   var modelName = document.getElementById('laya-model').value.trim() || 'laya';
   var btn = document.getElementById('laya-install-btn');
-  var area = document.getElementById('laya-install-area');
-  var statusEl = document.getElementById('laya-install-status');
-  _layaInstalling = true;
+  _layaBusy.install = true;
   btn.disabled = true;
-  area.style.display = 'block';
-  statusEl.textContent = 'Starting download of ' + modelName + '...';
+  layaSetDot('active');
+  layaSetProgress(true, 0, 'Starting download of ' + modelName + '...', '', true);
 
   try {
     var res = await fetch('/api/laya/install', {
@@ -2312,7 +2462,7 @@ async function installLaya() {
     var reader = res.body.getReader();
     var decoder = new TextDecoder();
     var buffer = '';
-    var lastPct = -1;
+    var finished = false;
 
     while (true) {
       var chunk = await reader.read();
@@ -2325,42 +2475,47 @@ async function installLaya() {
         if (!line) continue;
         var evt;
         try { evt = JSON.parse(line); } catch (e) { continue; }
-        if (evt.stage === 'start' || evt.stage === 'progress' || evt.stage === 'finished') {
-          if (evt.message) statusEl.textContent = evt.message;
-          if (typeof evt.percent === 'number' && evt.percent > lastPct) {
-            lastPct = evt.percent;
-            statusEl.textContent = 'Downloading ' + modelName + ': ' + Math.round(evt.percent) + '%';
+        if (evt.message) layaSetProgress(true, evt.percent, evt.message, '', evt.percent === undefined);
+        else if (typeof evt.percent === 'number') layaSetProgress(true, evt.percent, 'Downloading ' + modelName + ': ' + Math.round(evt.percent) + '%');
+        if (evt.stage === 'error') {
+          layaSetProgress(true, 0, '', evt.error, false);
+          layaSetDot('err');
+          showMsg(evt.error || 'Install failed.', false);
+        }
+        if (evt.stage === 'finished') {
+          finished = true;
+          if (evt.ok === false) {
+            layaSetProgress(true, 0, '', evt.error || 'Install failed.', false);
+            layaSetDot('err');
+          } else {
+            layaSetProgress(true, 100, evt.message || (modelName + ' installed.'), '', false);
+            layaSetDot('ok');
+            showMsg((evt.message || modelName + ' installed.'), true);
           }
-        } else if (evt.stage === 'error') {
-          statusEl.textContent = 'Error: ' + evt.error;
-          statusEl.style.color = '#fc8181';
         }
       }
     }
-    statusEl.style.color = '#68d398';
-    await loadLayaStatus();
+    if (!finished) layaPollMaybe(true);
   } catch (e) {
-    statusEl.textContent = 'Error: ' + (e.message || e);
-    statusEl.style.color = '#fc8181';
+    layaSetProgress(true, 0, '', e.message || String(e), false);
+    layaSetDot('err');
   }
-  _layaInstalling = false;
-  btn.disabled = false;
+  _layaBusy.install = false;
+  await loadLayaStatus(true);
 }
 
 var _ollamaUpgrading = false;
 
 async function upgradeOllama() {
-  if (_ollamaUpgrading) return;
+  if (_ollamaUpgrading || _layaBusy.upgrade) return;
   if (!confirm('Upgrade Ollama now? TALOS will quit the Ollama app, install the latest version, and pull the decision model. Your existing models are kept.')) return;
 
   var btn = document.getElementById('ollama-upgrade-btn');
-  var statusEl = document.getElementById('laya-install-status');
-  var area = document.getElementById('laya-install-area');
+  _layaBusy.upgrade = true;
   _ollamaUpgrading = true;
   btn.disabled = true;
-  area.style.display = 'block';
-  statusEl.style.color = '#63b3ed';
-  statusEl.textContent = 'Upgrading Ollama...';
+  layaSetDot('active');
+  layaSetProgress(true, null, 'Upgrading Ollama...', '', true);
 
   try {
     var res = await fetch('/api/ollama/upgrade', {
@@ -2389,38 +2544,33 @@ async function upgradeOllama() {
         if (!line) continue;
         var evt;
         try { evt = JSON.parse(line); } catch (e) { continue; }
-        if (evt.message) statusEl.textContent = evt.message;
-        if (typeof evt.percent === 'number') {
-          statusEl.textContent = 'Upgrading Ollama: ' + Math.round(evt.percent) + '%';
-        }
+        if (evt.message) layaSetProgress(true, evt.percent, evt.message, '', evt.percent === undefined);
+        else if (typeof evt.percent === 'number') layaSetProgress(true, evt.percent, 'Upgrading Ollama: ' + Math.round(evt.percent) + '%');
         if (evt.stage === 'error') {
-          statusEl.textContent = 'Error: ' + evt.error;
-          statusEl.style.color = '#fc8181';
+          layaSetProgress(true, 0, '', evt.error, false);
+          layaSetDot('err');
         }
         if (evt.stage === 'done' || evt.stage === 'finished') {
           sawDone = true;
           if (evt.error) {
-            statusEl.textContent = 'Error: ' + evt.error;
-            statusEl.style.color = '#fc8181';
+            layaSetProgress(true, 0, '', evt.error, false);
+            layaSetDot('err');
           } else {
-            statusEl.textContent = evt.message || 'Ollama upgraded.';
-            statusEl.style.color = '#68d398';
+            layaSetProgress(true, 100, evt.message || 'Ollama upgraded.', '', false);
+            layaSetDot('ok');
             showMsg('Ollama upgraded successfully.', true);
           }
         }
       }
     }
-    if (!sawDone) {
-      statusEl.textContent = 'Upgrade stream ended unexpectedly — check the status line above.';
-      statusEl.style.color = '#d69e2e';
-    }
-    await loadLayaStatus();
+    if (!sawDone) layaPollMaybe(true);
   } catch (e) {
-    statusEl.textContent = 'Error: ' + (e.message || e);
-    statusEl.style.color = '#fc8181';
+    layaSetProgress(true, 0, '', e.message || String(e), false);
+    layaSetDot('err');
   }
   _ollamaUpgrading = false;
-  btn.disabled = false;
+  _layaBusy.upgrade = false;
+  await loadLayaStatus(true);
 }
 
 async function loadGoogleStatus() {

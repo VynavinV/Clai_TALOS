@@ -307,8 +307,10 @@ def local_weights_downloaded() -> bool:
 def local_status() -> dict:
     """Health of the in-process backend, for availability and the Settings card."""
     if not local_package_available():
-        return {"available": False, "reason": "package_missing",
-                "detail": "The `laya` Python package is not installed in this TALOS venv."}
+        return {"available": False, "reason": "package_missing", "detail": (
+            f"The built-in model's `laya` Python package is not installed in this "
+            f"TALOS venv ({_venv_path()})."
+        )}
     free = _free_disk_bytes()
     if free and free < LOCAL_MIN_FREE_DISK_BYTES:
         return {"available": False, "reason": "no_disk_space", "detail": (
@@ -320,6 +322,16 @@ def local_status() -> dict:
             "Built-in model ready; its ~850 MB weights download automatically on first use."
         )}
     return {"available": True, "reason": "ok", "detail": "Built-in laya model ready (runs in this process)."}
+
+
+def _venv_path() -> str:
+    """Which Python environment the built-in model installs into."""
+    try:
+        import sys
+
+        return os.path.dirname(os.path.dirname(sys.executable))
+    except Exception:
+        return "unknown"
 
 
 def _maybe_start_local_install() -> None:
@@ -334,6 +346,11 @@ def _maybe_start_local_install() -> None:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         return
+    # Record the operation synchronously so an immediate status check sees it.
+    set_operation_progress(
+        "install_local",
+        message=f"Installing the built-in model into the TALOS venv ({_venv_path()})...",
+    )
     _local_install_task = loop.create_task(_local_install_worker())
     logger.warning(
         "The `laya` package is missing — installing it into this venv in the background "
@@ -345,6 +362,10 @@ async def _local_install_worker() -> None:
     import subprocess
     import sys
 
+    set_operation_progress(
+        "install_local",
+        message=f"Installing the built-in model into the TALOS venv ({_venv_path()})...",
+    )
     cmd = [sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "laya"]
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -354,18 +375,26 @@ async def _local_install_worker() -> None:
         )
         out, _ = await asyncio.wait_for(proc.communicate(), timeout=1800)
         if proc.returncode == 0:
+            set_operation_progress(
+                "install_local",
+                message="Built-in model package installed; its ~850 MB weights download on first use.",
+                done=True,
+            )
             logger.info("The `laya` package installed successfully; the built-in decision backend is ready.")
         else:
+            tail = (out or b"").decode(errors="replace")[-500:]
+            set_operation_progress("install_local", error=tail or "pip install failed", done=True)
             logger.error(
                 "Auto-install of the `laya` package failed (exit %s): %s — install it manually with "
                 "`%s -m pip install laya` or use the Ollama/Jev backend.",
                 proc.returncode,
-                (out or b"").decode(errors="replace")[-500:],
+                tail,
                 sys.executable,
             )
     except asyncio.CancelledError:
         raise
-    except Exception:
+    except Exception as exc:
+        set_operation_progress("install_local", error=str(exc)[:300], done=True)
         logger.exception("Unexpected error while installing the `laya` package")
 
 
@@ -589,6 +618,55 @@ _availability_cache: dict = {"checked_at": 0.0, "result": None}
 _pull_started_for: set[str] = set()
 _pull_task: asyncio.Task | None = None
 
+# ---------------------------------------------------------------------------
+# Live operation state — one place the Settings UI polls so every download,
+# upgrade, and install (background or button-triggered) shows clean progress.
+# ---------------------------------------------------------------------------
+
+_op_state: dict = {
+    "operation": None,      # "pull" | "upgrade_ollama" | "install_local" | "test" | None
+    "percent": None,        # 0-100 float, or None for indeterminate work
+    "message": "",
+    "error": "",
+    "done": False,
+    "updated_at": 0.0,
+}
+
+
+def set_operation_progress(
+    operation: str | None,
+    percent: float | None = None,
+    message: str = "",
+    error: str = "",
+    done: bool = False,
+) -> None:
+    """Record the current install/upgrade/download progress for the status API."""
+    _op_state.update(
+        operation=operation,
+        percent=(round(float(percent), 1) if isinstance(percent, (int, float)) else None),
+        message=str(message or "")[:300],
+        error=str(error or "")[:500],
+        done=bool(done),
+        updated_at=time.time(),
+    )
+
+
+def operation_state() -> dict:
+    """Current operation progress; active is False when nothing is running."""
+    state = dict(_op_state)
+    active = bool(state.get("operation")) and not state.get("done") and (
+        time.time() - float(state.get("updated_at") or 0.0)
+    ) < 1800.0  # stale after 30 minutes without an update
+    state["active"] = active
+    return state
+
+
+def clear_operation(operation: str) -> None:
+    """Mark an operation finished so the UI stops showing progress for it."""
+    if _op_state.get("operation") == operation:
+        _op_state["done"] = True
+        _op_state["updated_at"] = time.time()
+
 
 def invalidate_availability() -> None:
     """Drop the cached provider health so the next call re-probes."""
@@ -606,6 +684,8 @@ def _maybe_start_pull(model: str) -> None:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         return
+    # Record the operation synchronously so an immediate status check sees it.
+    set_operation_progress("pull", percent=0, message=f"Downloading the {model} decision model (~850 MB)...")
     _pull_task = loop.create_task(_auto_pull_worker(model))
     logger.warning(
         "Laya model %r is missing from Ollama — pulling it in the background. "
@@ -616,10 +696,12 @@ def _maybe_start_pull(model: str) -> None:
 
 async def _auto_pull_worker(model: str) -> None:
     last_pct = -1.0
+    set_operation_progress("pull", percent=0, message=f"Downloading the {model} decision model (~850 MB)...")
     try:
         async for event in ollama_setup.pull_model(model):
             stage = event.get("stage")
             if stage == "error":
+                set_operation_progress("pull", error=str(event.get("error"))[:300], done=True)
                 logger.error(
                     "Auto-pull of laya model %r failed: %s — install it manually with `ollama pull %s` or use a JEV_API_KEY backend.",
                     model,
@@ -628,15 +710,19 @@ async def _auto_pull_worker(model: str) -> None:
                 )
                 return
             pct = event.get("percent")
-            if isinstance(pct, (int, float)) and float(pct) - last_pct >= 25.0:
+            if isinstance(pct, (int, float)) and float(pct) - last_pct >= 2.0:
                 last_pct = float(pct)
-                logger.info("Pulling laya model %s: %d%%", model, int(pct))
+                set_operation_progress("pull", percent=last_pct, message=f"Downloading {model}: {int(last_pct)}%")
+                if float(pct) - last_pct >= 25.0:
+                    logger.info("Pulling laya model %s: %d%%", model, int(pct))
+        set_operation_progress("pull", percent=100, message=f"{model} installed.", done=True)
         logger.info("Laya model %s installed successfully.", model)
         ollama_setup.forget_model_info()
         invalidate_availability()
     except asyncio.CancelledError:
         raise
-    except Exception:
+    except Exception as exc:
+        set_operation_progress("pull", error=str(exc)[:300], done=True)
         logger.exception("Unexpected error while pulling laya model %r", model)
 
 
@@ -692,6 +778,8 @@ def _maybe_start_ollama_upgrade() -> None:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         return
+    # Record the operation synchronously so an immediate status check sees it.
+    set_operation_progress("upgrade_ollama", message="Upgrading Ollama...")
     _ollama_upgrade_task = loop.create_task(_ollama_upgrade_worker())
     logger.warning(
         "Ollama is too old for the laya decision model — upgrading Ollama "
@@ -701,24 +789,39 @@ def _maybe_start_ollama_upgrade() -> None:
 
 
 async def _ollama_upgrade_worker() -> None:
+    set_operation_progress("upgrade_ollama", message="Upgrading Ollama...")
     try:
         async for event in ollama_setup.upgrade_ollama():
             stage = event.get("stage")
             if stage == "error":
+                set_operation_progress("upgrade_ollama", error=str(event.get("error"))[:400], done=True)
                 logger.error(
                     "Automatic Ollama upgrade failed: %s — use Settings -> Decision Model "
                     "or https://ollama.com to upgrade manually.",
                     str(event.get("error"))[:400],
                 )
                 return
+            if stage in {"progress", "start"}:
+                set_operation_progress(
+                    "upgrade_ollama",
+                    percent=event.get("percent"),
+                    message=str(event.get("message") or "Upgrading Ollama..."),
+                )
             if stage == "done":
+                set_operation_progress(
+                    "upgrade_ollama",
+                    percent=100,
+                    message=str(event.get("message") or "Ollama upgraded."),
+                    done=True,
+                )
                 logger.info("Ollama upgraded automatically: %s", event.get("message", ""))
                 ollama_setup.forget_model_info()
                 invalidate_availability()
                 return
     except asyncio.CancelledError:
         raise
-    except Exception:
+    except Exception as exc:
+        set_operation_progress("upgrade_ollama", error=str(exc)[:300], done=True)
         logger.exception("Unexpected error while upgrading Ollama")
 
 
@@ -728,8 +831,8 @@ def _local_probe_for_missing_package() -> dict | None:
         return None
     _maybe_start_local_install()
     return {"available": False, "provider": "local", "reason": "installing", "detail": (
-        "Installing the built-in laya model into this TALOS venv in the background "
-        "(one-time; its ~850 MB weights download on first use)."
+        f"Installing the built-in model into the TALOS venv ({_venv_path()}) in the "
+        "background — one-time; its ~850 MB weights download on first use."
     )}
 
 
@@ -874,6 +977,36 @@ async def test_decision() -> dict:
             ["calm, stating facts", "frustrated but civil", "very angry, strong language"],
         ),
     }
+    # A backend that is still being set up should say so, not "test failed".
+    provider = await effective_provider()
+    if provider == "local" and not local_package_available():
+        installing = _local_probe_for_missing_package()
+        if installing:
+            return {
+                "ok": False,
+                "error": (
+                    "The built-in model is being installed into the TALOS venv right now "
+                    "(one-time; a few minutes). Try the test again shortly."
+                ),
+                "operation": operation_state(),
+            }
+        return {
+            "ok": False,
+            "error": (
+                f"The built-in model's `laya` package is not installed in this venv "
+                f"({_venv_path()}). Enable 'Install the built-in model automatically' "
+                "in Settings, or switch provider to Ollama or Jev."
+            ),
+            "availability": await availability(force=True),
+        }
+    operation = operation_state()
+    if operation.get("active") and operation.get("operation") == "pull":
+        return {
+            "ok": False,
+            "error": "The decision model is still downloading. Try the test again once it finishes.",
+            "operation": operation,
+        }
+
     try:
         result = await decide(state, questions)
         _log_decision("settings_test", result, questions)
@@ -902,7 +1035,7 @@ def mark_pull_requested(model: str) -> None:
 
 
 def pull_progress() -> dict:
-    """Whether a background auto-pull or package install is running, for the Settings status card."""
+    """Live operation progress for the Settings status card."""
     task = _pull_task
     local_task = _local_install_task
     return {
@@ -912,6 +1045,7 @@ def pull_progress() -> dict:
         "local_install_requested": bool(_local_install_started),
         "upgrading_ollama": bool(_ollama_upgrade_task and not _ollama_upgrade_task.done()),
         "ollama_upgrade_requested": bool(_ollama_upgrade_started),
+        "operation": operation_state(),
     }
 
 

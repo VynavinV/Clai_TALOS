@@ -383,6 +383,33 @@ def test_self_test_passes_offline():
     assert result["failures"] == []
 
 
+def test_operation_state_tracks_progress():
+    laya_decisions.set_operation_progress("pull", percent=41.5, message="Downloading laya: 41%")
+    state = laya_decisions.operation_state()
+    assert state["active"] is True
+    assert state["operation"] == "pull"
+    assert state["percent"] == 41.5
+    assert state["message"] == "Downloading laya: 41%"
+
+    laya_decisions.set_operation_progress("pull", percent=100, message="done", done=True)
+    state = laya_decisions.operation_state()
+    assert state["active"] is False  # done operations stop showing progress
+
+    laya_decisions.set_operation_progress("install_local", message="installing...")
+    state = laya_decisions.operation_state()
+    assert state["active"] is True
+    assert state["percent"] is None  # indeterminate work has no percent
+    laya_decisions.set_operation_progress(None, done=True)
+
+
+def test_operation_state_stale_after_timeout():
+    laya_decisions.set_operation_progress("upgrade_ollama", message="working")
+    # Simulate the updater dying without a final event: stale after 30 minutes.
+    laya_decisions._op_state["updated_at"] = laya_decisions._op_state["updated_at"] - 1900
+    state = laya_decisions.operation_state()
+    assert state["active"] is False
+
+
 def test_availability_auto_falls_back_to_local(monkeypatch):
     """With an old Ollama, auto uses the built-in model — 'works by itself'."""
     async def fake_status(base_url=None):

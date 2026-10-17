@@ -3341,7 +3341,7 @@ async def handle_api_settings_post(request):
         "OTA_CHANNEL", "TALOS_LAZY_TOOLS",
         "CLAISTORE_GITHUB_REPO", "CLAISTORE_GITHUB_TOKEN", "CLAISTORE_GITHUB_BRANCH", "CLAISTORE_WORKER_AUTH_TOKEN",
         "HOMEASSISTANT_URL", "HOMEASSISTANT_TOKEN",
-        "LAYA_PROVIDER", "LAYA_MODEL", "LAYA_TIMEOUT_S",
+        "LAYA_PROVIDER", "LAYA_MODEL", "LAYA_LOCAL_MODEL", "LAYA_JEV_MODEL", "LAYA_TIMEOUT_S",
     ]
 
     # On/off switches, stored as "1"/"0" so they survive the flat .env format.
@@ -3389,6 +3389,15 @@ async def handle_api_settings_post(request):
                 status=400,
             )
         env_vars["LAYA_PROVIDER"] = laya_provider
+
+    if "LAYA_LOCAL_MODEL" in body:
+        local_model = str(body["LAYA_LOCAL_MODEL"]).strip().lower() or "english"
+        if local_model not in {"english", "multilingual", "typed-decisions"}:
+            return web.json_response(
+                {"error": "LAYA_LOCAL_MODEL must be one of english, multilingual, typed-decisions."},
+                status=400,
+            )
+        env_vars["LAYA_LOCAL_MODEL"] = local_model
 
     if "LAYA_CONFIDENCE_MIN" in body:
         raw = str(body["LAYA_CONFIDENCE_MIN"]).strip()
@@ -3595,7 +3604,7 @@ _LAYA_FEATURE_SETTINGS_KEYS = {
 
 @require_auth
 async def handle_api_laya_status(request):
-    """Config, provider health, and recent failures for the decision-model card."""
+    """Config, provider health, and live operation progress for the decision-model card."""
     env_vars = _read_env_file()
     force = str(request.query.get("force", "")).strip().lower() in {"1", "true", "yes"}
     result = await laya_decisions.availability(force=force)
@@ -3603,6 +3612,8 @@ async def handle_api_laya_status(request):
         "LAYA_ENABLED": env_vars.get("LAYA_ENABLED", "1"),
         "LAYA_PROVIDER": env_vars.get("LAYA_PROVIDER", "auto"),
         "LAYA_MODEL": env_vars.get("LAYA_MODEL", "laya"),
+        "LAYA_LOCAL_MODEL": env_vars.get("LAYA_LOCAL_MODEL", "english"),
+        "LAYA_JEV_MODEL": env_vars.get("LAYA_JEV_MODEL", "jev-1"),
         "LAYA_BASE_URL": env_vars.get("LAYA_BASE_URL", ""),
         "JEV_BASE_URL": env_vars.get("JEV_BASE_URL", laya_decisions.DEFAULT_JEV_BASE_URL),
         "JEV_API_KEY": _mask_secret(env_vars.get("JEV_API_KEY", "")),
@@ -3618,6 +3629,7 @@ async def handle_api_laya_status(request):
     }
     result["last_failure"] = laya_decisions.last_failure()
     result["pull"] = laya_decisions.pull_progress()
+    result["operation"] = laya_decisions.operation_state()
     return web.json_response(result)
 
 
@@ -3657,7 +3669,20 @@ async def handle_api_laya_install(request):
             f"(the /v1/systemone endpoint).{upgrade_hint}"
         )}, status=400)
 
+    already_installed = any(
+        m.get("name", "") == model_name or m.get("name", "").split(":")[0] == model_name
+        for m in status.get("models", [])
+    )
+
     laya_decisions.mark_pull_requested(model_name)
+    laya_decisions.set_operation_progress(
+        "pull", percent=0,
+        message=(
+            f"{model_name} is already downloaded — verifying."
+            if already_installed
+            else f"Downloading {model_name} (~850 MB) from the Ollama library."
+        ),
+    )
 
     resp = web.StreamResponse(
         status=200,
@@ -3672,10 +3697,6 @@ async def handle_api_laya_install(request):
     async def send(event: dict) -> None:
         await resp.write((json.dumps(event, separators=(",", ":")) + "\n").encode())
 
-    already_installed = any(
-        m.get("name", "") == model_name or m.get("name", "").split(":")[0] == model_name
-        for m in status.get("models", [])
-    )
     await send({
         "stage": "start",
         "model": model_name,
@@ -3692,8 +3713,14 @@ async def handle_api_laya_install(request):
         async for event in ollama_setup.pull_model(model_name, base_url):
             if event.get("stage") == "error":
                 failed = str(event.get("error", "Pull failed."))
+                laya_decisions.set_operation_progress("pull", error=failed, done=True)
                 await send(event)
                 break
+            pct = event.get("percent")
+            laya_decisions.set_operation_progress(
+                "pull", percent=pct if isinstance(pct, (int, float)) else None,
+                message=str(event.get("message") or f"Downloading {model_name}..."),
+            )
             await send(event)
     except (asyncio.CancelledError, ConnectionResetError):
         return resp
@@ -3703,6 +3730,8 @@ async def handle_api_laya_install(request):
         return resp
 
     ollama_setup.forget_model_info()
+    laya_decisions.set_operation_progress("pull", percent=100, message=f"{model_name} installed.", done=True)
+    laya_decisions.invalidate_availability()
     await send({
         "stage": "finished",
         "ok": True,
@@ -3734,6 +3763,7 @@ async def handle_api_ollama_upgrade(request):
         await resp.write((json.dumps(event, separators=(",", ":")) + "\n").encode())
 
     await send({"stage": "start", "message": "Checking how Ollama is installed..."})
+    laya_decisions.set_operation_progress("upgrade_ollama", message="Checking how Ollama is installed...")
 
     model_name = laya_decisions.laya_model()
     failed = ""
@@ -3741,8 +3771,15 @@ async def handle_api_ollama_upgrade(request):
         async for event in ollama_setup.upgrade_ollama(min_version=".".join(str(p) for p in laya_decisions.MIN_OLLAMA_VERSION)):
             if event.get("stage") == "error":
                 failed = str(event.get("error", "Upgrade failed."))
+                laya_decisions.set_operation_progress("upgrade_ollama", error=failed, done=True)
                 await send(event)
                 break
+            if event.get("stage") in {"progress", "start", "done"}:
+                pct = event.get("percent")
+                laya_decisions.set_operation_progress(
+                    "upgrade_ollama", percent=pct if isinstance(pct, (int, float)) else None,
+                    message=str(event.get("message") or "Upgrading Ollama..."),
+                )
             await send(event)
     except (asyncio.CancelledError, ConnectionResetError):
         return resp
@@ -3762,21 +3799,35 @@ async def handle_api_ollama_upgrade(request):
         name == model_name or name.split(":")[0] == model_name for name in installed
     )
     if not already:
+        laya_decisions.set_operation_progress(
+            "pull", percent=0, message=f"Pulling the {model_name} decision model (~850 MB)..."
+        )
         await send({"stage": "progress", "message": f"Pulling the {model_name} decision model (~850 MB)..."})
         try:
             async for event in ollama_setup.pull_model(model_name, base_url):
                 if event.get("stage") == "error":
+                    laya_decisions.set_operation_progress(
+                        "pull", error=str(event.get("error", "pull failed")), done=True
+                    )
                     await send({
                         "stage": "finished",
                         "ok": True,
                         "message": f"Ollama upgraded, but pulling {model_name} failed: {event.get('error')}",
                     })
                     return resp
+                pct = event.get("percent")
+                laya_decisions.set_operation_progress(
+                    "pull", percent=pct if isinstance(pct, (int, float)) else None,
+                    message=str(event.get("message") or f"Downloading {model_name}..."),
+                )
                 await send(event)
         except (asyncio.CancelledError, ConnectionResetError):
             return resp
 
     ollama_setup.forget_model_info()
+    laya_decisions.set_operation_progress(
+        "pull", percent=100, message=f"{model_name} ready.", done=True
+    )
     laya_decisions.invalidate_availability()
     await send({
         "stage": "finished",
