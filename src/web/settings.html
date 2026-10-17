@@ -269,11 +269,12 @@
       <label>Provider</label>
       <select id="laya-provider">
         <option value="auto">Auto (recommended)</option>
+        <option value="local">Built-in model (no Ollama needed)</option>
         <option value="ollama">Local Ollama (laya)</option>
         <option value="jev">Hosted Jev (API key)</option>
         <option value="custom">Custom endpoint</option>
       </select>
-      <div class="form-hint">Auto picks a Jev API key if you set one, otherwise local Ollama. Local laya needs Ollama 0.40+ and is pulled automatically when missing.</div>
+      <div class="form-hint">Auto picks a Jev API key if you set one, then Ollama 0.40+, and falls back to the built-in model when Ollama is too old — everything just works. The built-in model runs inside TALOS (installed automatically, ~850 MB of weights download once).</div>
     </div>
     <div class="form-group">
       <label>Ollama Model Name</label>
@@ -1418,7 +1419,7 @@ async function loadSettings() {
     loadLayaStatus();
     document.getElementById('laya-enabled').checked = (d.LAYA_ENABLED || '1') !== '0';
     var layaProvider = String(d.LAYA_PROVIDER || 'auto').toLowerCase();
-    if (['auto', 'ollama', 'jev', 'custom'].indexOf(layaProvider) === -1) layaProvider = 'auto';
+    if (['auto', 'ollama', 'jev', 'custom', 'local'].indexOf(layaProvider) === -1) layaProvider = 'auto';
     document.getElementById('laya-provider').value = layaProvider;
     document.getElementById('laya-model').value = d.LAYA_MODEL || 'laya';
     document.getElementById('jev-api-key').value = d.JEV_API_KEY || '';
@@ -1823,6 +1824,55 @@ async function checkOtaUpdates(showToast) {
   checkBtn.disabled = false;
 }
 
+function waitForServerRestart(statusEl, label, beforeVersion, doneMsg) {
+  // The server restarts right after the apply response. Wait for it to go
+  // down and come back (or just come back), then reload the page. A dropped
+  // connection here is EXPECTED — it is not a failure.
+  var seenDown = false;
+  var attempts = 0;
+  var maxAttempts = 40;
+  var startTime = Date.now();
+
+  function finish(ok) {
+    if (ok) {
+      statusEl.textContent = doneMsg;
+      statusEl.style.color = '#68d398';
+      showMsg(doneMsg, true);
+      setTimeout(function () { window.location.reload(); }, 1200);
+    } else {
+      statusEl.textContent = 'The update was applied, but TALOS is taking longer than expected to restart. Refresh this page in a minute.';
+      statusEl.style.color = '#d69e2e';
+      showMsg('Server still restarting — refresh this page shortly.', false);
+    }
+  }
+
+  function poll() {
+    attempts++;
+    fetch('/api/updates/check', { cache: 'no-store' })
+      .then(function (res) {
+        if (!res.ok) throw new Error('bad status');
+        return res.json();
+      })
+      .then(function (data) {
+        var back = seenDown || (Date.now() - startTime > 30000);
+        var versionChanged = beforeVersion && data.current_version && data.current_version !== beforeVersion;
+        if (back || versionChanged) { finish(true); return; }
+        // Server answered but the restart has not happened yet — keep waiting.
+        statusEl.textContent = label + ' (waiting for restart...)';
+        if (attempts < maxAttempts) setTimeout(poll, 3000); else finish(false);
+      })
+      .catch(function () {
+        seenDown = true;
+        statusEl.textContent = label + ' (server restarting...)';
+        if (attempts < maxAttempts) setTimeout(poll, 3000); else finish(false);
+      });
+  }
+
+  statusEl.textContent = label;
+  statusEl.style.color = '#63b3ed';
+  setTimeout(poll, 4000);
+}
+
 async function applyOtaUpdate() {
   if (!_otaStatus || !_otaStatus.update_available) {
     showMsg('No update is currently available.', false);
@@ -1845,6 +1895,7 @@ async function applyOtaUpdate() {
   var applyBtn = document.getElementById('ota-apply-btn');
   var statusEl = document.getElementById('ota-status-line');
   var selectedChannel = (document.getElementById('ota-channel').value || 'stable').trim().toLowerCase();
+  var beforeVersion = (_otaStatus && _otaStatus.current_version) || '';
   applyBtn.disabled = true;
   statusEl.textContent = 'Applying update...';
 
@@ -1856,15 +1907,22 @@ async function applyOtaUpdate() {
     if (!data.ok) {
       showMsg(data.error || 'Could not apply update.', false);
       statusEl.textContent = data.error || 'Update failed.';
+      statusEl.style.color = '#fc8181';
       await checkOtaUpdates(false);
+      applyBtn.disabled = false;
       return;
     }
 
-    statusEl.textContent = data.message || 'Update applied.';
-
-    if (data.restarting_now) {
-      showMsg('Update staged. Restarting now...', true);
-      setTimeout(function() { window.location.reload(); }, 15000);
+    if (data.restarting_now || data.restart_scheduled) {
+      // Update is applied. The server restarts itself; the connection may
+      // drop — that is expected, not a failure.
+      waitForServerRestart(
+        statusEl,
+        'Update applied. Restarting TALOS...',
+        beforeVersion,
+        'Update applied — restart complete.'
+      );
+      showMsg('Update applied. TALOS is restarting...', true);
       return;
     }
 
@@ -1876,8 +1934,16 @@ async function applyOtaUpdate() {
 
     await checkOtaUpdates(false);
   } catch (e) {
-    showMsg('Connection problem while applying update.', false);
-    statusEl.textContent = 'Update request failed.';
+    // A dropped connection during apply almost always means the update
+    // worked and the server restarted mid-request — never report failure here
+    // without checking whether the server comes back with the new version.
+    waitForServerRestart(
+      statusEl,
+      'Update applied. Waiting for TALOS to come back...',
+      beforeVersion,
+      'Update applied — restart complete.'
+    );
+    showMsg('Connection closed during update — waiting for TALOS to restart.', true);
   }
 
   applyBtn.disabled = false;
@@ -1902,6 +1968,7 @@ async function rollbackOtaUpdate() {
 
   var btn = document.getElementById('ota-rollback-btn');
   var statusEl = document.getElementById('ota-status-line');
+  var beforeVersion = (_otaStatus && _otaStatus.current_version) || '';
   btn.disabled = true;
   btn.textContent = 'Rolling back...';
   statusEl.textContent = 'Rolling back to the previous version...';
@@ -1913,23 +1980,32 @@ async function rollbackOtaUpdate() {
 
     var result = await res.json();
 
-    if (result.ok && result.restarting_now) {
+    if (result.ok && (result.restarting_now || result.restart_scheduled)) {
       btn.textContent = 'Restarting now...';
-      statusEl.textContent = result.message || 'Rolled back. Restarting now...';
-      showMsg('Rollback complete. Restarting now...', true);
-      setTimeout(function() { window.location.reload(); }, 15000);
+      waitForServerRestart(
+        statusEl,
+        'Rolled back. Restarting TALOS...',
+        beforeVersion,
+        'Rollback complete — restart finished.'
+      );
+      showMsg('Rollback complete. TALOS is restarting...', true);
       return;
     }
 
     showMsg(result.error || 'Rollback failed.', false);
     statusEl.textContent = result.error || 'Rollback failed.';
+    statusEl.style.color = '#fc8181';
     btn.disabled = false;
     btn.textContent = 'Rollback to Previous Version';
   } catch (e) {
-    showMsg('Rollback request failed.', false);
-    statusEl.textContent = 'Rollback request failed.';
-    btn.disabled = false;
-    btn.textContent = 'Rollback to Previous Version';
+    // Connection dropped mid-rollback usually means the restart happened.
+    waitForServerRestart(
+      statusEl,
+      'Rolled back. Waiting for TALOS to come back...',
+      beforeVersion,
+      'Rollback complete — restart finished.'
+    );
+    showMsg('Connection closed during rollback — waiting for TALOS to restart.', true);
   }
 }
 
@@ -2128,18 +2204,23 @@ async function loadLayaStatus() {
     var el = document.getElementById('laya-status');
     var failEl = document.getElementById('laya-last-failure');
     var provider = d.provider || 'ollama';
-    var friendly = {ollama: 'local Ollama', jev: 'hosted Jev', custom: 'custom endpoint', auto: 'auto'}[provider] || provider;
+    var friendly = {ollama: 'local Ollama', jev: 'hosted Jev', custom: 'custom endpoint', local: 'built-in model', auto: 'auto'}[provider] || provider;
+    var reasons = {
+      disabled: 'disabled',
+      ollama_unreachable: 'not reachable',
+      ollama_too_old: 'Ollama too old — using built-in model instead',
+      model_missing: 'model not installed yet',
+      pulling: 'downloading now',
+      missing_key: 'missing Jev API key',
+      missing_url: 'missing endpoint URL',
+      package_missing: 'built-in model not installed',
+      installing: 'installing built-in model now',
+      no_disk_space: 'not enough free disk space for the built-in model',
+      weights_pending: 'ready (weights download on first use)',
+      local_fallback: 'ready',
+      error: 'error'
+    };
     if (!d.available) {
-      var reasons = {
-        disabled: 'disabled',
-        ollama_unreachable: 'not reachable',
-        ollama_too_old: 'Ollama too old (needs 0.40+)',
-        model_missing: 'model not installed yet',
-        pulling: 'downloading now',
-        missing_key: 'missing Jev API key',
-        missing_url: 'missing endpoint URL',
-        error: 'error'
-      };
       el.textContent = 'Decision model: unavailable (' + (reasons[d.reason] || d.reason || 'unknown') + '). ' + (d.detail || '');
       el.style.color = '#d69e2e';
     } else {

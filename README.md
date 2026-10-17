@@ -708,21 +708,22 @@ Ollama runs models locally with no API key. Install from [ollama.com](https://ol
 
 Optional fast typed decisions (choice / score / yes-no probability) used by email
 triage, memory ranking, context compaction, smart model routing, and the
-experimental browser auto-pilot. Defaults to the free local `laya` model
-(needs Ollama 0.40+, pulled automatically); a `JEV_API_KEY` switches to the
-hosted Jev model. Everything falls back safely when it is off or unavailable.
+experimental browser auto-pilot. Auto mode works by itself: it uses the built-in
+laya model (runs inside TALOS, installed automatically) when Ollama is too old
+for it, local Ollama 0.40+ with the `laya` model when available, or a hosted
+Jev key when set. Everything falls back safely when it is off or unavailable.
 See `LAYA_DOCS.md` and Settings → Decision Model.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `LAYA_ENABLED` | `1` | Master switch for the decision layer |
-| `LAYA_PROVIDER` | `auto` | `auto` (Jev key if set, else Ollama), `ollama`, `jev`, `custom` |
+| `LAYA_PROVIDER` | `auto` | `auto`, `local` (built-in), `ollama`, `jev`, `custom` |
 | `LAYA_MODEL` | `laya` | Ollama model name (`laya`, `laya-multilingual`, ...) |
+| `LAYA_LOCAL_MODEL` | `english` | Built-in checkpoint (`english`, `multilingual`, `typed-decisions`) |
+| `LAYA_AUTO_INSTALL` | `1` | Auto-install the `laya` package into the venv when the built-in backend is needed |
 | `LAYA_BASE_URL` | empty | Custom Jev-compatible `/v1/systemone` endpoint |
-| `JEV_API_KEY` | empty | Hosted Jev backend key |
-| `JEV_BASE_URL` | `https://api.typesafe.ai/v1` | Hosted Jev base URL |
-| `LAYA_TIMEOUT_S` | `5` | Per-decision timeout |
 | `LAYA_AUTO_PULL` | `1` | Auto `ollama pull laya` when missing |
+| `JEV_API_KEY` | empty | Hosted Jev backend key |
 | `LAYA_CONFIDENCE_MIN` | `0.75` | Minimum confidence before acting on a decision |
 | `LAYA_EMAIL_TRIAGE` | `1` | Email triage feature toggle |
 | `LAYA_MEMORY_RERANK` | `1` | Memory relevance ranking toggle |

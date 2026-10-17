@@ -197,17 +197,18 @@ def normalize_questions(questions: Any) -> dict:
 
 
 def resolve_provider() -> str:
-    """Which backend answers decisions: ollama, jev, or a custom endpoint."""
+    """Which backend the user prefers: ollama, jev, custom, local, or auto."""
     pref = _env("LAYA_PROVIDER", "auto").lower()
-    if pref in {"ollama", "jev", "custom"}:
+    if pref in {"ollama", "jev", "custom", "local"}:
         return pref
     # Auto: an explicit endpoint is the most specific, then a hosted key,
-    # then the local Ollama every TALOS install can fall back to.
+    # then the local Ollama, and finally the built-in package when Ollama
+    # is too old for /v1/systemone.
     if _env("LAYA_BASE_URL"):
         return "custom"
     if _env("JEV_API_KEY"):
         return "jev"
-    return "ollama"
+    return "auto"
 
 
 def _systemone_url(base_url: str) -> str:
@@ -245,6 +246,174 @@ def provider_endpoint(provider: str | None = None) -> dict:
         model = laya_model()
 
     return {"provider": provider, "url": _systemone_url(base), "headers": headers, "model": model}
+
+
+# ---------------------------------------------------------------------------
+# Local backend: the open-source `laya` package runs in this process, no
+# Ollama or network API needed. Used automatically when Ollama is too old
+# for /v1/systemone, which is the "works by itself" path.
+# ---------------------------------------------------------------------------
+
+_local_router = None
+_local_router_lock: asyncio.Lock | None = None
+_local_install_task: asyncio.Task | None = None
+_local_install_started = False
+
+# Model weights are ~850 MB; require comfortable headroom for the download.
+LOCAL_MIN_FREE_DISK_BYTES = 1_500_000_000
+
+
+def local_model_name() -> str:
+    """Checkpoint the local backend uses: english (421M), multilingual, or typed-decisions."""
+    return _env("LAYA_LOCAL_MODEL", "english") or "english"
+
+
+def local_package_available() -> bool:
+    try:
+        import importlib.util
+
+        return importlib.util.find_spec("laya") is not None
+    except Exception:
+        return False
+
+
+def _free_disk_bytes() -> int:
+    try:
+        import shutil
+
+        return shutil.disk_usage(app_paths.data_root()).free
+    except Exception:
+        return 0
+
+
+def local_weights_downloaded() -> bool:
+    """True once the checkpoint is present in the local HF cache."""
+    if not local_package_available():
+        return False
+    try:
+        from laya import DEFAULT_MODELS
+
+        repo, revision = DEFAULT_MODELS.get(local_model_name(), DEFAULT_MODELS["english"])
+        from huggingface_hub import snapshot_download  # noqa: F401
+
+        cache = snapshot_download(repo_id=repo, revision=revision, local_files_only=True)
+        return bool(cache)
+    except Exception:
+        return False
+
+
+def local_status() -> dict:
+    """Health of the in-process backend, for availability and the Settings card."""
+    if not local_package_available():
+        return {"available": False, "reason": "package_missing",
+                "detail": "The `laya` Python package is not installed in this TALOS venv."}
+    free = _free_disk_bytes()
+    if free and free < LOCAL_MIN_FREE_DISK_BYTES:
+        return {"available": False, "reason": "no_disk_space", "detail": (
+            f"The built-in model needs about 1.5 GB of free disk space for its weights "
+            f"({free / 1_000_000_000:.1f} GB free now). Free up disk space and try again."
+        )}
+    if not local_weights_downloaded():
+        return {"available": True, "reason": "weights_pending", "detail": (
+            "Built-in model ready; its ~850 MB weights download automatically on first use."
+        )}
+    return {"available": True, "reason": "ok", "detail": "Built-in laya model ready (runs in this process)."}
+
+
+def _maybe_start_local_install() -> None:
+    """Self-healing: install the `laya` package into the venv once, in the background."""
+    global _local_install_task, _local_install_started
+    if _local_install_started or local_package_available():
+        return
+    if _env("LAYA_AUTO_INSTALL", "1") == "0":
+        return
+    _local_install_started = True
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    _local_install_task = loop.create_task(_local_install_worker())
+    logger.warning(
+        "The `laya` package is missing — installing it into this venv in the background "
+        "(self-healing; disable with LAYA_AUTO_INSTALL=0)."
+    )
+
+
+async def _local_install_worker() -> None:
+    import subprocess
+    import sys
+
+    cmd = [sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "laya"]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout=1800)
+        if proc.returncode == 0:
+            logger.info("The `laya` package installed successfully; the built-in decision backend is ready.")
+        else:
+            logger.error(
+                "Auto-install of the `laya` package failed (exit %s): %s — install it manually with "
+                "`%s -m pip install laya` or use the Ollama/Jev backend.",
+                proc.returncode,
+                (out or b"").decode(errors="replace")[-500:],
+                sys.executable,
+            )
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        logger.exception("Unexpected error while installing the `laya` package")
+
+
+async def _get_local_router():
+    """Lazily build the Router (downloads weights on first use); safe under concurrency."""
+    global _local_router, _local_router_lock
+    if _local_router is not None:
+        return _local_router
+    if _local_router_lock is None:
+        _local_router_lock = asyncio.Lock()
+    async with _local_router_lock:
+        if _local_router is not None:
+            return _local_router
+        from laya import Router  # noqa: WPS433 - intentionally lazy and heavy
+
+        def _build():
+            router = Router(default=local_model_name())
+            router.load(local_model_name())  # force the weight download here, not mid-request
+            return router
+
+        _local_router = await asyncio.to_thread(_build)
+        return _local_router
+
+
+async def _local_decide(state: Any, questions: Any) -> dict:
+    """Run one decision through the in-process laya package (same wire format)."""
+    normalized = normalize_questions(questions)
+    if isinstance(state, (dict, list)):
+        serialized = json.dumps(state, ensure_ascii=False, default=str)
+        if len(serialized) > MAX_STATE_CHARS:
+            raise LayaError(
+                f"State is {len(serialized)} chars serialized; the cap is {MAX_STATE_CHARS}. Trim it to the part the questions are about."
+            )
+        state_value: Any = state
+    else:
+        state_value = str(state or "")[:MAX_STATE_CHARS]
+
+    status = local_status()
+    if not status.get("available"):
+        raise LayaUnavailableError(status.get("detail") or "Local decision backend unavailable.")
+
+    started = time.monotonic()
+    router = await _get_local_router()
+    result = await asyncio.to_thread(router.predict, state_value, normalized, model=local_model_name())
+    latency_ms = round((time.monotonic() - started) * 1000.0, 1)
+
+    answers = _extract_answers(result)
+    if answers is None:
+        raise LayaError(f"Local decision model returned no answers: {json.dumps(result, default=str)[:300]}")
+    return {"answers": answers, "provider": "local", "model": local_model_name(), "latency_ms": latency_ms, "raw": result}
 
 
 # ---------------------------------------------------------------------------
@@ -298,7 +467,11 @@ async def decide(state: Any, questions: Any) -> dict:
     if not enabled():
         raise LayaUnavailableError("Laya decision layer is disabled (LAYA_ENABLED=0).")
 
-    endpoint = provider_endpoint()
+    provider = await effective_provider()
+    if provider == "local":
+        return await _local_decide(state, questions)
+
+    endpoint = provider_endpoint(provider)
     if not endpoint["url"]:
         raise LayaUnavailableError("No decision-model endpoint configured.")
 
@@ -465,6 +638,74 @@ async def _auto_pull_worker(model: str) -> None:
         logger.exception("Unexpected error while pulling laya model %r", model)
 
 
+async def _probe_ollama() -> dict:
+    """Health of the Ollama backend: reachable, 0.40+, model installed."""
+    status = await ollama_setup.get_status()
+    if not status.get("reachable"):
+        return {"available": False, "provider": "ollama", "reason": "ollama_unreachable",
+                "detail": status.get("error", "") or "Ollama is not reachable."}
+
+    version = str(status.get("version", ""))
+    parsed = _parse_version(version)
+    if parsed is not None and parsed < MIN_OLLAMA_VERSION:
+        return {"available": False, "provider": "ollama", "reason": "ollama_too_old", "detail": (
+            f"Ollama {version} is installed, but the laya decision model needs Ollama 0.40.0+ "
+            "(the /v1/systemone endpoint)."
+        )}
+
+    model = laya_model()
+    installed = {str(m.get("name", "")) for m in status.get("models", [])}
+    model_present = any(
+        name == model or name.split(":")[0] == model for name in installed
+    )
+    if not model_present:
+        if auto_pull_enabled():
+            _maybe_start_pull(model)
+            return {"available": False, "provider": "ollama", "reason": "pulling",
+                    "detail": f"Pulling {model} via Ollama in the background (one-time, ~850 MB)."}
+        return {"available": False, "provider": "ollama", "reason": "model_missing", "detail": (
+            f"Run `ollama pull {model}` (Settings -> Decision Model can do it for you)."
+        )}
+
+    return {"available": True, "provider": "ollama", "reason": "ok",
+            "detail": f"Ollama {version} with {model}."}
+
+
+def _local_probe_for_missing_package() -> dict | None:
+    """Kick off the self-healing package install and describe it, if allowed."""
+    if _env("LAYA_AUTO_INSTALL", "1") == "0":
+        return None
+    _maybe_start_local_install()
+    return {"available": False, "provider": "local", "reason": "installing", "detail": (
+        "Installing the built-in laya model into this TALOS venv in the background "
+        "(one-time; its ~850 MB weights download on first use)."
+    )}
+
+
+async def effective_provider() -> str:
+    """The backend that actually answers decisions right now.
+
+    Explicit choices (jev, custom, local) are honored as-is. Auto and ollama
+    use Ollama when it is new enough and has the model; otherwise auto falls
+    back to the built-in package so the decision layer keeps working on
+    installs with an older Ollama.
+    """
+    pref = resolve_provider()
+    if pref in {"jev", "custom", "local"}:
+        return pref
+    if pref == "auto":
+        if _env("LAYA_BASE_URL"):
+            return "custom"
+        if _env("JEV_API_KEY"):
+            return "jev"
+
+    status = await availability()
+    if status.get("available"):
+        provider = str(status.get("provider") or "ollama")
+        return provider if provider in {"ollama", "local", "jev", "custom"} else "ollama"
+    return "local" if pref == "auto" else pref
+
+
 async def _probe_availability() -> dict:
     if not enabled():
         return {"available": False, "provider": None, "reason": "disabled", "detail": "LAYA_ENABLED=0"}
@@ -484,38 +725,33 @@ async def _probe_availability() -> dict:
                         "detail": "Set LAYA_BASE_URL to a Jev-compatible /v1/systemone endpoint."}
             return {"available": True, "provider": "custom", "reason": "ok", "detail": f"Custom endpoint {url}."}
 
-        # ollama
-        status = await ollama_setup.get_status()
-        if not status.get("reachable"):
-            return {"available": False, "provider": "ollama", "reason": "ollama_unreachable",
-                    "detail": status.get("error", "") or "Ollama is not reachable."}
+        if provider == "local":
+            local = local_status()
+            if not local.get("available") and local.get("reason") == "package_missing":
+                installing = _local_probe_for_missing_package()
+                if installing:
+                    return installing
+            return {"available": bool(local.get("available")), "provider": "local",
+                    "reason": local.get("reason"), "detail": local.get("detail")}
 
-        version = str(status.get("version", ""))
-        parsed = _parse_version(version)
-        if parsed is not None and parsed < MIN_OLLAMA_VERSION:
-            return {"available": False, "provider": "ollama", "reason": "ollama_too_old", "detail": (
-                f"Ollama {version} is installed, but the laya decision model needs Ollama 0.40.0+ "
-                "(the /v1/systemone endpoint). Upgrade from https://ollama.com, or set JEV_API_KEY "
-                "to use the hosted Jev model instead."
-            )}
+        # ollama (explicit) or auto
+        ollama_result = await _probe_ollama()
+        if ollama_result.get("available") or provider == "ollama":
+            return ollama_result
 
-        model = laya_model()
-        installed = {str(m.get("name", "")) for m in status.get("models", [])}
-        model_present = any(
-            name == model or name.split(":")[0] == model for name in installed
-        )
-        if not model_present:
-            if auto_pull_enabled():
-                _maybe_start_pull(model)
-                return {"available": False, "provider": "ollama", "reason": "pulling",
-                        "detail": f"Pulling {model} via Ollama in the background (one-time, ~850 MB)."}
-            return {"available": False, "provider": "ollama", "reason": "model_missing", "detail": (
-                f"Run `ollama pull {model}` (Settings -> Decision Model can do it for you), "
-                "or set JEV_API_KEY for the hosted backend."
-            )}
-
-        return {"available": True, "provider": "ollama", "reason": "ok",
-                "detail": f"Ollama {version} with {model}."}
+        # Auto: Ollama cannot serve the decision model (old version, missing
+        # model, or not running) — fall back to the built-in package so the
+        # decision layer works without any manual setup.
+        local = local_status()
+        if local.get("available"):
+            return {"available": True, "provider": "local", "reason": "local_fallback",
+                    "detail": f"{local.get('detail')} (used because: {ollama_result.get('detail')})"}
+        if local.get("reason") == "package_missing":
+            installing = _local_probe_for_missing_package()
+            if installing:
+                return installing
+        return {"available": False, "provider": "local", "reason": local.get("reason"),
+                "detail": f"{local.get('detail')} (Ollama: {ollama_result.get('detail')})"}
     except Exception as exc:
         return {"available": False, "provider": provider, "reason": "error", "detail": str(exc)}
 
@@ -591,9 +827,12 @@ def mark_pull_requested(model: str) -> None:
 
 
 def pull_progress() -> dict:
-    """Whether a background auto-pull is running, for the Settings status card."""
+    """Whether a background auto-pull or package install is running, for the Settings status card."""
     task = _pull_task
+    local_task = _local_install_task
     return {
         "pulling": bool(task and not task.done()),
         "pull_requested": bool(_pull_started_for),
+        "installing_local": bool(local_task and not local_task.done()),
+        "local_install_requested": bool(_local_install_started),
     }

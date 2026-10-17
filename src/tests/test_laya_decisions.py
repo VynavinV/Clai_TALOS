@@ -201,6 +201,7 @@ def test_decide_posts_expected_shape(monkeypatch):
 
 
 def test_decide_raises_on_http_error(monkeypatch):
+    _pin_custom_provider(monkeypatch)
     _patch_http(monkeypatch, response=_FakeResponse(status_code=502, text="bad gateway"))
     try:
         asyncio.run(laya_decisions.decide("x", {"q": laya_decisions.noul("?")}))
@@ -212,6 +213,7 @@ def test_decide_raises_on_http_error(monkeypatch):
 
 
 def test_decide_raises_on_connection_error(monkeypatch):
+    _pin_custom_provider(monkeypatch)
     _patch_http(monkeypatch, exc=httpx.ConnectError("connection refused"))
     try:
         asyncio.run(laya_decisions.decide("x", {"q": laya_decisions.noul("?")}))
@@ -231,13 +233,21 @@ def test_decide_raises_when_disabled(monkeypatch):
     assert raised
 
 
+def _pin_custom_provider(monkeypatch):
+    """Pin the HTTP path so decide() never probes the machine's real backends."""
+    monkeypatch.setenv("LAYA_PROVIDER", "custom")
+    monkeypatch.setenv("LAYA_BASE_URL", "http://localhost:9000")
+
+
 def test_try_decide_fails_open_and_returns_none(monkeypatch):
+    _pin_custom_provider(monkeypatch)
     _patch_http(monkeypatch, exc=httpx.ConnectError("down"))
     result = asyncio.run(laya_decisions.try_decide("x", {"q": laya_decisions.noul("?")}, feature="email_triage"))
     assert result is None
 
 
 def test_try_decide_returns_result_on_success(monkeypatch):
+    _pin_custom_provider(monkeypatch)
     _patch_http(monkeypatch, response=_FakeResponse(payload={"answers": {"q": {"noul": 0.5}}}))
     result = asyncio.run(laya_decisions.try_decide("x", {"q": laya_decisions.noul("?")}))
     assert result["answers"]["q"]["noul"] == 0.5
@@ -251,10 +261,13 @@ def test_try_decide_returns_result_on_success(monkeypatch):
 def test_provider_resolution_modes(monkeypatch):
     monkeypatch.delenv("LAYA_BASE_URL", raising=False)
     monkeypatch.delenv("JEV_API_KEY", raising=False)
-    assert laya_decisions.resolve_provider() == "ollama"
+    assert laya_decisions.resolve_provider() == "auto"
 
     monkeypatch.setenv("LAYA_PROVIDER", "jev")
     assert laya_decisions.resolve_provider() == "jev"
+
+    monkeypatch.setenv("LAYA_PROVIDER", "local")
+    assert laya_decisions.resolve_provider() == "local"
 
     monkeypatch.setenv("LAYA_PROVIDER", "auto")
     monkeypatch.setenv("JEV_API_KEY", "jv_live_x")
@@ -304,10 +317,53 @@ def test_availability_flags_old_ollama(monkeypatch):
         return {"reachable": True, "version": "0.33.2", "models": [{"name": "laya"}], "error": ""}
 
     monkeypatch.setattr(laya_decisions.ollama_setup, "get_status", fake_status)
+    # Explicit ollama preference reports the version problem directly.
+    monkeypatch.setenv("LAYA_PROVIDER", "ollama")
     result = asyncio.run(laya_decisions.availability(force=True))
     assert result["available"] is False
     assert result["reason"] == "ollama_too_old"
     assert "0.40" in result["detail"]
+
+
+def test_availability_auto_falls_back_to_local(monkeypatch):
+    """With an old Ollama, auto uses the built-in model — 'works by itself'."""
+    async def fake_status(base_url=None):
+        return {"reachable": True, "version": "0.32.14", "models": [{"name": "laya"}], "error": ""}
+
+    monkeypatch.setattr(laya_decisions.ollama_setup, "get_status", fake_status)
+    monkeypatch.setattr(laya_decisions, "local_status", lambda: {
+        "available": True, "reason": "ok", "detail": "Built-in laya model ready.",
+    })
+    monkeypatch.setenv("LAYA_PROVIDER", "auto")
+    monkeypatch.delenv("JEV_API_KEY", raising=False)
+    monkeypatch.delenv("LAYA_BASE_URL", raising=False)
+
+    result = asyncio.run(laya_decisions.availability(force=True))
+    assert result["available"] is True
+    assert result["provider"] == "local"
+    assert result["reason"] == "local_fallback"
+    assert asyncio.run(laya_decisions.effective_provider()) == "local"
+
+
+def test_availability_auto_reports_local_blockers(monkeypatch):
+    """When the built-in model cannot run either, the reason says why."""
+    async def fake_status(base_url=None):
+        return {"reachable": True, "version": "0.32.14", "models": [], "error": ""}
+
+    monkeypatch.setattr(laya_decisions.ollama_setup, "get_status", fake_status)
+    monkeypatch.setattr(laya_decisions, "local_status", lambda: {
+        "available": False, "reason": "no_disk_space", "detail": "needs 1.5 GB free disk space.",
+    })
+    monkeypatch.setattr(laya_decisions, "_maybe_start_local_install", lambda: None)
+    monkeypatch.setenv("LAYA_PROVIDER", "auto")
+    monkeypatch.delenv("JEV_API_KEY", raising=False)
+    monkeypatch.delenv("LAYA_BASE_URL", raising=False)
+
+    result = asyncio.run(laya_decisions.availability(force=True))
+    assert result["available"] is False
+    assert result["provider"] == "local"
+    assert result["reason"] == "no_disk_space"
+    assert "Ollama" in result["detail"]
 
 
 def test_availability_ok_with_new_ollama(monkeypatch):
@@ -325,6 +381,7 @@ def test_availability_model_missing_without_auto_pull(monkeypatch):
         return {"reachable": True, "version": "0.42.1", "models": [], "error": ""}
 
     monkeypatch.setattr(laya_decisions.ollama_setup, "get_status", fake_status)
+    monkeypatch.setenv("LAYA_PROVIDER", "ollama")
     monkeypatch.setenv("LAYA_AUTO_PULL", "0")
     result = asyncio.run(laya_decisions.availability(force=True))
     assert result["available"] is False
@@ -364,10 +421,89 @@ def test_confidence_min_clamps_and_parses(monkeypatch):
 
 
 def test_test_decision_reports_failure(monkeypatch):
+    _pin_custom_provider(monkeypatch)
     _patch_http(monkeypatch, exc=httpx.ConnectError("down"))
     result = asyncio.run(laya_decisions.test_decision())
     assert result["ok"] is False
     assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# Local (built-in) backend
+# ---------------------------------------------------------------------------
+
+
+def test_local_decide_runs_in_process_router(monkeypatch):
+    """The local backend passes our wire format straight to the package."""
+
+    class _FakeRouter:
+        def predict(self, state, questions, model=None):
+            assert questions["dept"]["type"] == "choice"
+            assert questions["dept"]["criteria"] == {"tech": "bugs", "other": "rest"}
+            assert state == "server is on fire"
+            return {
+                "answers": {"dept": {"choice": "tech", "confidence": 0.9}},
+                "routing": {"model": model or "english"},
+            }
+
+    async def fake_get_router():
+        return _FakeRouter()
+
+    monkeypatch.setattr(laya_decisions, "_get_local_router", fake_get_router)
+    monkeypatch.setattr(laya_decisions, "local_status", lambda: {"available": True, "reason": "ok", "detail": "ready"})
+
+    result = asyncio.run(
+        laya_decisions._local_decide(
+            "server is on fire",
+            {"dept": laya_decisions.choice("?", {"tech": "bugs", "other": "rest"})},
+        )
+    )
+    assert result["provider"] == "local"
+    assert result["answers"]["dept"]["choice"] == "tech"
+    assert result["latency_ms"] >= 0
+
+
+def test_local_decide_raises_without_disk_space(monkeypatch):
+    monkeypatch.setattr(laya_decisions, "local_status", lambda: {
+        "available": False, "reason": "no_disk_space", "detail": "needs 1.5 GB free disk space.",
+    })
+    try:
+        asyncio.run(laya_decisions._local_decide("x", {"q": laya_decisions.noul("?")}))
+        raised = False
+    except laya_decisions.LayaUnavailableError as exc:
+        raised = True
+        assert "disk" in str(exc)
+    assert raised
+
+
+def test_local_status_disk_check(monkeypatch):
+    monkeypatch.setattr(laya_decisions, "local_package_available", lambda: True)
+    monkeypatch.setattr(laya_decisions, "_free_disk_bytes", lambda: 500_000_000)
+    status = laya_decisions.local_status()
+    assert status["available"] is False
+    assert status["reason"] == "no_disk_space"
+
+    monkeypatch.setattr(laya_decisions, "_free_disk_bytes", lambda: 20_000_000_000)
+    monkeypatch.setattr(laya_decisions, "local_weights_downloaded", lambda: True)
+    status = laya_decisions.local_status()
+    assert status["available"] is True
+    assert status["reason"] == "ok"
+
+
+def test_decide_routes_local_when_pinned(monkeypatch):
+    """LAYA_PROVIDER=local goes to the in-process backend, not HTTP."""
+    called = {"local": False}
+
+    async def fake_local(state, questions):
+        called["local"] = True
+        return {"answers": {"q": {"noul": 1.0}}, "provider": "local", "model": "english", "latency_ms": 1.0, "raw": {}}
+
+    monkeypatch.setenv("LAYA_PROVIDER", "local")
+    monkeypatch.setattr(laya_decisions, "_local_decide", fake_local)
+
+    result = asyncio.run(laya_decisions.decide("x", {"q": laya_decisions.noul("?")}))
+    assert called["local"] is True
+    assert result["provider"] == "local"
 
 
 # ---------------------------------------------------------------------------

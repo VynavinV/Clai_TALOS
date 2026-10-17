@@ -265,7 +265,15 @@ def check_for_updates() -> dict:
     return base
 
 
-def apply_update() -> dict:
+def apply_update(defer_restart: bool = False) -> dict:
+    """Apply the pending update.
+
+    With defer_restart=True (the web handler), the restart is NOT started
+    here: the caller must return the HTTP response first and then run
+    schedule_restart() itself, so the client reliably receives "ok" before
+    the process goes down. Without it (cron/CLI), the old synchronous
+    restart + best-effort health check runs.
+    """
     status = check_for_updates()
     if not status.get("ok"):
         return status
@@ -324,6 +332,19 @@ def apply_update() -> dict:
                 "rollback_tag": tag,
             }
 
+    if defer_restart:
+        # Everything is applied and safe. The caller restarts us AFTER the
+        # HTTP response is flushed — see schedule_restart().
+        return {
+            "ok": True,
+            "mode": "source-git",
+            "applied": True,
+            "restart_scheduled": True,
+            "rollback_tag": tag,
+            "current_version": current_version(),
+            "message": "Update applied. Restarting now...",
+        }
+
     # Restart via clai CLI
     if not _run_clai_restart():
         return {
@@ -364,7 +385,30 @@ def apply_update() -> dict:
     }
 
 
-def rollback_update() -> dict:
+def schedule_restart(delay_s: float = 1.5) -> bool:
+    """Restart this service soon, detached.
+
+    apply_update(defer_restart=True) leaves the restart to the caller; the web
+    handler calls this AFTER the JSON response has been written, so the client
+    sees "ok" before the process goes down. Returns False when the 'clai'
+    binary is missing (callers should then hard-exit as a last resort).
+    """
+    clai_bin = shutil.which("clai")
+    if not clai_bin:
+        return False
+    script = "sleep " + str(max(0.0, float(delay_s))) + ' && exec "$0" restart'
+    try:
+        subprocess.Popen(
+            ["/bin/sh", "-c", script, clai_bin],
+            close_fds=True,
+            start_new_session=True,
+        )
+        return True
+    except Exception:
+        return False
+
+
+def rollback_update(defer_restart: bool = False) -> dict:
     # Enforce OTA_ENABLED kill switch: rollback must not run when OTA is disabled.
     if not _bool_env("OTA_ENABLED", True):
         return {"ok": False, "error": "OTA updates are disabled by OTA_ENABLED=0."}
@@ -417,15 +461,7 @@ def rollback_update() -> dict:
                 "error": f"Dependencies install failed after rollback: {exc}",
             }
 
-    # Restart
-    if not _run_clai_restart():
-        return {
-            "ok": False,
-            "error": "Failed to run 'clai restart' after rollback",
-            "restart_required": True,
-        }
-
-    # Cleanup rollback tag
+    # Cleanup rollback tag (before any restart so it reliably completes)
     _delete_rollback_tag(tag)
 
     # Remove rollback metadata
@@ -435,6 +471,24 @@ def rollback_update() -> dict:
             os.remove(metadata_path)
         except Exception:
             pass
+
+    if defer_restart:
+        # The caller restarts us after the HTTP response is flushed.
+        return {
+            "ok": True,
+            "mode": "source-git",
+            "rolled_back": True,
+            "restart_scheduled": True,
+            "message": f"Rolled back to {tag}. Restarting now...",
+        }
+
+    # Restart
+    if not _run_clai_restart():
+        return {
+            "ok": False,
+            "error": "Failed to run 'clai restart' after rollback",
+            "restart_required": True,
+        }
 
     return {
         "ok": True,

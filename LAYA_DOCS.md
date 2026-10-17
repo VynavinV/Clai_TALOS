@@ -15,11 +15,12 @@ The default backend is **Laya** by Convai Innovations:
 - Served locally through **Ollama 0.40+**: `ollama pull laya` (~850 MB)
   using the Jev-compatible `/v1/systemone` endpoint
 
-Two interchangeable backends speak the same wire protocol:
+Two interchangeable backends speak the same wire protocol, plus a built-in one:
 
 | Backend | How | Notes |
 |---|---|---|
-| `ollama` (default) | `ollama pull laya` | Free, local, private. Needs Ollama 0.40.0+ |
+| `local` (built-in) | `pip install laya` (automatic) | Runs inside TALOS itself — no Ollama, no API key, no network service. **Auto** uses this when Ollama is too old. Weights (~850 MB) download once; needs ~1.5 GB free disk |
+| `ollama` | `ollama pull laya` | Free, local, private. Needs Ollama 0.40.0+ |
 | `jev` | `JEV_API_KEY` | TypeSafe AI's hosted Jev model (https://docs.typesafe.ai) |
 | `custom` | `LAYA_BASE_URL` | Any Jev-compatible `/v1/systemone` endpoint (e.g. `laya-serve`) |
 
@@ -27,6 +28,12 @@ Configure everything under **Settings → Decision Model** in the dashboard, or
 via environment variables (below). When the decision layer is off or
 unavailable, every feature below falls back to TALOS's existing behavior —
 nothing breaks.
+
+**How auto picks a backend**: a custom endpoint if set → a Jev API key if set
+→ Ollama 0.40+ with the laya model (auto-pulled when missing) → the built-in
+model when Ollama is too old or missing. The goal: it works by itself, with
+zero terminal commands. The `laya` pip package installs itself into the venv
+on first use (disable with `LAYA_AUTO_INSTALL=0`).
 
 ## What it does in TALOS
 
@@ -88,8 +95,10 @@ All questions in one call are evaluated in parallel against the same state.
 | Variable | Default | Purpose |
 |---|---|---|
 | `LAYA_ENABLED` | `1` | Master switch |
-| `LAYA_PROVIDER` | `auto` | `auto` (Jev key if set, else Ollama), `ollama`, `jev`, `custom` |
+| `LAYA_PROVIDER` | `auto` | `auto`, `local` (built-in), `ollama`, `jev`, `custom` |
 | `LAYA_MODEL` | `laya` | Ollama model name (`laya`, `laya-multilingual`, `laya:latest`, ...) |
+| `LAYA_LOCAL_MODEL` | `english` | Built-in checkpoint: `english` (421M), `multilingual`, `typed-decisions` |
+| `LAYA_AUTO_INSTALL` | `1` | Self-healing: auto `pip install laya` into the venv when the built-in backend is needed |
 | `JEV_API_KEY` | empty | Hosted Jev backend |
 | `JEV_BASE_URL` | `https://api.typesafe.ai/v1` | Hosted Jev base URL |
 | `LAYA_BASE_URL` | empty | Custom Jev-compatible endpoint (e.g. `http://localhost:8000` for `laya-serve`) |

@@ -3274,15 +3274,23 @@ async def handle_api_auto_update(request):
 async def handle_api_updates_apply(request):
     body = request._json_body if isinstance(request._json_body, dict) else {}
     channel = str(body.get("channel", "")).strip()
-    result = ota_update.apply_update()
+
+    # Defer the restart so this handler can finish and flush the "ok" JSON
+    # first — restarting synchronously used to kill the process mid-response,
+    # which the browser showed as "update failed" even when it worked.
+    result = ota_update.apply_update(defer_restart=True)
     http_status = 200 if result.get("ok") else 400
 
-    if result.get("ok") and result.get("restarting_now"):
-        async def _exit_after_response() -> None:
+    if result.get("ok") and result.get("restart_scheduled"):
+        async def _restart_after_response() -> None:
+            # Give aiohttp time to write the response to the socket.
             await asyncio.sleep(1.0)
-            os._exit(0)
+            if not ota_update.schedule_restart(delay_s=0.5):
+                # No clai CLI: hard-exit and let the service manager bring us back.
+                await asyncio.sleep(2.0)
+                os._exit(0)
 
-        asyncio.create_task(_exit_after_response())
+        asyncio.create_task(_restart_after_response())
 
     return web.json_response(result, status=http_status)
 
@@ -3296,15 +3304,16 @@ async def handle_api_updates_rollback(request):
     if os.getenv("OTA_ENABLED", "1") == "0":
         return web.json_response({"ok": False, "error": "OTA updates are disabled"})
 
-    result = ota_update.rollback_update()
+    result = ota_update.rollback_update(defer_restart=True)
 
-    if result.get("restarting_now"):
-        # Schedule exit after response
-        import asyncio
-        async def delayed_exit():
-            await asyncio.sleep(1)
-            os._exit(0)
-        asyncio.create_task(delayed_exit())
+    if result.get("ok") and result.get("restart_scheduled"):
+        async def _restart_after_response() -> None:
+            await asyncio.sleep(1.0)
+            if not ota_update.schedule_restart(delay_s=0.5):
+                await asyncio.sleep(2.0)
+                os._exit(0)
+
+        asyncio.create_task(_restart_after_response())
 
     return web.json_response(result)
 
@@ -3373,9 +3382,9 @@ async def handle_api_settings_post(request):
 
     if "LAYA_PROVIDER" in body:
         laya_provider = str(body["LAYA_PROVIDER"]).strip().lower() or "auto"
-        if laya_provider not in {"auto", "ollama", "jev", "custom"}:
+        if laya_provider not in {"auto", "ollama", "jev", "custom", "local"}:
             return web.json_response(
-                {"error": "LAYA_PROVIDER must be one of auto, ollama, jev, custom."},
+                {"error": "LAYA_PROVIDER must be one of auto, ollama, jev, custom, local."},
                 status=400,
             )
         env_vars["LAYA_PROVIDER"] = laya_provider
