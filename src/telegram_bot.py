@@ -3650,6 +3650,14 @@ async def handle_api_laya_install(request):
 
     model_name = str(body.get("model_name", "")).strip() or laya_decisions.laya_model()
 
+    # Never run two downloads at once: the background self-healer may already
+    # be pulling this model after a status probe.
+    if not laya_decisions.claim_laya_pull():
+        return web.json_response(
+            {"error": "The decision model is already downloading — watch its progress on this card."},
+            status=409,
+        )
+
     env_vars = _read_env_file()
     base_url = env_vars.get("OLLAMA_BASE_URL", ollama_setup.DEFAULT_BASE_URL)
     status = await ollama_setup.get_status(base_url)
@@ -3749,6 +3757,14 @@ async def handle_api_ollama_upgrade(request):
     /v1/systemone. On success the laya model is pulled automatically so the
     whole decision layer comes alive without touching a terminal.
     """
+    # One upgrade at a time: the background self-healer may already be running
+    # one (and two concurrent installers would corrupt the install).
+    if not laya_decisions.claim_ollama_upgrade():
+        return web.json_response(
+            {"error": "An Ollama upgrade is already running — watch its progress on this card."},
+            status=409,
+        )
+
     resp = web.StreamResponse(
         status=200,
         headers={

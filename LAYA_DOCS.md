@@ -33,15 +33,23 @@ nothing breaks.
 → Ollama 0.40+ with the laya model → the built-in model when Ollama is too
 old or missing. The goal: it works by itself, with zero terminal commands.
 
-**Self-healing chain** (all automatic, each step logged):
+**Self-healing chain** (all automatic, each step logged and shown live in
+Settings → Decision Model — including elapsed time, so slow downloads never
+look stuck):
 1. Ollama too old → TALOS **upgrades Ollama itself** (macOS app or Homebrew,
-   Linux install.sh; `LAYA_AUTO_UPDATE_OLLAMA=0` disables) — or falls back to
+   Linux install.sh with its output streamed line by line;
+   `LAYA_AUTO_UPDATE_OLLAMA=0` disables) — or falls back to
    the built-in model meanwhile
 2. Ollama new enough but model missing → `ollama pull laya` in the background
 3. Built-in model preferred but package missing → `pip install laya` into the
    venv in the background (`LAYA_AUTO_INSTALL=0` disables)
 4. Everything blocked → the Settings card says exactly what is missing
    (e.g. free disk space)
+
+One upgrade or download runs at a time: the buttons and the background
+self-healer never race (the loser gets a clear "already running" message).
+On Linux the installer needs root: run TALOS as root or allow passwordless
+sudo, or the upgrade fails fast with instructions instead of hanging.
 
 **System Check**: `clai check` and the dashboard's System Check include a
 Decision Model check (`laya.decisions`) that runs the layer's offline

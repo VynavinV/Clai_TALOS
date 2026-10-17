@@ -630,6 +630,7 @@ _op_state: dict = {
     "error": "",
     "done": False,
     "updated_at": 0.0,
+    "started_at": 0.0,
 }
 
 
@@ -641,13 +642,23 @@ def set_operation_progress(
     done: bool = False,
 ) -> None:
     """Record the current install/upgrade/download progress for the status API."""
+    now = time.time()
+    previous = _op_state.get("operation")
+    # A genuinely new operation (different id, or restarting after done) gets a
+    # fresh start time so the UI can show how long it has been running.
+    new_start = (
+        operation
+        and operation != previous
+        or (operation and _op_state.get("done"))
+    )
     _op_state.update(
         operation=operation,
         percent=(round(float(percent), 1) if isinstance(percent, (int, float)) else None),
         message=str(message or "")[:300],
         error=str(error or "")[:500],
         done=bool(done),
-        updated_at=time.time(),
+        updated_at=now,
+        started_at=now if new_start else _op_state.get("started_at") or now,
     )
 
 
@@ -658,6 +669,8 @@ def operation_state() -> dict:
         time.time() - float(state.get("updated_at") or 0.0)
     ) < 1800.0  # stale after 30 minutes without an update
     state["active"] = active
+    started_at = float(state.get("started_at") or 0.0)
+    state["elapsed_s"] = max(0, int(time.time() - started_at)) if active else 0
     return state
 
 
@@ -761,6 +774,26 @@ async def _probe_ollama() -> dict:
 
 def ollama_auto_update_enabled() -> bool:
     return _env("LAYA_AUTO_UPDATE_OLLAMA", "1") != "0"
+
+
+def claim_ollama_upgrade() -> bool:
+    """Reserve the Ollama upgrade so the button and the self-healer never race.
+
+    Returns True when the caller owns the upgrade; False when one is already
+    active (started by the other path).
+    """
+    global _ollama_upgrade_started
+    op = operation_state()
+    if op.get("active") and op.get("operation") == "upgrade_ollama":
+        return False
+    _ollama_upgrade_started = True  # the background self-healer defers to this run
+    return True
+
+
+def claim_laya_pull() -> bool:
+    """Reserve the model pull; False when a pull is already running."""
+    op = operation_state()
+    return not (op.get("active") and op.get("operation") == "pull")
 
 
 def _maybe_start_ollama_upgrade() -> None:

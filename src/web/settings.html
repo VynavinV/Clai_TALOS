@@ -2270,24 +2270,55 @@ function layaSetDot(kind) {
   dot.className = 'laya-dot' + (kind ? ' ' + kind : '');
 }
 
-function layaSetProgress(visible, percent, message, error, indeterminate) {
+var _layaElapsedTimer = null;
+var _layaOpStartTs = null;
+
+function layaElapsedText(secs) {
+  if (secs < 60) return secs + 's';
+  return Math.floor(secs / 60) + 'm ' + (secs % 60) + 's';
+}
+
+function layaElapsedMaybe(active, startTs) {
+  if (active) {
+    if (!_layaOpStartTs) _layaOpStartTs = startTs ? startTs * 1000 : Date.now();
+    if (!_layaElapsedTimer) {
+      _layaElapsedTimer = setInterval(function () {
+        var text = document.getElementById('laya-progress-text');
+        if (!text || !text.dataset.baseMsg) return;
+        var secs = Math.max(0, Math.round((Date.now() - _layaOpStartTs) / 1000));
+        text.textContent = text.dataset.baseMsg + ' — ' + layaElapsedText(secs);
+      }, 1000);
+    }
+  } else {
+    if (_layaElapsedTimer) { clearInterval(_layaElapsedTimer); _layaElapsedTimer = null; }
+    _layaOpStartTs = null;
+  }
+}
+
+function layaSetProgress(visible, percent, message, error, indeterminate, elapsedS) {
   var wrap = document.getElementById('laya-progress');
   var fill = document.getElementById('laya-progress-fill');
   var text = document.getElementById('laya-progress-text');
   var errEl = document.getElementById('laya-progress-error');
   if (!visible) {
     wrap.style.display = 'none';
+    layaElapsedMaybe(false);
     return;
   }
   wrap.style.display = 'block';
+  var baseMsg = message || '';
+  if (typeof elapsedS === 'number') baseMsg = baseMsg + ' — ' + layaElapsedText(elapsedS);
+  text.dataset.baseMsg = message || '';
   if (indeterminate) {
     wrap.classList.add('indeterminate');
     fill.style.width = '30%';
+    layaElapsedMaybe(true);
   } else {
     wrap.classList.remove('indeterminate');
     fill.style.width = Math.max(0, Math.min(100, Number(percent) || 0)) + '%';
+    layaElapsedMaybe(false);
   }
-  text.textContent = message || '';
+  text.textContent = baseMsg;
   if (error) {
     errEl.style.display = 'block';
     errEl.textContent = error;
@@ -2347,7 +2378,13 @@ async function loadLayaStatus(force) {
     var op = d.operation || {};
     if (op.active && op.operation) {
       layaSetDot('active');
-      layaSetProgress(true, op.percent, op.message || (_LAYA_OP_LABELS[op.operation] || op.operation) + '...', op.error, op.percent === null || op.percent === undefined);
+      layaSetProgress(
+        true, op.percent,
+        op.message || (_LAYA_OP_LABELS[op.operation] || op.operation) + '...',
+        op.error,
+        op.percent === null || op.percent === undefined,
+        op.elapsed_s
+      );
       if (!op.error) el.textContent = 'Decision model: ' + (_LAYA_OP_LABELS[op.operation] || 'working') + '...';
     } else if (op.error && !d.available) {
       layaSetProgress(true, 0, '', op.error, false);
@@ -2475,7 +2512,7 @@ async function installLaya() {
         if (!line) continue;
         var evt;
         try { evt = JSON.parse(line); } catch (e) { continue; }
-        if (evt.message) layaSetProgress(true, evt.percent, evt.message, '', evt.percent === undefined);
+        if (evt.message) layaSetProgress(true, evt.percent, evt.message, '', evt.percent === undefined, evt.elapsed_s);
         else if (typeof evt.percent === 'number') layaSetProgress(true, evt.percent, 'Downloading ' + modelName + ': ' + Math.round(evt.percent) + '%');
         if (evt.stage === 'error') {
           layaSetProgress(true, 0, '', evt.error, false);
@@ -2544,7 +2581,7 @@ async function upgradeOllama() {
         if (!line) continue;
         var evt;
         try { evt = JSON.parse(line); } catch (e) { continue; }
-        if (evt.message) layaSetProgress(true, evt.percent, evt.message, '', evt.percent === undefined);
+        if (evt.message) layaSetProgress(true, evt.percent, evt.message, '', evt.percent === undefined, evt.elapsed_s);
         else if (typeof evt.percent === 'number') layaSetProgress(true, evt.percent, 'Upgrading Ollama: ' + Math.round(evt.percent) + '%');
         if (evt.stage === 'error') {
           layaSetProgress(true, 0, '', evt.error, false);

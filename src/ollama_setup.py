@@ -734,18 +734,87 @@ async def upgrade_ollama(min_version: str = "0.40.0"):
         return
 
     if sys.platform.startswith("linux"):
-        yield {"stage": "progress", "message": "Running the official Ollama installer (this can take a few minutes)..."}
-        loop = asyncio.get_running_loop()
-        code, output = await loop.run_in_executor(
-            None,
-            lambda: _run_shell(["sh", "-c", f"curl -fsSL {OLLAMA_LINUX_INSTALL_URL} | sh"], 900),
+        # Root preflight: the official installer writes to /usr/lib and systemd.
+        # Without root (or passwordless sudo) it would fail halfway through.
+        is_root = hasattr(os, "geteuid") and os.geteuid() == 0
+        sudo_prefix: list[str] = []
+        if not is_root:
+            code, _ = _run_shell(["sudo", "-n", "true"], 10)
+            if code == 0:
+                sudo_prefix = ["sudo"]
+            else:
+                yield {"stage": "error", "error": (
+                    "The Ollama installer needs root. Run TALOS as root, or allow "
+                    "passwordless sudo for the upgrade (sudo -n true must succeed)."
+                )}
+                return
+
+        # Stream the installer's own output line by line so a slow download
+        # (the Linux bundle is ~1 GB, plus GPU libraries on some servers) shows
+        # live progress instead of looking stuck.
+        yield {"stage": "progress", "message": "Running the official Ollama installer (downloads ~1 GB; GPU libraries are larger)..."}
+        install_cmd = f"curl -fsSL {OLLAMA_LINUX_INSTALL_URL} | sh"
+        if sudo_prefix:
+            install_cmd = f"curl -fsSL {OLLAMA_LINUX_INSTALL_URL} | sudo sh"
+        proc = await asyncio.create_subprocess_shell(
+            install_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
         )
-        if code != 0:
-            yield {"stage": "error", "error": f"The Ollama installer failed: {output[-500:]}"}
+        tail: list[str] = []
+        started = time.monotonic()
+        wall_cap = 1800.0  # hard stop after 30 minutes of total silence-free runtime
+        while True:
+            try:
+                raw = await asyncio.wait_for(proc.stdout.readline(), timeout=wall_cap)
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                yield {"stage": "error", "error": (
+                    f"The Ollama installer ran for {int(wall_cap / 60)} minutes without "
+                    "finishing and was stopped. Check the network to ollama.com and retry."
+                )}
+                return
+            if not raw:
+                break
+            line = raw.decode(errors="replace").strip()
+            if not line:
+                continue
+            tail.append(line)
+            del tail[:-20]
+            elapsed = int(time.monotonic() - started)
+            yield {
+                "stage": "progress",
+                "message": f"{line[:180]}",
+                "elapsed_s": elapsed,
+            }
+        try:
+            code = await asyncio.wait_for(proc.wait(), timeout=60.0)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            yield {"stage": "error", "error": (
+                "The Ollama installer finished its output but did not exit; it was stopped. "
+                "Check `systemctl status ollama` and retry."
+            )}
             return
+        if code != 0:
+            yield {"stage": "error", "error": (
+                f"The Ollama installer failed (exit {code}). Last output: "
+                + " | ".join(tail[-3:])
+            )}
+            return
+
+        yield {"stage": "progress", "message": "Installer finished. Waiting for the Ollama server to come back..."}
         ok, version = await _wait_server_version(native_root)
         if not ok:
-            yield {"stage": "error", "error": "Installer ran but the Ollama server did not come back. Restart it and retry."}
+            yield {"stage": "error", "error": (
+                "Installer ran but the Ollama server did not come back. "
+                "Restart it (sudo systemctl restart ollama) and retry the decision model."
+            )}
+            return
+        if not _version_ok(version):
+            yield {"stage": "error", "error": f"Ollama is still version {version or 'unknown'} after the upgrade — the service may need a restart."}
             return
         yield {"stage": "done", "message": f"Ollama upgraded to {version}."}
         return
