@@ -857,6 +857,58 @@ def _make_tool_check(probe_id: str, name: str, category: str, fn) -> Callable[[]
     return check
 
 
+async def check_laya_decisions() -> CheckResult:
+    """Decision model (System One): offline self-tests + provider status."""
+    import laya_decisions
+
+    if not laya_decisions.enabled():
+        return CheckResult(
+            "laya.decisions", "Decision Model", "services", SKIP,
+            "Decision layer disabled (LAYA_ENABLED=0).",
+        )
+
+    # Offline contract tests first — they must all pass regardless of backend.
+    result = laya_decisions.self_test()
+    if not result.get("ok"):
+        return CheckResult(
+            "laya.decisions", "Decision Model", "services", FAIL,
+            f"Self-tests failed ({result.get('passed')}/{result.get('total')} passed): "
+            + "; ".join(result.get("failures", [])[:4]),
+            hint="Check logs/laya_decisions.log and Settings -> Decision Model.",
+        )
+
+    # Backend status is informational: unavailable is a warning, never a failure,
+    # because the layer fails open and TALOS works without it.
+    availability = await laya_decisions.availability(force=True)
+    if availability.get("available"):
+        return CheckResult(
+            "laya.decisions", "Decision Model", "services", OK,
+            f"Self-tests passed ({result['passed']}/{result['total']}). "
+            f"Backend: {availability.get('provider')} — {availability.get('detail', '')[:120]}",
+            data={
+                "provider": availability.get("provider"),
+                "reason": availability.get("reason"),
+                "self_test_passed": result["passed"],
+                "self_test_total": result["total"],
+            },
+        )
+
+    reason = availability.get("reason", "unknown")
+    detail = availability.get("detail", "")[:200]
+    return CheckResult(
+        "laya.decisions", "Decision Model", "services", WARN,
+        f"Self-tests passed ({result['passed']}/{result['total']}), but no backend is ready "
+        f"({reason}): {detail}",
+        hint="Settings -> Decision Model shows the fix; features fall back to normal behavior meanwhile.",
+        data={
+            "provider": availability.get("provider"),
+            "reason": reason,
+            "self_test_passed": result["passed"],
+            "self_test_total": result["total"],
+        },
+    )
+
+
 TOOL_CHECKS: list[Callable[[], Awaitable[CheckResult]]] = [
     _make_tool_check(pid, name, cat, fn) for pid, name, cat, fn in tool_probes.PROBES
 ]
@@ -871,6 +923,7 @@ CHECKS: list[Callable[[], Awaitable[CheckResult]]] = [
     check_terminal,
     check_model_providers,
     check_ollama,
+    check_laya_decisions,
     check_himalaya_binary,
     check_himalaya_config,
     check_email_live,

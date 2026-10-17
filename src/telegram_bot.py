@@ -3348,7 +3348,8 @@ async def handle_api_settings_post(request):
     _BOOL_KEYS = [
         "HOMEASSISTANT_ENABLED", "WHATSAPP_ENABLED", "DISCORD_ENABLED",
         "TALOS_STUCK_ENABLED", "ORCHESTRATOR_TIMEOUT_ENABLED", "TALOS_PROGRESS_ENABLED",
-        "LAYA_ENABLED", "LAYA_AUTO_PULL", "LAYA_EMAIL_TRIAGE", "LAYA_MEMORY_RERANK",
+        "LAYA_ENABLED", "LAYA_AUTO_PULL", "LAYA_AUTO_INSTALL", "LAYA_AUTO_UPDATE_OLLAMA",
+        "LAYA_EMAIL_TRIAGE", "LAYA_MEMORY_RERANK",
         "LAYA_CONTEXT_COMPACT", "LAYA_MODEL_TRIAGE", "LAYA_BROWSER_AUTO",
     ]
 
@@ -3607,6 +3608,8 @@ async def handle_api_laya_status(request):
         "JEV_API_KEY": _mask_secret(env_vars.get("JEV_API_KEY", "")),
         "LAYA_TIMEOUT_S": env_vars.get("LAYA_TIMEOUT_S", "5"),
         "LAYA_AUTO_PULL": env_vars.get("LAYA_AUTO_PULL", "1"),
+        "LAYA_AUTO_INSTALL": env_vars.get("LAYA_AUTO_INSTALL", "1"),
+        "LAYA_AUTO_UPDATE_OLLAMA": env_vars.get("LAYA_AUTO_UPDATE_OLLAMA", "1"),
         "LAYA_CONFIDENCE_MIN": env_vars.get("LAYA_CONFIDENCE_MIN", "0.75"),
     }
     result["features"] = {
@@ -3644,10 +3647,14 @@ async def handle_api_laya_install(request):
     version = str(status.get("version", ""))
     parsed = laya_decisions._parse_version(version)
     if parsed is not None and parsed < laya_decisions.MIN_OLLAMA_VERSION:
+        upgrade_hint = (
+            " Use the Upgrade Ollama button (Settings -> Decision Model) — TALOS can upgrade it for you."
+            if laya_decisions.ollama_auto_update_enabled()
+            else " Upgrade from https://ollama.com, or enable LAYA_AUTO_UPDATE_OLLAMA."
+        )
         return web.json_response({"error": (
             f"Ollama {version} is installed, but the laya decision model needs Ollama 0.40.0+ "
-            "(the /v1/systemone endpoint). Upgrade from https://ollama.com, or configure "
-            "JEV_API_KEY in Settings to use the hosted Jev model instead."
+            f"(the /v1/systemone endpoint).{upgrade_hint}"
         )}, status=400)
 
     laya_decisions.mark_pull_requested(model_name)
@@ -3701,6 +3708,80 @@ async def handle_api_laya_install(request):
         "ok": True,
         "model": model_name,
         "message": f"{model_name} is installed. The decision layer will use it on the next call.",
+    })
+    return resp
+
+
+@require_auth_csrf
+async def handle_api_ollama_upgrade(request):
+    """Upgrade the local Ollama installation, streaming progress as NDJSON.
+
+    Used by the Decision Model settings card when Ollama is too old for
+    /v1/systemone. On success the laya model is pulled automatically so the
+    whole decision layer comes alive without touching a terminal.
+    """
+    resp = web.StreamResponse(
+        status=200,
+        headers={
+            "Content-Type": "application/x-ndjson",
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+    await resp.prepare(request)
+
+    async def send(event: dict) -> None:
+        await resp.write((json.dumps(event, separators=(",", ":")) + "\n").encode())
+
+    await send({"stage": "start", "message": "Checking how Ollama is installed..."})
+
+    model_name = laya_decisions.laya_model()
+    failed = ""
+    try:
+        async for event in ollama_setup.upgrade_ollama(min_version=".".join(str(p) for p in laya_decisions.MIN_OLLAMA_VERSION)):
+            if event.get("stage") == "error":
+                failed = str(event.get("error", "Upgrade failed."))
+                await send(event)
+                break
+            await send(event)
+    except (asyncio.CancelledError, ConnectionResetError):
+        return resp
+
+    if failed:
+        await send({"stage": "finished", "ok": False, "error": failed})
+        return resp
+
+    # Upgrade done — pull the decision model so the layer is immediately usable.
+    env_vars = _read_env_file()
+    base_url = env_vars.get("OLLAMA_BASE_URL", ollama_setup.DEFAULT_BASE_URL)
+    status = await ollama_setup.get_status(base_url)
+    installed = {
+        str(m.get("name", "")) for m in status.get("models", [])
+    }
+    already = any(
+        name == model_name or name.split(":")[0] == model_name for name in installed
+    )
+    if not already:
+        await send({"stage": "progress", "message": f"Pulling the {model_name} decision model (~850 MB)..."})
+        try:
+            async for event in ollama_setup.pull_model(model_name, base_url):
+                if event.get("stage") == "error":
+                    await send({
+                        "stage": "finished",
+                        "ok": True,
+                        "message": f"Ollama upgraded, but pulling {model_name} failed: {event.get('error')}",
+                    })
+                    return resp
+                await send(event)
+        except (asyncio.CancelledError, ConnectionResetError):
+            return resp
+
+    ollama_setup.forget_model_info()
+    laya_decisions.invalidate_availability()
+    await send({
+        "stage": "finished",
+        "ok": True,
+        "message": f"Ollama upgraded and {model_name} ready. The decision model is now active.",
     })
     return resp
 
@@ -4720,6 +4801,7 @@ async def main():
     web_app.router.add_get("/api/laya/status", handle_api_laya_status)
     web_app.router.add_post("/api/laya/test", handle_api_laya_test)
     web_app.router.add_post("/api/laya/install", handle_api_laya_install)
+    web_app.router.add_post("/api/ollama/upgrade", handle_api_ollama_upgrade)
     web_app.router.add_post("/api/chat", handle_api_chat)
     web_app.router.add_get("/api/activity/history", handle_api_activity_history)
     web_app.router.add_get("/api/activity/stream", handle_api_activity_stream)

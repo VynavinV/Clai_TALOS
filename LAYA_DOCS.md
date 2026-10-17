@@ -30,10 +30,24 @@ unavailable, every feature below falls back to TALOS's existing behavior —
 nothing breaks.
 
 **How auto picks a backend**: a custom endpoint if set → a Jev API key if set
-→ Ollama 0.40+ with the laya model (auto-pulled when missing) → the built-in
-model when Ollama is too old or missing. The goal: it works by itself, with
-zero terminal commands. The `laya` pip package installs itself into the venv
-on first use (disable with `LAYA_AUTO_INSTALL=0`).
+→ Ollama 0.40+ with the laya model → the built-in model when Ollama is too
+old or missing. The goal: it works by itself, with zero terminal commands.
+
+**Self-healing chain** (all automatic, each step logged):
+1. Ollama too old → TALOS **upgrades Ollama itself** (macOS app or Homebrew,
+   Linux install.sh; `LAYA_AUTO_UPDATE_OLLAMA=0` disables) — or falls back to
+   the built-in model meanwhile
+2. Ollama new enough but model missing → `ollama pull laya` in the background
+3. Built-in model preferred but package missing → `pip install laya` into the
+   venv in the background (`LAYA_AUTO_INSTALL=0` disables)
+4. Everything blocked → the Settings card says exactly what is missing
+   (e.g. free disk space)
+
+**System Check**: `clai check` and the dashboard's System Check include a
+Decision Model check (`laya.decisions`) that runs the layer's offline
+self-tests (question contracts, payload building, response parsing, fail-open
+semantics) and reports backend status — warnings never fail the check because
+the layer fails open.
 
 ## What it does in TALOS
 
@@ -104,12 +118,16 @@ All questions in one call are evaluated in parallel against the same state.
 | `LAYA_BASE_URL` | empty | Custom Jev-compatible endpoint (e.g. `http://localhost:8000` for `laya-serve`) |
 | `LAYA_TIMEOUT_S` | `5` | Per-call timeout |
 | `LAYA_AUTO_PULL` | `1` | Self-healing: auto `ollama pull laya` when missing |
+| `LAYA_AUTO_UPDATE_OLLAMA` | `1` | Self-healing: **upgrade Ollama itself** when too old for the decision model |
+| `LAYA_AUTO_INSTALL` | `1` | Self-healing: auto `pip install laya` into the venv when the built-in backend is needed |
 | `LAYA_CONFIDENCE_MIN` | `0.75` | Decisions below this confidence are ignored |
 | `LAYA_EMAIL_TRIAGE` / `LAYA_MEMORY_RERANK` / `LAYA_CONTEXT_COMPACT` / `LAYA_MODEL_TRIAGE` / `LAYA_BROWSER_AUTO` | `1` | Per-feature toggles |
 
 Dashboard: **Settings → Decision Model** — provider, model, API key, install
-button (streams `ollama pull laya` progress), test button (runs one real
-decision and shows the typed answers + latency), and the feature toggles.
+button (streams `ollama pull laya` progress), **Upgrade Ollama** button
+(upgrades Ollama and then pulls the decision model, streamed), test button
+(runs one real decision and shows the typed answers + latency), and the
+feature toggles including automatic Ollama upgrades.
 
 ## Operational notes
 

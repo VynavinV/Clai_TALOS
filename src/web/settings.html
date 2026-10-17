@@ -301,6 +301,7 @@
     <div class="google-actions">
       <button class="btn" id="laya-test-btn" onclick="testLaya()">Test Decision</button>
       <button class="btn" id="laya-install-btn" onclick="installLaya()">Install laya via Ollama</button>
+      <button class="btn" id="ollama-upgrade-btn" onclick="upgradeOllama()">Upgrade Ollama</button>
     </div>
     <div id="laya-install-area" style="display:none; margin-top:0.8rem;">
       <div class="status-line" id="laya-install-status"></div>
@@ -335,6 +336,12 @@
         <input type="checkbox" id="laya-browser-auto">
         <div class="toggle-label"><strong>Browser auto-pilot</strong>
           <div class="toggle-sub">Experimental: a fast decision loop for repetitive browser tasks.</div>
+        </div>
+      </div>
+      <div class="toggle-row">
+        <input type="checkbox" id="laya-auto-upgrade-ollama">
+        <div class="toggle-label"><strong>Upgrade Ollama automatically</strong>
+          <div class="toggle-sub">When the decision model needs Ollama 0.40+ and an older one is installed, TALOS upgrades it by itself (disable only if you manage Ollama yourself).</div>
         </div>
       </div>
     </div>
@@ -1430,6 +1437,7 @@ async function loadSettings() {
     document.getElementById('laya-context-compact').checked = (d.LAYA_CONTEXT_COMPACT || '1') !== '0';
     document.getElementById('laya-model-triage').checked = (d.LAYA_MODEL_TRIAGE || '1') !== '0';
     document.getElementById('laya-browser-auto').checked = (d.LAYA_BROWSER_AUTO || '1') !== '0';
+    document.getElementById('laya-auto-upgrade-ollama').checked = (d.LAYA_AUTO_UPDATE_OLLAMA || '1') !== '0';
     var otaChannel = String(d.OTA_CHANNEL || 'stable').toLowerCase();
     if (otaChannel !== 'stable' && otaChannel !== 'prerelease') otaChannel = 'stable';
     document.getElementById('ota-channel').value = otaChannel;
@@ -2163,7 +2171,8 @@ async function saveSettings() {
     LAYA_MEMORY_RERANK: document.getElementById('laya-memory-rerank').checked ? '1' : '0',
     LAYA_CONTEXT_COMPACT: document.getElementById('laya-context-compact').checked ? '1' : '0',
     LAYA_MODEL_TRIAGE: document.getElementById('laya-model-triage').checked ? '1' : '0',
-    LAYA_BROWSER_AUTO: document.getElementById('laya-browser-auto').checked ? '1' : '0'
+    LAYA_BROWSER_AUTO: document.getElementById('laya-browser-auto').checked ? '1' : '0',
+    LAYA_AUTO_UPDATE_OLLAMA: document.getElementById('laya-auto-upgrade-ollama').checked ? '1' : '0'
   };
 
   // Always sent: a masked value keeps the stored secret, empty clears it.
@@ -2209,13 +2218,14 @@ async function loadLayaStatus() {
       disabled: 'disabled',
       ollama_unreachable: 'not reachable',
       ollama_too_old: 'Ollama too old — using built-in model instead',
+      upgrading_ollama: 'upgrading Ollama automatically',
       model_missing: 'model not installed yet',
       pulling: 'downloading now',
       missing_key: 'missing Jev API key',
       missing_url: 'missing endpoint URL',
       package_missing: 'built-in model not installed',
       installing: 'installing built-in model now',
-      no_disk_space: 'not enough free disk space for the built-in model',
+      no_disk_space: 'not enough free disk space',
       weights_pending: 'ready (weights download on first use)',
       local_fallback: 'ready',
       error: 'error'
@@ -2334,6 +2344,82 @@ async function installLaya() {
     statusEl.style.color = '#fc8181';
   }
   _layaInstalling = false;
+  btn.disabled = false;
+}
+
+var _ollamaUpgrading = false;
+
+async function upgradeOllama() {
+  if (_ollamaUpgrading) return;
+  if (!confirm('Upgrade Ollama now? TALOS will quit the Ollama app, install the latest version, and pull the decision model. Your existing models are kept.')) return;
+
+  var btn = document.getElementById('ollama-upgrade-btn');
+  var statusEl = document.getElementById('laya-install-status');
+  var area = document.getElementById('laya-install-area');
+  _ollamaUpgrading = true;
+  btn.disabled = true;
+  area.style.display = 'block';
+  statusEl.style.color = '#63b3ed';
+  statusEl.textContent = 'Upgrading Ollama...';
+
+  try {
+    var res = await fetch('/api/ollama/upgrade', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ csrf_token: _csrfToken })
+    });
+    if (!res.ok) {
+      var errBody = await res.json().catch(function() { return {}; });
+      throw new Error(errBody.error || ('Upgrade failed with status ' + res.status));
+    }
+
+    var reader = res.body.getReader();
+    var decoder = new TextDecoder();
+    var buffer = '';
+    var sawDone = false;
+
+    while (true) {
+      var chunk = await reader.read();
+      if (chunk.done) break;
+      buffer += decoder.decode(chunk.value, { stream: true });
+      var lines = buffer.split('\n');
+      buffer = lines.pop();
+      for (var i = 0; i < lines.length; i++) {
+        var line = lines[i].trim();
+        if (!line) continue;
+        var evt;
+        try { evt = JSON.parse(line); } catch (e) { continue; }
+        if (evt.message) statusEl.textContent = evt.message;
+        if (typeof evt.percent === 'number') {
+          statusEl.textContent = 'Upgrading Ollama: ' + Math.round(evt.percent) + '%';
+        }
+        if (evt.stage === 'error') {
+          statusEl.textContent = 'Error: ' + evt.error;
+          statusEl.style.color = '#fc8181';
+        }
+        if (evt.stage === 'done' || evt.stage === 'finished') {
+          sawDone = true;
+          if (evt.error) {
+            statusEl.textContent = 'Error: ' + evt.error;
+            statusEl.style.color = '#fc8181';
+          } else {
+            statusEl.textContent = evt.message || 'Ollama upgraded.';
+            statusEl.style.color = '#68d398';
+            showMsg('Ollama upgraded successfully.', true);
+          }
+        }
+      }
+    }
+    if (!sawDone) {
+      statusEl.textContent = 'Upgrade stream ended unexpectedly — check the status line above.';
+      statusEl.style.color = '#d69e2e';
+    }
+    await loadLayaStatus();
+  } catch (e) {
+    statusEl.textContent = 'Error: ' + (e.message || e);
+    statusEl.style.color = '#fc8181';
+  }
+  _ollamaUpgrading = false;
   btn.disabled = false;
 }
 

@@ -12,6 +12,9 @@ import math
 import os
 import re
 import shutil
+import subprocess
+import sys
+import time
 from typing import Any, AsyncIterator, Callable
 
 import httpx
@@ -501,3 +504,250 @@ async def keep_warm_loop(stop: asyncio.Event, models_fn: Callable[[], list[str]]
             else max(_WARM_INTERVAL_FLOOR_S, min(keep_alive / 2, _WARM_INTERVAL_CAP_S))
         )
         await _wait_for_wake(stop, interval)
+
+
+# ---------------------------------------------------------------------------
+# Ollama self-upgrade — used by the decision layer when the installed Ollama
+# is too old for /v1/systemone. Progress streams like pull_model.
+# ---------------------------------------------------------------------------
+
+OLLAMA_DARWIN_URL = "https://ollama.com/download/Ollama-darwin.zip"
+OLLAMA_LINUX_INSTALL_URL = "https://ollama.com/install.sh"
+# zip + extracted app + the old app kept aside during the swap.
+UPGRADE_MIN_FREE_BYTES = 1_600_000_000
+
+
+def _free_disk_bytes(path: str = "/") -> int:
+    try:
+        return shutil.disk_usage(path).free
+    except Exception:
+        return 0
+
+
+def _run_shell(cmd: list[str], timeout: float) -> tuple[int, str]:
+    """Run a one-shot command, returning (exit_code, combined output)."""
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
+    except subprocess.TimeoutExpired:
+        return 124, f"timed out after {int(timeout)}s"
+    except Exception as exc:
+        return 1, str(exc)
+
+
+def _detect_mac_install() -> str:
+    """How ollama is installed on this Mac: 'app', 'homebrew', or '' (unknown)."""
+    binary = shutil.which("ollama")
+    if not binary:
+        return ""
+    try:
+        real = os.path.realpath(binary)
+    except Exception:
+        return ""
+    if "/Cellar/" in real or real.startswith("/opt/homebrew/") or real.startswith("/usr/local/Cellar/"):
+        return "homebrew"
+    if os.path.isdir("/Applications/Ollama.app") or "Ollama.app" in real:
+        return "app"
+    return ""
+
+
+async def _wait_server_gone(native_root: str, timeout_s: float = 25.0) -> bool:
+    deadline = time.monotonic() + timeout_s
+    async with httpx.AsyncClient(timeout=httpx.Timeout(2.0)) as client:
+        while time.monotonic() < deadline:
+            try:
+                await client.get(f"{native_root}/api/version")
+            except Exception:
+                return True
+            await asyncio.sleep(1.0)
+    return False
+
+
+async def _wait_server_version(native_root: str, timeout_s: float = 90.0) -> tuple[bool, str]:
+    deadline = time.monotonic() + timeout_s
+    async with httpx.AsyncClient(timeout=httpx.Timeout(3.0)) as client:
+        while time.monotonic() < deadline:
+            try:
+                resp = await client.get(f"{native_root}/api/version")
+                if resp.status_code == 200:
+                    return True, str(resp.json().get("version", ""))
+            except Exception:
+                pass
+            await asyncio.sleep(2.0)
+    return False, ""
+
+
+async def upgrade_ollama(min_version: str = "0.40.0"):
+    """Upgrade the local Ollama installation to the latest release.
+
+    Yields progress events shaped like pull_model's:
+    {"stage": "start|progress|done|error", "message": ..., "percent": 0-100}
+
+    Supports the macOS app install (download + swap), Homebrew on macOS, and
+    the official install.sh on Linux. Anything else fails loudly with an
+    actionable message instead of guessing.
+    """
+    native_root = native_base_url()
+    min_parts = tuple(int(p) for p in min_version.split("."))
+
+    def _version_ok(version: str) -> bool:
+        parts = str(version).strip().split(".")
+        try:
+            nums = [int(p.split("-")[0]) for p in parts[:3]]
+        except (ValueError, IndexError):
+            return False
+        while len(nums) < 3:
+            nums.append(0)
+        return tuple(nums) >= min_parts
+
+    if sys.platform == "darwin":
+        method = _detect_mac_install()
+        if method == "homebrew":
+            yield {"stage": "progress", "message": "Upgrading Ollama via Homebrew (this can take a few minutes)..."}
+            loop = asyncio.get_running_loop()
+            code, output = await loop.run_in_executor(None, lambda: _run_shell(["brew", "upgrade", "ollama"], 900))
+            if code != 0:
+                yield {"stage": "error", "error": f"brew upgrade ollama failed: {output[-500:]}"}
+                return
+            yield {"stage": "progress", "message": "Restarting the Ollama service..."}
+            await loop.run_in_executor(None, lambda: _run_shell(["brew", "services", "restart", "ollama"], 120))
+            ok, version = await _wait_server_version(native_root)
+            if not ok:
+                yield {"stage": "error", "error": "Upgrade ran but the Ollama server did not come back. Start it manually and retry."}
+                return
+            yield {"stage": "done", "message": f"Ollama upgraded to {version}."}
+            return
+
+        if method == "app":
+            free = _free_disk_bytes("/Applications")
+            if free and free < UPGRADE_MIN_FREE_BYTES:
+                yield {"stage": "error", "error": (
+                    f"The Ollama upgrade needs about 1.6 GB of free disk space "
+                    f"({free / 1_000_000_000:.1f} GB free now). Free up disk space and try again."
+                )}
+                return
+
+            yield {"stage": "progress", "message": "Quitting the Ollama app..."}
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(
+                None,
+                lambda: _run_shell(["osascript", "-e", 'tell application "Ollama" to quit'], 20),
+            )
+            if not await _wait_server_gone(native_root):
+                yield {"stage": "error", "error": "Could not stop the running Ollama app. Quit it from the menu bar and retry."}
+                return
+
+            yield {"stage": "progress", "percent": 5, "message": "Downloading the latest Ollama..."}
+            import tempfile
+            import zipfile
+
+            with tempfile.TemporaryDirectory(prefix="ollama-upgrade-") as tmp:
+                zip_path = os.path.join(tmp, "Ollama-darwin.zip")
+                try:
+                    async with httpx.AsyncClient(timeout=httpx.Timeout(60.0), follow_redirects=True) as client:
+                        async with client.stream("GET", OLLAMA_DARWIN_URL) as resp:
+                            resp.raise_for_status()
+                            total = int(resp.headers.get("content-length") or 0)
+                            done = 0
+                            last_pct = 5.0
+                            with open(zip_path, "wb") as fh:
+                                async for chunk in resp.aiter_bytes(1 << 16):
+                                    fh.write(chunk)
+                                    done += len(chunk)
+                                    if total:
+                                        pct = 5.0 + 65.0 * done / total
+                                        if pct - last_pct >= 10:
+                                            last_pct = pct
+                                            yield {"stage": "progress", "percent": round(pct), "message": f"Downloading Ollama: {round(pct)}%"}
+                except Exception as exc:
+                    yield {"stage": "error", "error": f"Could not download Ollama: {exc}"}
+                    return
+
+                yield {"stage": "progress", "percent": 75, "message": "Extracting..."}
+                try:
+                    with zipfile.ZipFile(zip_path) as zf:
+                        zf.extractall(tmp)
+                except Exception as exc:
+                    yield {"stage": "error", "error": f"Could not extract the Ollama download: {exc}"}
+                    return
+                new_app = os.path.join(tmp, "Ollama.app")
+                if not os.path.isdir(new_app):
+                    yield {"stage": "error", "error": "The download did not contain Ollama.app."}
+                    return
+
+                yield {"stage": "progress", "percent": 85, "message": "Installing the new Ollama app..."}
+                apps_dir = "/Applications"
+                old_app = os.path.join(apps_dir, "Ollama.app")
+                backup_app = os.path.join(apps_dir, f"Ollama.app.old-{int(time.time())}")
+                swapped = False
+                try:
+                    if os.path.exists(old_app):
+                        os.rename(old_app, backup_app)
+                    shutil.move(new_app, old_app)
+                    swapped = True
+                except PermissionError:
+                    if os.path.exists(backup_app) and not os.path.exists(old_app):
+                        os.rename(backup_app, old_app)
+                    yield {"stage": "error", "error": "No permission to replace /Applications/Ollama.app. Run the upgrade with an admin account."}
+                    return
+                except Exception as exc:
+                    if os.path.exists(backup_app) and not os.path.exists(old_app):
+                        os.rename(backup_app, old_app)
+                    yield {"stage": "error", "error": f"Could not install the new Ollama app: {exc}"}
+                    return
+
+                yield {"stage": "progress", "percent": 92, "message": "Starting Ollama..."}
+                await loop.run_in_executor(None, lambda: _run_shell(["open", "-a", "Ollama"], 30))
+                ok, version = await _wait_server_version(native_root)
+                if not ok or not _version_ok(version):
+                    # Put the old app back rather than leave a broken install.
+                    if swapped and os.path.exists(backup_app):
+                        try:
+                            await loop.run_in_executor(None, lambda: _run_shell(["osascript", "-e", 'tell application "Ollama" to quit'], 20))
+                            await _wait_server_gone(native_root, timeout_s=10)
+                            shutil.rmtree(old_app, ignore_errors=True)
+                            os.rename(backup_app, old_app)
+                            await loop.run_in_executor(None, lambda: _run_shell(["open", "-a", "Ollama"], 30))
+                        except Exception:
+                            pass
+                    yield {"stage": "error", "error": (
+                        f"The new Ollama did not come up correctly (version {version or 'unknown'}). "
+                        "The previous version was restored — upgrade manually from https://ollama.com."
+                    )}
+                    return
+
+                # Success: drop the old copy to reclaim its disk.
+                if os.path.exists(backup_app):
+                    shutil.rmtree(backup_app, ignore_errors=True)
+                yield {"stage": "done", "message": f"Ollama upgraded to {version}."}
+                return
+
+        yield {"stage": "error", "error": (
+            "Could not tell how Ollama is installed on this Mac "
+            "(expected the Ollama app or Homebrew). Upgrade manually from https://ollama.com."
+        )}
+        return
+
+    if sys.platform.startswith("linux"):
+        yield {"stage": "progress", "message": "Running the official Ollama installer (this can take a few minutes)..."}
+        loop = asyncio.get_running_loop()
+        code, output = await loop.run_in_executor(
+            None,
+            lambda: _run_shell(["sh", "-c", f"curl -fsSL {OLLAMA_LINUX_INSTALL_URL} | sh"], 900),
+        )
+        if code != 0:
+            yield {"stage": "error", "error": f"The Ollama installer failed: {output[-500:]}"}
+            return
+        ok, version = await _wait_server_version(native_root)
+        if not ok:
+            yield {"stage": "error", "error": "Installer ran but the Ollama server did not come back. Restart it and retry."}
+            return
+        yield {"stage": "done", "message": f"Ollama upgraded to {version}."}
+        return
+
+    yield {"stage": "error", "error": "Automatic Ollama upgrades are supported on macOS and Linux. On Windows, download from https://ollama.com/download/windows."}

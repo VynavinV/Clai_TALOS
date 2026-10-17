@@ -317,12 +317,70 @@ def test_availability_flags_old_ollama(monkeypatch):
         return {"reachable": True, "version": "0.33.2", "models": [{"name": "laya"}], "error": ""}
 
     monkeypatch.setattr(laya_decisions.ollama_setup, "get_status", fake_status)
+    monkeypatch.setattr(laya_decisions, "_maybe_start_ollama_upgrade", lambda: None)
+    monkeypatch.setenv("LAYA_AUTO_UPDATE_OLLAMA", "1")
     # Explicit ollama preference reports the version problem directly.
     monkeypatch.setenv("LAYA_PROVIDER", "ollama")
     result = asyncio.run(laya_decisions.availability(force=True))
     assert result["available"] is False
-    assert result["reason"] == "ollama_too_old"
+    assert result["reason"] == "upgrading_ollama"
+    assert "Upgrading Ollama automatically in the background" in result["detail"]
     assert "0.40" in result["detail"]
+
+
+def test_availability_old_ollama_without_auto_upgrade(monkeypatch):
+    async def fake_status(base_url=None):
+        return {"reachable": True, "version": "0.33.2", "models": [{"name": "laya"}], "error": ""}
+
+    monkeypatch.setattr(laya_decisions.ollama_setup, "get_status", fake_status)
+    monkeypatch.setattr(laya_decisions, "_maybe_start_ollama_upgrade", lambda: None)
+    monkeypatch.setenv("LAYA_AUTO_UPDATE_OLLAMA", "0")
+    monkeypatch.setenv("LAYA_PROVIDER", "ollama")
+    result = asyncio.run(laya_decisions.availability(force=True))
+    assert result["available"] is False
+    assert result["reason"] == "ollama_too_old"
+
+
+def test_maybe_start_ollama_upgrade_once(monkeypatch):
+    started = []
+
+    async def fake_worker():
+        started.append("run")
+
+    monkeypatch.setattr(laya_decisions, "_ollama_upgrade_worker", fake_worker)
+    monkeypatch.setattr(laya_decisions, "_ollama_upgrade_started", False)
+    monkeypatch.setattr(laya_decisions, "_ollama_upgrade_task", None)
+    monkeypatch.setenv("LAYA_AUTO_UPDATE_OLLAMA", "1")
+
+    # Must run inside an event loop to create the task.
+    async def run():
+        laya_decisions._maybe_start_ollama_upgrade()
+        await asyncio.sleep(0)
+        laya_decisions._maybe_start_ollama_upgrade()  # deduped
+        await asyncio.sleep(0)
+        return started
+
+    assert asyncio.run(run()) == ["run"]
+
+
+def test_maybe_start_ollama_upgrade_respects_flag(monkeypatch):
+    async def run():
+        laya_decisions._maybe_start_ollama_upgrade()
+        await asyncio.sleep(0)
+
+    monkeypatch.setattr(laya_decisions, "_ollama_upgrade_started", False)
+    monkeypatch.setattr(laya_decisions, "_ollama_upgrade_task", None)
+    monkeypatch.setenv("LAYA_AUTO_UPDATE_OLLAMA", "0")
+    before = laya_decisions._ollama_upgrade_started
+    asyncio.run(run())
+    assert laya_decisions._ollama_upgrade_started == before
+
+
+def test_self_test_passes_offline():
+    result = laya_decisions.self_test()
+    assert result["ok"] is True
+    assert result["passed"] == result["total"]
+    assert result["failures"] == []
 
 
 def test_availability_auto_falls_back_to_local(monkeypatch):
@@ -346,7 +404,11 @@ def test_availability_auto_falls_back_to_local(monkeypatch):
 
 
 def test_availability_auto_reports_local_blockers(monkeypatch):
-    """When the built-in model cannot run either, the reason says why."""
+    """When the built-in model cannot run either, the reason says why.
+
+    With Ollama auto-upgrade on, the active fix (upgrading) takes priority in
+    the status; with it off, the local blocker itself is reported.
+    """
     async def fake_status(base_url=None):
         return {"reachable": True, "version": "0.32.14", "models": [], "error": ""}
 
@@ -354,14 +416,23 @@ def test_availability_auto_reports_local_blockers(monkeypatch):
     monkeypatch.setattr(laya_decisions, "local_status", lambda: {
         "available": False, "reason": "no_disk_space", "detail": "needs 1.5 GB free disk space.",
     })
+    monkeypatch.setattr(laya_decisions, "_maybe_start_ollama_upgrade", lambda: None)
     monkeypatch.setattr(laya_decisions, "_maybe_start_local_install", lambda: None)
     monkeypatch.setenv("LAYA_PROVIDER", "auto")
     monkeypatch.delenv("JEV_API_KEY", raising=False)
     monkeypatch.delenv("LAYA_BASE_URL", raising=False)
 
+    monkeypatch.setenv("LAYA_AUTO_UPDATE_OLLAMA", "1")
     result = asyncio.run(laya_decisions.availability(force=True))
     assert result["available"] is False
     assert result["provider"] == "local"
+    assert result["reason"] == "upgrading_ollama"
+    assert "free disk space" in result["detail"]
+
+    monkeypatch.setenv("LAYA_AUTO_UPDATE_OLLAMA", "0")
+    laya_decisions.invalidate_availability()
+    result = asyncio.run(laya_decisions.availability(force=True))
+    assert result["available"] is False
     assert result["reason"] == "no_disk_space"
     assert "Ollama" in result["detail"]
 

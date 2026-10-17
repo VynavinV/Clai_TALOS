@@ -258,6 +258,8 @@ _local_router = None
 _local_router_lock: asyncio.Lock | None = None
 _local_install_task: asyncio.Task | None = None
 _local_install_started = False
+_ollama_upgrade_task: asyncio.Task | None = None
+_ollama_upgrade_started = False
 
 # Model weights are ~850 MB; require comfortable headroom for the download.
 LOCAL_MIN_FREE_DISK_BYTES = 1_500_000_000
@@ -671,6 +673,55 @@ async def _probe_ollama() -> dict:
             "detail": f"Ollama {version} with {model}."}
 
 
+def ollama_auto_update_enabled() -> bool:
+    return _env("LAYA_AUTO_UPDATE_OLLAMA", "1") != "0"
+
+
+def _maybe_start_ollama_upgrade() -> None:
+    """Self-healing: upgrade Ollama once in the background when it is too old.
+
+    This is what makes the layer "work by itself": old Ollama triggers the
+    upgrade, the upgrade unblocks /v1/systemone, and the laya model then
+    auto-pulls. Disabled with LAYA_AUTO_UPDATE_OLLAMA=0.
+    """
+    global _ollama_upgrade_task, _ollama_upgrade_started
+    if _ollama_upgrade_started or not ollama_auto_update_enabled():
+        return
+    _ollama_upgrade_started = True
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    _ollama_upgrade_task = loop.create_task(_ollama_upgrade_worker())
+    logger.warning(
+        "Ollama is too old for the laya decision model — upgrading Ollama "
+        "automatically in the background (self-healing; disable with "
+        "LAYA_AUTO_UPDATE_OLLAMA=0)."
+    )
+
+
+async def _ollama_upgrade_worker() -> None:
+    try:
+        async for event in ollama_setup.upgrade_ollama():
+            stage = event.get("stage")
+            if stage == "error":
+                logger.error(
+                    "Automatic Ollama upgrade failed: %s — use Settings -> Decision Model "
+                    "or https://ollama.com to upgrade manually.",
+                    str(event.get("error"))[:400],
+                )
+                return
+            if stage == "done":
+                logger.info("Ollama upgraded automatically: %s", event.get("message", ""))
+                ollama_setup.forget_model_info()
+                invalidate_availability()
+                return
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        logger.exception("Unexpected error while upgrading Ollama")
+
+
 def _local_probe_for_missing_package() -> dict | None:
     """Kick off the self-healing package install and describe it, if allowed."""
     if _env("LAYA_AUTO_INSTALL", "1") == "0":
@@ -736,7 +787,24 @@ async def _probe_availability() -> dict:
 
         # ollama (explicit) or auto
         ollama_result = await _probe_ollama()
-        if ollama_result.get("available") or provider == "ollama":
+        if ollama_result.get("available"):
+            return ollama_result
+
+        # An Ollama that is too old is fixed by upgrading it — automatically,
+        # unless LAYA_AUTO_UPDATE_OLLAMA=0. The laya model is pulled right
+        # after the upgrade, so the whole chain self-heals.
+        upgrading_ollama = (
+            ollama_result.get("reason") == "ollama_too_old" and ollama_auto_update_enabled()
+        )
+        if upgrading_ollama:
+            _maybe_start_ollama_upgrade()
+
+        if provider == "ollama":
+            if upgrading_ollama:
+                return {"available": False, "provider": "ollama", "reason": "upgrading_ollama", "detail": (
+                    f"{ollama_result.get('detail')} Upgrading Ollama automatically in the "
+                    "background; the laya model is pulled right after."
+                )}
             return ollama_result
 
         # Auto: Ollama cannot serve the decision model (old version, missing
@@ -744,12 +812,19 @@ async def _probe_availability() -> dict:
         # decision layer works without any manual setup.
         local = local_status()
         if local.get("available"):
-            return {"available": True, "provider": "local", "reason": "local_fallback",
-                    "detail": f"{local.get('detail')} (used because: {ollama_result.get('detail')})"}
+            detail = f"{local.get('detail')} (used because: {ollama_result.get('detail')})"
+            if upgrading_ollama:
+                detail += " Ollama is being upgraded in the background and will take over once ready."
+            return {"available": True, "provider": "local", "reason": "local_fallback", "detail": detail}
         if local.get("reason") == "package_missing":
             installing = _local_probe_for_missing_package()
             if installing:
                 return installing
+        if upgrading_ollama:
+            return {"available": False, "provider": "local", "reason": "upgrading_ollama", "detail": (
+                f"{local.get('detail')} Meanwhile, Ollama is being upgraded automatically in the "
+                "background and the laya model will be pulled once it is ready."
+            )}
         return {"available": False, "provider": "local", "reason": local.get("reason"),
                 "detail": f"{local.get('detail')} (Ollama: {ollama_result.get('detail')})"}
     except Exception as exc:
@@ -835,4 +910,128 @@ def pull_progress() -> dict:
         "pull_requested": bool(_pull_started_for),
         "installing_local": bool(local_task and not local_task.done()),
         "local_install_requested": bool(_local_install_started),
+        "upgrading_ollama": bool(_ollama_upgrade_task and not _ollama_upgrade_task.done()),
+        "ollama_upgrade_requested": bool(_ollama_upgrade_started),
     }
+
+
+# ---------------------------------------------------------------------------
+# Self-test — the offline contract of the decision layer, run by `clai check`
+# and the dashboard System Check. Fast, deterministic, no model calls.
+# ---------------------------------------------------------------------------
+
+
+def self_test() -> dict:
+    """Run the layer's offline self-tests. Returns {"ok", "passed", "failed", "failures"}."""
+    import importlib.util
+
+    checks: list[tuple[str, callable]] = [
+        ("question_builders", lambda: (
+            choice("Which?", {"a": "A", "b": "B"}) == {"type": "choice", "instructions": "Which?", "criteria": {"a": "A", "b": "B"}}
+            and noul("Is it?") == {"type": "noul", "instructions": "Is it?"}
+            and score("How?", ["lo", "hi"])["criteria"] == ["lo", "hi"]
+        )),
+        ("question_normalization", lambda: (
+            normalize_questions({
+                "dept": choice("Which?", {"tech": "bugs"}),
+                "urgent": noul("Urgent?"),
+            })["dept"]["criteria"] == {"tech": "bugs"}
+        )),
+        ("question_rejection", lambda: (
+            _raises(lambda: normalize_questions({"q": {"type": "choice", "instructions": "?"}}))
+            and _raises(lambda: normalize_questions({"q": {"type": "noul"}}))
+            and _raises(lambda: normalize_questions("nope"))
+        )),
+        ("payload_state_passthrough", lambda: (
+            _build_payload({"a": 1}, {"q": noul("?")}, "laya")["state"] == {"a": 1}
+        )),
+        ("payload_state_truncation", lambda: (
+            len(_build_payload("x" * 60000, {"q": noul("?")}, None)["state"]) == MAX_STATE_CHARS
+        )),
+        ("payload_rejects_huge_structured_state", lambda: (
+            _raises(lambda: _build_payload({"blob": "x" * 60000}, {"q": noul("?")}, None))
+        )),
+        ("response_extraction", lambda: (
+            (_extract_answers({"answers": {"q": {"noul": "0.9"}}}) or {}).get("q", {}).get("noul") == 0.9
+            and _extract_answers({"nope": 1}) is None
+        )),
+        ("version_parsing", lambda: (
+            _parse_version("0.32.14") == (0, 32, 14)
+            and _parse_version("0.40.0") == (0, 40, 0)
+            and _parse_version("garbage") is None
+        )),
+        ("systemone_url_forms", lambda: (
+            _systemone_url("http://h:1") == "http://h:1/v1/systemone"
+            and _systemone_url("https://x/v1/") == "https://x/v1/systemone"
+            and _systemone_url("") == ""
+        )),
+        ("feature_gating", lambda: (
+            feature_enabled("laya_self_test_nonexistent") is False
+        )),
+        ("confidence_bounds", lambda: (
+            abs(confidence_min() - 0.75) < 1e-9 or 0.0 <= confidence_min() <= 1.0
+        )),
+        ("package_present", lambda: (
+            importlib.util.find_spec("laya") is not None
+        )),
+    ]
+
+    passed = 0
+    failures: list[str] = []
+    for name, fn in checks:
+        try:
+            if fn():
+                passed += 1
+            else:
+                failures.append(f"{name}: returned an unexpected result")
+        except Exception as exc:
+            failures.append(f"{name}: {type(exc).__name__}: {exc}")
+
+    # Fail-open contract: a disabled or broken backend must yield None, never raise.
+    # Runs in its own thread with its own event loop so it works even while
+    # the app's loop is running (diagnostics run inside the live process).
+    def _fail_open_check() -> bool:
+        original = os.environ.get("LAYA_ENABLED")
+        os.environ["LAYA_ENABLED"] = "0"
+        try:
+            return asyncio.run(try_decide("x", {"q": noul("?")}, feature="self_test")) is None
+        except Exception:
+            return False
+        finally:
+            if original is None:
+                os.environ.pop("LAYA_ENABLED", None)
+            else:
+                os.environ["LAYA_ENABLED"] = original
+
+    import threading
+
+    outcome: dict[str, bool] = {"ok": False}
+
+    def _run_fail_open() -> None:
+        outcome["ok"] = _fail_open_check()
+
+    try:
+        t = threading.Thread(target=_run_fail_open, daemon=True)
+        t.start()
+        t.join(timeout=10.0)
+        if outcome["ok"]:
+            passed += 1
+        else:
+            failures.append("fail_open: try_decide did not fail open while disabled")
+    except Exception as exc:
+        failures.append(f"fail_open: {type(exc).__name__}: {exc}")
+
+    return {
+        "ok": not failures,
+        "passed": passed,
+        "total": len(checks) + 1,
+        "failures": failures,
+    }
+
+
+def _raises(fn) -> bool:
+    try:
+        fn()
+        return False
+    except LayaError:
+        return True

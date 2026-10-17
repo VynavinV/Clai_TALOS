@@ -626,6 +626,7 @@ Main pages:
 | GET | `/api/laya/status` | Decision model health + configuration |
 | POST | `/api/laya/test` | Run one test decision |
 | POST | `/api/laya/install` | Pull the laya model via Ollama (NDJSON progress) |
+| POST | `/api/ollama/upgrade` | Upgrade Ollama and pull the decision model (NDJSON progress) |
 | POST | `/api/chat` | Web chat message endpoint |
 | POST | `/api/reload` | Hot reload env + clients |
 | POST | `/api/restart` | Process restart |
@@ -721,6 +722,7 @@ See `LAYA_DOCS.md` and Settings → Decision Model.
 | `LAYA_MODEL` | `laya` | Ollama model name (`laya`, `laya-multilingual`, ...) |
 | `LAYA_LOCAL_MODEL` | `english` | Built-in checkpoint (`english`, `multilingual`, `typed-decisions`) |
 | `LAYA_AUTO_INSTALL` | `1` | Auto-install the `laya` package into the venv when the built-in backend is needed |
+| `LAYA_AUTO_UPDATE_OLLAMA` | `1` | Auto-upgrade Ollama itself when it is too old for the decision model |
 | `LAYA_BASE_URL` | empty | Custom Jev-compatible `/v1/systemone` endpoint |
 | `LAYA_AUTO_PULL` | `1` | Auto `ollama pull laya` when missing |
 | `JEV_API_KEY` | empty | Hosted Jev backend key |
