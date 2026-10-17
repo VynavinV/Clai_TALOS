@@ -100,9 +100,30 @@ goal is complete, the step budget runs out, or it stops itself.
 - `auto_connect` (boolean, optional, default true)
 - `default_timeout_ms` (number, optional, default 15000)
 
-**Actions it can pick:** click an element, type a quoted string, press Enter,
-**press the arrow keys (up/down/left/right — browser games like 2048 work)**,
-scroll up/down, go back, wait, done, or give up.
+**Actions it can pick:** click an element, type a quoted string, select a
+dropdown option, press Enter, **press the arrow keys (up/down/left/right —
+browser games like 2048 work)**, scroll up/down, go back, wait, done, or
+blocked.
+
+**The two-tier architecture** (from the Jev browser-agent pattern): the fast
+decision model judges each move from a numbered element list with current
+values (e.g. `combobox Where to? · London`); the main LLM plans, writes text,
+and handles escalations. Cookie/consent banners are dismissed automatically
+with a hard-coded accept. Self-reported "done" is only trusted after an
+independent verification decision against the goal — false-positive
+completions are the documented failure mode, so `completed` means verified.
+
+**Escalation statuses** (see the `escalation` block in the result):
+- `low_confidence` — the decision model's confidence fell below the
+  threshold. Reason about the page yourself (browser_state) and either take
+  over with browser_run or re-call browser_auto with a clearer goal.
+- `blocked` — login wall, captcha, paywall, or an undismissable dialog. Sign
+  in with browser_run, ask the user, or pick another route.
+- `needs_text` — a field needs text that was not quoted in the goal or
+  type_texts. Write it yourself and call browser_auto again with type_texts.
+- `verification_failed` — the loop said done but verification disagreed.
+  Check the final page and finish manually if needed.
+- `stuck` — the same action repeated. Inspect and take over.
 
 **Canvas pages (games like the new play2048.co):** when the page draws its
 board on a `<canvas>`, the decision model cannot see the board — the state is
@@ -111,6 +132,10 @@ from the score text instead. It will play blind but legally, using the DOM
 score as feedback; expect random-ish strategy, not skill. For guaranteed move
 sequences (e.g. "25 arrow presses"), `browser_run` with `press` steps is the
 right tool — synthetic KeyboardEvents work on canvas games.
+
+**Known blind spots** (same as every element-list agent): content inside
+iframes and file-upload inputs do not appear in the element list. Handle
+those with browser_run steps directly.
 
 **Behavior:**
 - Never types text of its own — only strings quoted in the goal or passed in

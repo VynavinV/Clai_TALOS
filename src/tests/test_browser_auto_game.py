@@ -13,8 +13,24 @@ import laya_decisions
 class _FakeLocator:
     text = "SCORE 24 BEST 512"
 
+    @property
+    def first(self):
+        return self
+
     async def inner_text(self):
         return _FakeLocator.text
+
+    async def click(self, timeout=None):
+        return None
+
+    async def fill(self, value, timeout=None):
+        return None
+
+    async def select_option(self, value=None, label=None, index=None, timeout=None):
+        return [value or label or index]
+
+    async def press(self, key, timeout=None):
+        return None
 
 
 class _FakePage:
@@ -34,6 +50,9 @@ class _FakePage:
         return []
 
     async def wait_for_load_state(self, *args, **kwargs):
+        return None
+
+    async def click(self, selector, timeout=None, button=None, click_count=None):
         return None
 
     async def screenshot(self, path=None):
@@ -67,11 +86,18 @@ def _game_harness(monkeypatch, actions: list[str]):
         states.append(state)
         i = calls["n"]
         calls["n"] += 1
+        # Verification pass asks a different question set than the loop.
+        if "achieved" in questions:
+            verdict = calls.get("verify_verdict", True)
+            if verdict is True:
+                return {"answers": {"achieved": {"noul": 0.95}, "looks_done_but_is_not": {"noul": 0.02}}}
+            return {"answers": {"achieved": {"noul": 0.2}, "looks_done_but_is_not": {"noul": 0.9}}}
         action = actions[i] if i < len(actions) else "done"
         return {
             "answers": {
                 "next_action": {"choice": action, "confidence": 0.9},
                 "goal_complete": {"noul": 0.0},
+                "cookie_banner": {"noul": 0.0},
             }
         }
 
@@ -93,7 +119,8 @@ def test_browser_auto_plays_with_arrow_keys(monkeypatch, tmp_path):
 
     result = asyncio.run(run())
     assert result["status"] == "completed", result
-    assert calls["n"] == len(actions)
+    # Loop decisions + the independent verification pass on "done".
+    assert calls["n"] == len(actions) + 1
 
     # Arrow-key presses became key-press steps in the transcript.
     moves = [e["action"] for e in result["transcript"] if e.get("action", "").startswith("press_")]
@@ -191,3 +218,164 @@ def test_browser_auto_stops_on_repeated_identical_moves(monkeypatch):
     result = asyncio.run(run())
     assert result["status"] == "stuck"
     assert "repeated" in result["transcript"][-1].get("error", "").lower()
+    # Escalation block tells the orchestrating model what to do next.
+    esc = result["escalation"]
+    assert esc["status"] == "stuck"
+    assert "browser_state" in esc["recommended_next_step"]
+
+
+def test_browser_auto_auto_accepts_cookie_banner(monkeypatch):
+    """Consent banners get a hard-coded accept instead of reasoning."""
+    calls, states = _game_harness(monkeypatch, ["press_right", "done"])
+    # First step reports a banner; the loop must click the Accept element.
+    banner_elements = [
+        {"index": 0, "selector": "#banner", "description": "button: Accept all cookies", "tag": "button", "text": "Accept all cookies"},
+        {"index": 1, "selector": "#start", "description": "button: Start game", "tag": "button", "text": "Start game"},
+    ]
+    original = browser_automation._auto_pilot_elements
+
+    async def fake_elements(page):
+        return banner_elements if calls["n"] == 0 else await original(page)
+
+    monkeypatch.setattr(browser_automation, "_auto_pilot_elements", fake_elements)
+
+    async def fake_try_decide(state, questions, feature=None):
+        i = calls["n"]
+        calls["n"] += 1
+        if "achieved" in questions:
+            return {"answers": {"achieved": {"noul": 0.95}, "looks_done_but_is_not": {"noul": 0.02}}}
+        banner = 0.97 if i == 0 else 0.0
+        action = "done" if i >= 2 else "press_right"
+        return {
+            "answers": {
+                "next_action": {"choice": action, "confidence": 0.9},
+                "goal_complete": {"noul": 0.0},
+                "cookie_banner": {"noul": banner},
+            }
+        }
+
+    monkeypatch.setattr(laya_decisions, "try_decide", fake_try_decide)
+
+    async def run():
+        return await browser_automation.browser_auto(
+            goal="play the game",
+            max_steps=5,
+            auto_connect=False,
+        )
+
+    result = asyncio.run(run())
+    cookie_steps = [e for e in result["transcript"] if e.get("action") == "cookie_accept"]
+    assert cookie_steps, result["transcript"]
+    assert cookie_steps[0]["ok"] is True
+    assert "Accept" in cookie_steps[0]["detail"]
+
+
+def test_browser_auto_escalates_on_low_confidence(monkeypatch):
+    """A low-confidence pick stops the loop and hands control to the LLM."""
+    calls, _states = _game_harness(monkeypatch, ["click", "click"])
+
+    async def fake_try_decide(state, questions, feature=None):
+        i = calls["n"]
+        calls["n"] += 1
+        if "achieved" in questions:
+            return {"answers": {"achieved": {"noul": 0.95}, "looks_done_but_is_not": {"noul": 0.02}}}
+        return {
+            "answers": {
+                "next_action": {"choice": "click", "confidence": 0.3},
+                "goal_complete": {"noul": 0.0},
+                "cookie_banner": {"noul": 0.0},
+            }
+        }
+
+    monkeypatch.setattr(laya_decisions, "try_decide", fake_try_decide)
+
+    async def run():
+        return await browser_automation.browser_auto(
+            goal="do something ambiguous",
+            max_steps=5,
+            auto_connect=False,
+        )
+
+    result = asyncio.run(run())
+    assert result["status"] == "low_confidence"
+    assert "0.30 below" in result["transcript"][0]["error"]
+    assert result["escalation"]["status"] == "low_confidence"
+    assert "browser_state" in result["escalation"]["recommended_next_step"]
+
+
+def test_browser_auto_blocked_escalates(monkeypatch):
+    _game_harness(monkeypatch, ["blocked"])
+
+    async def run():
+        return await browser_automation.browser_auto(
+            goal="read the article",
+            max_steps=5,
+            auto_connect=False,
+        )
+
+    result = asyncio.run(run())
+    assert result["status"] == "blocked"
+    assert "login" in result["transcript"][0]["error"].lower() or "blocked" in result["transcript"][0]["error"].lower()
+    assert result["escalation"]["recommended_next_step"]
+
+
+def test_browser_auto_needs_text_escalates(monkeypatch):
+    """The decision model never writes text; it asks the LLM for it."""
+    calls, _states = _game_harness(monkeypatch, ["type"])
+
+    async def fake_try_decide(state, questions, feature=None):
+        i = calls["n"]
+        calls["n"] += 1
+        if "achieved" in questions:
+            return {"answers": {"achieved": {"noul": 0.95}, "looks_done_but_is_not": {"noul": 0.02}}}
+        if "option" in questions:
+            return {"answers": {"option": {"choice": "0", "confidence": 0.9}}}
+        return {
+            "answers": {
+                "next_action": {"choice": "type", "confidence": 0.95},
+                "element": {"choice": "0", "confidence": 0.9},
+                "goal_complete": {"noul": 0.0},
+                "cookie_banner": {"noul": 0.0},
+            }
+        }
+
+    monkeypatch.setattr(laya_decisions, "try_decide", fake_try_decide)
+    elements = [
+        {"index": 0, "selector": "#q", "description": "textbox: Search · empty", "tag": "input", "text": "Search"},
+    ]
+
+    async def fake_elements(page):
+        return elements
+
+    monkeypatch.setattr(browser_automation, "_auto_pilot_elements", fake_elements)
+
+    async def run():
+        return await browser_automation.browser_auto(
+            goal="search for something",
+            max_steps=3,
+            auto_connect=False,
+        )
+
+    result = asyncio.run(run())
+    assert result["status"] == "needs_text"
+    assert "type_texts" in result["transcript"][0]["error"]
+    assert "textbox" in result["transcript"][0]["field"]
+
+
+def test_browser_auto_rejects_false_done(monkeypatch):
+    """A self-reported done that fails verification is not a success."""
+    calls, _states = _game_harness(monkeypatch, ["press_right", "done"])
+    calls["verify_verdict"] = False  # verification disagrees with "done"
+
+    async def run():
+        return await browser_automation.browser_auto(
+            goal="open the pricing page",
+            max_steps=5,
+            auto_connect=False,
+        )
+
+    result = asyncio.run(run())
+    assert result["status"] == "verification_failed"
+    assert result["ok"] is False
+    assert "below threshold" in result["transcript"][-1]["error"]
+    assert result["escalation"]["status"] == "verification_failed"

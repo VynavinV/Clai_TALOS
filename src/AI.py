@@ -1585,15 +1585,18 @@ def _get_all_tools(include_subagent: bool = True, include_telegram: bool = False
             "function": {
                 "name": "browser_auto",
                 "description": (
-                    "Experimental: drive the connected browser toward a goal with a fast decision loop instead of "
-                    "hand-written steps. Give a short goal; each step the decision model reads the page (URL, text, "
-                    "clickable elements) and picks the next action, including arrow keys for games. It only types "
-                    "strings quoted in the goal or given in type_texts, stops before risky clicks "
-                    "(payment/checkout/password), and returns a transcript plus periodic screenshots when "
-                    "screenshot_every is set. Canvas-rendered games are detected and played blind via keyboard "
-                    "controls with the score text as feedback. Use browser_run when you need exact, guaranteed "
-                    "step-by-step control (e.g. a fixed sequence of arrow presses); use this for repetitive "
-                    "multi-click flows and open-ended game play."
+                    "Experimental two-tier browser agent: a fast decision model makes each move (click, type, select, "
+                    "arrow keys, scroll) from a numbered list of page elements, and it escalates to YOU when it cannot "
+                    "confidently continue. It returns status 'completed' only after an independent verification pass "
+                    "against the goal. When it stops early, read the 'escalation' block: "
+                    "low_confidence → look at browser_state and take over or retry with a clearer goal; "
+                    "blocked → the page has a login wall/captcha/dialog, handle it with browser_run or ask the user; "
+                    "needs_text → write the text for the reported field and call browser_auto again with type_texts; "
+                    "verification_failed → the loop claimed done but the final page disagrees, check browser_state; "
+                    "stuck → same action repeated, take over. Cookie/consent banners are dismissed automatically. "
+                    "Canvas games are detected and played blind via arrow keys with the score text as feedback. "
+                    "It never types text of its own — only strings quoted in the goal or passed via type_texts. "
+                    "Use browser_run for exact step-by-step control or guaranteed action sequences."
                 ),
                 "parameters": {
                     "type": "object",

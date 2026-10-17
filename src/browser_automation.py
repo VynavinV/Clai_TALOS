@@ -1453,11 +1453,28 @@ _AUTO_PILOT_COLLECT_ELEMENTS_JS = r"""
     }
     return parts.join(' > ');
   }
+  function valueFor(el) {
+    // Current value/checked state — the jev-ultrafast style
+    // "Where from? · San Francisco" info the decision model needs.
+    try {
+      if (el instanceof HTMLSelectElement) {
+        const opt = el.selectedOptions[0];
+        return opt ? (opt.textContent || opt.value || '').trim().slice(0, 40) : '';
+      }
+      if (el.type === 'checkbox' || el.type === 'radio') {
+        return el.checked ? 'checked' : 'unchecked';
+      }
+      if (typeof el.value === 'string' && el.value) return el.value.trim().slice(0, 40);
+      if (el.getAttribute('aria-checked')) return 'aria-' + el.getAttribute('aria-checked');
+    } catch (e) {}
+    return '';
+  }
   return visible.slice(0, 30).map((el, i) => ({
     i: i,
     tag: el.tagName.toLowerCase(),
     kind: el.getAttribute('type') || el.getAttribute('role') || '',
     text: (el.innerText || el.value || el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.getAttribute('title') || '').trim().replace(/\s+/g, ' ').slice(0, 60),
+    value: valueFor(el),
     selector: selFor(el)
   }));
 }
@@ -1512,12 +1529,87 @@ async def _auto_pilot_elements(page) -> list[dict]:
     elements = []
     for item in raw:
         if isinstance(item, dict) and item.get("selector"):
+            kind = f"{str(item.get('tag') or 'el')}{'/' + str(item.get('kind')) if item.get('kind') else ''}"
+            text = str(item.get("text") or "(no text)")[:60]
+            value = str(item.get("value") or "").strip()
+            # jev-ultrafast style: "combobox Where to? · empty" — the current
+            # value is often the only signal that a field is already filled.
+            description = f"{kind}: {text}" + (f" · {value}" if value else "")
             elements.append({
                 "index": int(item.get("i", len(elements))),
                 "selector": str(item["selector"]),
-                "description": f"{str(item.get('tag') or 'el')}{'/' + str(item.get('kind')) if item.get('kind') else ''}: {str(item.get('text') or '(no text)')[:60]}",
+                "description": description,
+                "tag": str(item.get("tag") or ""),
+                "text": text,
             })
     return elements[:_AUTO_PILOT_MAX_ELEMENTS]
+
+
+_AUTO_PILOT_COOKIE_ACCEPT = re.compile(
+    r"accept|allow|agree|consent|got it|ok\b|continue|sure",
+    re.IGNORECASE,
+)
+
+
+async def _auto_pilot_select_options(page, selector: str) -> list[str]:
+    """Options of a <select>, so the model can pick one by label."""
+    try:
+        raw = await page.eval_on_selector(
+            selector,
+            "(el) => Array.from(el.options).slice(0, 40).map(o => (o.textContent || o.value || '').trim()).filter(t => t)",
+        )
+    except Exception:
+        return []
+    if not isinstance(raw, list):
+        return []
+    return [str(o)[:60] for o in raw if str(o or "").strip()][:40]
+
+
+async def _auto_pilot_verify(page, goal: str, recent_actions: list[str]) -> tuple[bool, str]:
+    """Independent check of a self-reported 'done' against the evidence.
+
+    False-positive 'done' is the documented failure mode of decision-model
+    loops: the page looks finished to the model but is not the actual goal.
+    One extra judgment comparing the goal, the final page, and what was
+    actually done — cheap insurance before claiming success.
+    """
+    try:
+        url = page.url
+        try:
+            body_text = (await page.locator("body").inner_text())[:1200]
+        except Exception:
+            body_text = ""
+        title = await page.title()
+    except Exception:
+        return False, "Could not read the final page for verification."
+
+    state = {
+        "goal": goal[:1500],
+        "final_url": url,
+        "final_title": title,
+        "final_page_text": body_text or "(no visible page text)",
+        "actions_taken": recent_actions[-10:],
+    }
+    questions = {
+        "achieved": laya_decisions.noul(
+            "Given the evidence in this state — the final URL, title, page text, and the actions that were actually taken — has `goal` been fully and genuinely achieved?"
+        ),
+        "looks_done_but_is_not": laya_decisions.noul(
+            "Does the final page look like a success page for a DIFFERENT task than `goal` (a false positive: an intermediate, empty, or error page mistaken for completion)?"
+        ),
+    }
+    result = await laya_decisions.try_decide(state, questions, feature="browser_auto")
+    if not result:
+        # No second opinion available: trust the loop's own 'done' verdict.
+        return True, ""
+    answers = result.get("answers") or {}
+    achieved = (answers.get("achieved") or {}).get("noul")
+    false_positive = (answers.get("looks_done_but_is_not") or {}).get("noul")
+    if achieved is not None and achieved < laya_decisions.confidence_min():
+        return False, f"Verification confidence {achieved:.2f} below threshold — the final page may not actually satisfy the goal."
+    if false_positive is not None and false_positive >= laya_decisions.confidence_min():
+        return False, "Verification flagged a likely false positive: the final page resembles an intermediate or wrong page rather than the goal."
+    return True, ""
 
 
 async def browser_auto(
@@ -1621,7 +1713,7 @@ async def browser_auto(
                 "page_text": body_text or "(no visible page text)",
                 "interactive_elements": {str(e["index"]): e["description"] for e in elements},
                 "typeable_texts": available_texts,
-                "recent_actions": recent_actions[-5:],
+                "recent_actions": recent_actions[-8:],
                 "step": step_no,
             }
             if is_canvas_app:
@@ -1643,12 +1735,17 @@ async def browser_auto(
                     "— only for New Game / menu buttons when clearly needed)."
                 )
 
+            # The two-tier architecture from the Jev browser-agent write-ups:
+            # the decision model makes fast bounded choices; when its confidence
+            # drops, the page is blocked, or new text is needed, the loop stops
+            # and hands control back to the orchestrating LLM.
             questions = {
                 "next_action": laya_decisions.choice(
                     "Which action should be taken next to make progress toward `goal`?",
                     {
                         "click": click_description,
                         "type": "Type one of the typeable texts into one of the elements.",
+                        "select": "Pick an option in a dropdown (select) element.",
                         "press_enter": "Press Enter (e.g. to submit a search or form).",
                         "press_up": "Press the Up arrow (e.g. game controls, list navigation).",
                         "press_down": "Press the Down arrow.",
@@ -1659,16 +1756,20 @@ async def browser_auto(
                         "back": "Go back to the previous page.",
                         "wait": "Wait briefly for the page to load or update.",
                         "done": "The goal has been achieved; stop.",
+                        "blocked": "The page is blocked (login wall, captcha, paywall, missing permission, or a dialog you cannot dismiss); stop for help.",
                         "give_up": "The goal cannot be achieved from this page; stop.",
                     },
                 ),
                 "goal_complete": laya_decisions.noul(
                     "Looking at `current_url`, `page_title`, and `page_text`, has `goal` been fully achieved?"
                 ),
+                "cookie_banner": laya_decisions.noul(
+                    "Is a cookie consent banner, privacy dialog, or similar popup overlaying the page right now?"
+                ),
             }
             if elements:
                 questions["element"] = laya_decisions.choice(
-                    "If clicking or typing, which `interactive_elements` entry should be used?",
+                    "If clicking, typing, or selecting, which `interactive_elements` entry should be used?",
                     {str(e["index"]): e["description"] for e in elements},
                 )
             if available_texts:
@@ -1688,22 +1789,82 @@ async def browser_auto(
             action = action_answer.get("choice")
             confidence = action_answer.get("confidence") or 0.0
             goal_complete = (answers.get("goal_complete") or {}).get("noul")
+            cookie_banner = (answers.get("cookie_banner") or {}).get("noul")
+
+            # Cookie/consent banners are the most common trap: dismiss them
+            # with a hard-coded accept instead of reasoning about each one.
+            if cookie_banner is not None and cookie_banner >= laya_decisions.confidence_min():
+                accept_element = next(
+                    (e for e in elements if _AUTO_PILOT_COOKIE_ACCEPT.search(e.get("description", ""))),
+                    None,
+                )
+                if accept_element:
+                    entry = {
+                        "step": step_no, "action": "cookie_accept", "ok": True, "url": url,
+                        "detail": f"Dismissed a consent dialog via '{accept_element['description'][:60]}'",
+                    }
+                    try:
+                        page, step_result = await _execute_step(
+                            session, page,
+                            {"action": "click", "selector": accept_element["selector"]},
+                            default_timeout_ms,
+                        )
+                        entry["result"] = step_result
+                        recent_actions.append("cookie_accept")
+                    except Exception as exc:
+                        entry["ok"] = False
+                        entry["error"] = str(exc)
+                    transcript.append(entry)
+                    try:
+                        await page.wait_for_load_state("domcontentloaded", timeout=4000)
+                    except Exception:
+                        pass
+                    continue
+                # Banner seen but no accept button in the element list: keep
+                # going — the model may pick a dismiss action itself.
 
             if action == "done" or (goal_complete is not None and goal_complete >= laya_decisions.confidence_min()):
-                status = "completed"
                 transcript.append({"step": step_no, "action": "done", "ok": True, "goal_complete": goal_complete})
+                # Verification pass: a self-reported "done" is not trusted
+                # (documented false-positive trap). One independent decision
+                # against the evidence before the loop accepts completion.
+                verified, verify_detail = await _auto_pilot_verify(page, goal, recent_actions)
+                if verified:
+                    status = "completed"
+                else:
+                    status = "verification_failed"
+                    transcript.append({"step": step_no, "action": "verify", "ok": False, "error": verify_detail})
+                break
+            if action == "blocked":
+                status = "blocked"
+                transcript.append({
+                    "step": step_no, "action": "blocked", "ok": False,
+                    "error": "The page is blocked (login wall, captcha, paywall, or an undismissable dialog). The main model should take over: reason about the page, sign in, or ask the user.",
+                    "confidence": confidence,
+                })
                 break
             if action == "give_up":
                 status = "gave_up"
-                transcript.append({"step": step_no, "action": "give_up", "ok": True})
+                transcript.append({"step": step_no, "action": "give_up", "ok": True, "confidence": confidence})
                 break
             if not action or action not in {
-                "click", "type", "press_enter",
+                "click", "type", "select", "press_enter",
                 "press_up", "press_down", "press_left", "press_right",
                 "scroll_down", "scroll_up", "back", "wait",
             }:
                 transcript.append({"step": step_no, "action": None, "ok": False, "error": f"Invalid action {action!r}."})
                 status = "error"
+                break
+            if confidence < laya_decisions.confidence_min():
+                # Low confidence is an escalation, not a guess: stop and let
+                # the orchestrating LLM reason about the situation.
+                status = "low_confidence"
+                transcript.append({
+                    "step": step_no, "action": action, "ok": False,
+                    "error": f"Confidence {confidence:.2f} below the {laya_decisions.confidence_min():.2f} threshold.",
+                    "confidence": confidence,
+                    "hint": "The main model should look at the page (browser_state) and take over or refine the goal.",
+                })
                 break
 
             element_index = (answers.get("element") or {}).get("choice")
@@ -1738,11 +1899,53 @@ async def browser_auto(
                     break
                 step = {"action": "click", "selector": element["selector"]}
             elif action == "type":
-                if not element or type_value is None:
-                    transcript.append({"step": step_no, "action": "type", "ok": False, "error": "Type needs an element and a text choice."})
+                if not element:
+                    transcript.append({"step": step_no, "action": "type", "ok": False, "error": "Type needs an element."})
                     status = "error"
                     break
+                if type_value is None:
+                    # The decision model never invents text — the main model
+                    # writes it. Hand the field back and stop.
+                    status = "needs_text"
+                    transcript.append({
+                        "step": step_no, "action": "type", "ok": False,
+                        "error": f"Text needed for field '{element['description'][:80]}' but no typeable text is available. The main model should write the text and call browser_auto again with type_texts.",
+                        "field": element["description"][:120],
+                    })
+                    break
                 step = {"action": "type", "selector": element["selector"], "text": type_value}
+            elif action == "select":
+                if not element:
+                    transcript.append({"step": step_no, "action": "select", "ok": False, "error": "Select needs an element."})
+                    status = "error"
+                    break
+                options = await _auto_pilot_select_options(page, element["selector"])
+                if not options:
+                    transcript.append({"step": step_no, "action": "select", "ok": False, "error": f"No options found for '{element['description'][:60]}'."})
+                    status = "error"
+                    break
+                # One focused follow-up: which option to pick from this dropdown.
+                option_result = await laya_decisions.try_decide(
+                    {"goal": goal[:1500], "dropdown": element["description"], "options": options},
+                    {
+                        "option": laya_decisions.choice(
+                            "Which option in `options` of `dropdown` best serves `goal`?",
+                            {str(i): opt for i, opt in enumerate(options)},
+                        ),
+                    },
+                    feature="browser_auto",
+                )
+                option_answer = ((option_result or {}).get("answers") or {}).get("option") or {}
+                option_index = option_answer.get("choice")
+                option_confidence = option_answer.get("confidence") or 0.0
+                if option_index is None or not str(option_index).isdigit() or int(option_index) >= len(options) or option_confidence < laya_decisions.confidence_min():
+                    status = "low_confidence"
+                    transcript.append({
+                        "step": step_no, "action": "select", "ok": False,
+                        "error": f"Could not confidently pick an option for '{element['description'][:60]}' (options: {', '.join(options[:6])}). The main model should choose.",
+                    })
+                    break
+                step = {"action": "select", "selector": element["selector"], "label": options[int(option_index)]}
             elif action == "press_enter":
                 step = {"action": "press", "key": "Enter"}
             elif action == "press_up":
@@ -1802,7 +2005,7 @@ async def browser_auto(
         })
 
         ok = status == "completed"
-        return {
+        result = {
             "ok": ok,
             "status": status,
             "goal": goal,
@@ -1816,3 +2019,22 @@ async def browser_auto(
                 else "Auto-pilot stopped early. Use browser_state/browser_run to finish the task manually."
             ),
         }
+
+        # Escalation block: everything the orchestrating LLM needs to take
+        # over when the fast loop could not finish on its own.
+        if status in {"low_confidence", "blocked", "needs_text", "verification_failed", "stuck"}:
+            last_error = next((e.get("error") for e in reversed(transcript) if e.get("error")), "")
+            result["escalation"] = {
+                "status": status,
+                "reason": last_error,
+                "recommended_next_step": {
+                    "low_confidence": "Look at browser_state, reason about the page, then either continue with browser_run or call browser_auto again with a clearer goal.",
+                    "blocked": "The page is blocked (login/captcha/paywall/dialog). Sign in with browser_run, ask the user for credentials, or pick a different route.",
+                    "needs_text": "Write the text for the reported field and call browser_auto again with type_texts including it.",
+                    "verification_failed": "The loop claimed done but verification disagreed. Check the final page with browser_state and finish with browser_run if needed.",
+                    "stuck": "The same action repeated. Inspect the page with browser_state and take over with browser_run.",
+                }.get(status, ""),
+                "goal": goal,
+                "final_url": page.url,
+            }
+        return result
