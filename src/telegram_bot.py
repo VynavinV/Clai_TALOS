@@ -4894,7 +4894,14 @@ async def main():
     async def security_headers_middleware(request, handler):
         response = await handler(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
+        # Popup content is the one page the Panel legitimately embeds in an
+        # iframe. DENY blocks even same-origin framing (Firefox refuses to
+        # show it, Safari renders nothing), so that path gets SAMEORIGIN —
+        # still refuses embedding from any other site.
+        if request.path.startswith("/api/panel/popups/content/"):
+            response.headers["X-Frame-Options"] = "SAMEORIGIN"
+        else:
+            response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(self), geolocation=()"
         if _is_secure(request):
