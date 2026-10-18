@@ -36,6 +36,7 @@ import google_integration
 import homeassistant
 import interrupt_hub
 import activity_tracker
+import panel_popups
 import ollama_setup
 import laya_decisions
 import app_paths
@@ -2761,6 +2762,32 @@ async def handle_panel(request):
     return _serve_auth_page(request, "panel.html")
 
 
+@require_auth
+async def handle_api_panel_popups(request):
+    """Pending agent popups for open Panel tabs (poll endpoint)."""
+    return web.json_response({"ok": True, "popups": panel_popups.hub.pending_list()})
+
+
+@require_auth_csrf
+async def handle_api_panel_popup_respond(request):
+    """Answer a pending confirm popup from a Panel tab. First answer wins."""
+    body = request._json_body if isinstance(request._json_body, dict) else {}
+    result = panel_popups.hub.respond(str(body.get("popup_id", "")), str(body.get("answer", "")))
+    if not result.get("ok"):
+        return web.json_response(result, status=409)
+    return web.json_response(result)
+
+
+@require_auth_csrf
+async def handle_api_panel_popup_dismiss(request):
+    """Dismiss a pending popup (e.g. an HTML card) from a Panel tab."""
+    body = request._json_body if isinstance(request._json_body, dict) else {}
+    result = panel_popups.hub.dismiss(str(body.get("popup_id", "")))
+    if not result.get("ok"):
+        return web.json_response(result, status=409)
+    return web.json_response(result)
+
+
 async def handle_api_tasks(request):
     token = request.cookies.get(SESSION_COOKIE)
     if not validate_session(token):
@@ -4246,6 +4273,7 @@ async def handle_api_tools_get(request):
         "google_execute": True,
         "email_execute": True,
         "pa_system": True,
+        "panel_popup": True,
         "browser_start_chrome_debug": True,
         "browser_connect": True,
         "browser_run": True,
@@ -4870,6 +4898,9 @@ async def main():
     web_app.router.add_get("/docs", handle_docs_page)
     web_app.router.add_get("/projects", handle_projects_page)
     web_app.router.add_get("/panel", handle_panel)
+    web_app.router.add_get("/api/panel/popups", handle_api_panel_popups)
+    web_app.router.add_post("/api/panel/popups/respond", handle_api_panel_popup_respond)
+    web_app.router.add_post("/api/panel/popups/dismiss", handle_api_panel_popup_dismiss)
     web_app.router.add_get("/api/tasks", handle_api_tasks)
     web_app.router.add_get("/api/homeassistant/status", handle_api_homeassistant_status)
     web_app.router.add_get("/api/homeassistant/states", handle_api_homeassistant_states)

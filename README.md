@@ -567,7 +567,7 @@ Main pages:
 - `/dashboard`
 - Primary control panel and status view.
 - `/panel`
-- Always-on panel for tablets (system resources with configurable tiles, system checks, live agents, scheduled tasks, model output, and Home Assistant controls). Works on old iPads (iOS 12 Safari); use Safari's "Add to Home Screen" to run it like an app.
+- Always-on panel for tablets (system resources with configurable tiles, system checks, live agents, scheduled tasks, model output, and Home Assistant controls). Works on old iPads (iOS 12 Safari); use Safari's "Add to Home Screen" to run it like an app. The agent can also push popups here for yes/no decisions or temporary HTML cards (diagrams) via the `panel_popup` tool.
 - `/keys`
 - API key management UI.
 - `/settings`
@@ -643,6 +643,9 @@ Main pages:
 | GET | `/api/homeassistant/status` | Home Assistant connection check |
 | GET | `/api/homeassistant/states` | Home Assistant entity states |
 | POST | `/api/homeassistant/service` | Call a Home Assistant service (toggle/run) |
+| GET | `/api/panel/popups` | Pending agent popups for open Panel tabs (poll) |
+| POST | `/api/panel/popups/respond` | Answer a yes/no popup (first answer wins) |
+| POST | `/api/panel/popups/dismiss` | Dismiss an HTML popup |
 
 #### Setting up the Panel on an iPad (grandma edition)
 
@@ -886,6 +889,7 @@ These tools are exposed by the orchestrator and can be toggled in the dashboard.
 | `list_projects` | List registered projects |
 | `read_tool_guide` | Read the full usage guide for any tool |
 | `pa_system` | Speak a message through the host machine speakers (local PA announcements) |
+| `panel_popup` | Push a popup to open Panel tabs: blocking yes/no decisions or temporary custom HTML cards (diagrams) |
 | `subagent_status` | Check on background subagents |
 
 ### Additional integrations

@@ -30,6 +30,7 @@ import google_integration
 import email_tools
 import homeassistant
 import pa_system
+import panel_popups
 import activity_tracker
 import interrupt_hub
 import laya_decisions
@@ -261,6 +262,11 @@ _RAID_MODE_PROMPT = (
     "Token cost is not a constraint right now; speed and coverage are. Build an army — but a "
     "DISCIPLINED one. A swarm without orchestration is just noise.\n\n"
     "PLAN BEFORE YOU SPAWN:\n"
+    "0. CONFIRM FIRST: before spawning anything, send the user ONE short message stating "
+    "what you understood the task to be, the division of labor you are about to launch "
+    "(roles and what each covers), and what they will get when the raid completes — then "
+    "start spawning in the SAME response. The confirmation is how the user catches a "
+    "misunderstanding before tokens burn on it.\n"
     "1. Decompose the task into non-overlapping specializations BEFORE spawning anything. "
     "Decide the division of labor first: who covers what, and what is explicitly out of each "
     "agent's scope. Overlap is waste; gaps are failure. If two agents would produce the same "
@@ -279,6 +285,12 @@ _RAID_MODE_PROMPT = (
     "pitch decks by a deck agent, websites/code by builder agents, reports by the agents "
     "that did the research. You do NOT write deliverables yourself — doing the work "
     "yourself while agents idle is a raid failure.\n"
+    "- In raid you push work down HARDER than normal: if any step of the plan has YOU "
+    "executing it, you are under-spawning. Spawn another agent instead. Idle orchestrator "
+    "rounds are the only waste a raid cannot afford.\n"
+    "- DOUBLE-PUSH critical paths: for scopes the whole task depends on, spawn TWO agents "
+    "with different approaches in parallel and keep the better result — redundant coverage "
+    "beats serial precision in raid mode.\n"
     "- Your work is: decompose, assign with clear requirements, track, verify each result "
     "against the goal, and send revision notes back to the producing agent when the output "
     "misses the mark. Never rewrite an agent's deliverable yourself — send it back with "
@@ -334,8 +346,25 @@ def _build_system(
 
     parts.append(
         "[Orchestrator Instructions]\n"
-        "You are the orchestrator — your job is to finish tasks FAST, and subagents are your "
-        "speed lever. Doing everything yourself, one step at a time, is the slow path.\n\n"
+        "You are the orchestrator — a CONDUCTOR, not a worker. Your job: understand the "
+        "request, delegate ALL work to subagents, verify their results, and relay. Doing "
+        "work yourself — even simple work — is a failure of your role, because it blocks "
+        "you from handling the user's next message while a subagent could have been "
+        "working.\n\n"
+        "DELEGATE EVERYTHING:\n"
+        "- ANY task that produces or changes anything is a subagent's job: a slideshow "
+        "(spawn a deck-builder that calls create_project and returns the live URL), a "
+        "document, code, research, a lookup, an email, a file edit, an answer that needs "
+        "tools. Even simple one-step tasks: spawn a subagent to do and deliver it.\n"
+        "- You only answer directly for pure conversation that needs no tools — greetings, "
+        "clarifying questions, small talk about the task in hand.\n"
+        "- If you catch yourself writing a file, building HTML, drafting content, or "
+        "running a multi-step tool sequence: STOP. That is a subagent's job. Spawn one "
+        "with the exact instructions you were about to follow yourself.\n"
+        "- Free yourself: for self-contained work, spawn with background=true and END your "
+        "turn after the confirmation — results are delivered when they finish, and you "
+        "stay available for the user's next message. Use foreground batches only when "
+        "you need the results to compose THIS reply.\n\n"
         "PARALLELIZE BY DEFAULT:\n"
         "- If a request has two or more independent parts (several files, pages, sources, topics, "
         "items, or questions), spawn one subagent per part IN THE SAME RESPONSE — they run in "
@@ -347,7 +376,7 @@ def _build_system(
         "review' → delegate the research, do the writing, delegate the review.\n"
         "- Delegate anything focused that would otherwise occupy your rounds: research, data "
         "gathering, verification, review, testing, drafting sections, and the PRODUCTION of "
-        "deliverables (documents, decks, sites, reports) on multi-part tasks — you keep the "
+        "deliverables (documents, decks, sites, reports) — you keep the "
         "planning, the assignment, and the verification.\n"
         "- For LONG-RUNNING subtasks (over ~15 minutes), use background=true: they run detached "
         "while you continue other work, and results are delivered to you when they finish.\n"
@@ -358,6 +387,20 @@ def _build_system(
         "alongside. Use subagent_status to check on background work.\n"
         "After all subagents complete, synthesize their results into one coherent response. "
         "Keep the user informed: when spawning subagents, say what you're delegating and why.\n\n"
+        "CONFIRM BEFORE YOU WORK:\n"
+        "- Before starting any multi-step task (anything needing 2+ tool calls, subagents, "
+        "or more than a minute of work), FIRST send the user ONE short acknowledgment of "
+        "what you understood and how you'll approach it, then immediately start working — "
+        "ideally in the SAME response as your first spawn calls. "
+        "Example: 'Got it — I'll audit the repo with three parallel agents (frontend, "
+        "backend, tests) and send you a ranked cleanup list when they finish.'\n"
+        "- Cover three things in 2-4 sentences: what you understood the request to be, "
+        "how you're splitting it (or that you'll handle it directly if it's simple), and "
+        "what the user will get at the end. This is how the user catches a misunderstanding "
+        "before you burn work on the wrong thing.\n"
+        "- NEVER send only the confirmation and stop — the message is a receipt for work "
+        "already starting, not the answer. Skip confirmations entirely for pure conversation; "
+        "they are for work, not chatter.\n\n"
         "Subagent Telegram updates must be minimal and concise: at most one optional progress "
         "update plus one completion update per subagent, never step-by-step internal logs. "
         "For action requests (open/click/search/screenshot/send), execute tools first and then report results. "
@@ -1626,6 +1669,37 @@ def _get_all_tools(include_subagent: bool = True, include_telegram: bool = False
         {
             "type": "function",
             "function": {
+                "name": "panel_popup",
+                "description": (
+                    "Push a popup to the user's open Panel browser tabs (the always-on tablet dashboard). "
+                    "Use action 'confirm' for yes/no decisions — the call waits until the user answers "
+                    "(or times out) and returns the answer. Use action 'show_html' to display temporary "
+                    "custom HTML (diagrams, tables, sketches) on the Panel until dismissed or expired."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "action": {
+                            "type": "string",
+                            "description": "confirm (wait for a yes/no answer), show_html (temporary HTML card), dismiss (close a popup by id)",
+                        },
+                        "title": {"type": "string", "description": "Popup heading shown to the user"},
+                        "question": {"type": "string", "description": "confirm: the yes/no question shown to the user"},
+                        "timeout_s": {"type": "number", "description": "confirm: max seconds to wait for an answer (default 90, max 300)"},
+                        "yes_label": {"type": "string", "description": "confirm: custom text for the yes button (default Yes)"},
+                        "no_label": {"type": "string", "description": "confirm: custom text for the no button (default No)"},
+                        "html": {"type": "string", "description": "show_html: self-contained HTML fragment (inline CSS/SVG/JS only, max 20000 chars)"},
+                        "ttl_s": {"type": "number", "description": "show_html: seconds before the popup disappears (default 300, max 3600)"},
+                        "text": {"type": "string", "description": "show_html: optional plain-text note shown above the HTML"},
+                        "popup_id": {"type": "string", "description": "dismiss: id of the popup to close"},
+                    },
+                    "required": ["action"],
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
                 "name": "browser_start_chrome_debug",
                 "description": "Start Google Chrome with remote debugging enabled so TALOS can attach to your existing logged-in browser state.",
                 "parameters": {
@@ -2712,6 +2786,73 @@ async def _execute_tool_call(
             )
             return json.dumps(result, indent=2)
 
+        elif tool_name == "panel_popup":
+            action = str(tool_args.get("action", "")).strip().lower()
+            if not action:
+                return json.dumps({"error": "action is required: confirm, show_html, or dismiss"}, indent=2)
+
+            if action == "confirm":
+                question = str(tool_args.get("question", "")).strip()
+                if not question:
+                    return json.dumps({"error": "question is required for confirm"}, indent=2)
+                timeout_s = tool_args.get("timeout_s", 90)
+                if not isinstance(timeout_s, (int, float)) or timeout_s <= 0:
+                    timeout_s = 90
+                timeout_s = int(min(timeout_s, panel_popups.MAX_CONFIRM_TIMEOUT_S))
+                popup = panel_popups.hub.create_confirm(
+                    title=str(tool_args.get("title", "")).strip() or "Decision needed",
+                    text=question,
+                    timeout_s=timeout_s,
+                    yes_label=str(tool_args.get("yes_label", "")).strip() or "Yes",
+                    no_label=str(tool_args.get("no_label", "")).strip() or "No",
+                )
+                result = await panel_popups.hub.wait_for_answer(popup["id"], timeout_s + 5)
+                if result.get("status") == "answered":
+                    answer = "yes" if result.get("answer") == "yes" else "no"
+                    return json.dumps(
+                        {
+                            "status": "answered",
+                            "answer": answer,
+                            "note": "The user answered on the Panel.",
+                        },
+                        indent=2,
+                    )
+                return json.dumps(
+                    {
+                        "status": result.get("status") or "timeout",
+                        "answer": None,
+                        "note": "Nobody answered on the Panel in time. Ask the user in chat instead of retrying.",
+                    },
+                    indent=2,
+                )
+
+            if action == "show_html":
+                created = panel_popups.hub.show_html(
+                    title=str(tool_args.get("title", "")).strip() or "From your assistant",
+                    html=tool_args.get("html", ""),
+                    ttl_s=tool_args.get("ttl_s", 300),
+                    text=str(tool_args.get("text", "")).strip(),
+                )
+                if "error" in created:
+                    return json.dumps(created, indent=2)
+                return json.dumps(
+                    {
+                        "status": "shown",
+                        "popup_id": created["id"],
+                        "ttl_s": created.get("ttl_s"),
+                        "note": "Displayed on all open Panel pages; it disappears when dismissed or after the TTL.",
+                    },
+                    indent=2,
+                )
+
+            if action == "dismiss":
+                popup_id = str(tool_args.get("popup_id", "")).strip()
+                if not popup_id:
+                    return json.dumps({"error": "popup_id is required for dismiss"}, indent=2)
+                return json.dumps(panel_popups.hub.dismiss(popup_id), indent=2)
+
+            return json.dumps({"error": f"Unknown action: {action}. Use confirm, show_html, or dismiss."}, indent=2)
+
         elif tool_name == "browser_start_chrome_debug":
             result = await browser_automation.start_chrome_debug(
                 endpoint=tool_args.get("endpoint", "http://127.0.0.1:9222"),
@@ -2867,13 +3008,23 @@ async def _execute_tool_call(
             write_result = file_tools.write_file(index_path, html, create_dirs=True)
             if "error" in write_result:
                 return json.dumps({"error": f"Failed to write index.html: {write_result['error']}"})
-            return json.dumps({
+            result = {
                 "status": "live",
                 "url": reg["url"],
                 "share_this_link": reg["url"],
                 "path": reg["path"],
                 "instruction": "Send the url to the user — this is the live clickable link to their project",
-            }, indent=2)
+            }
+            # Conductor doctrine nudge: the deck itself should be BUILT by a
+            # subagent. Never blocks — just reminds the orchestrator to push
+            # deliverable production down next time.
+            if _agent_id == "orchestrator" and allow_subagent:
+                result["reminder"] = (
+                    "You built this yourself. In conductor mode, producing deliverables "
+                    "(decks, sites, documents) belongs to a subagent — next time spawn a "
+                    "deck-builder with the requirements and verify its result instead."
+                )
+            return json.dumps(result, indent=2)
 
         elif tool_name == "migrate_project":
             import shutil
@@ -3384,6 +3535,7 @@ _TEXT_TOOL_ALIASES = {
     "speak": "pa_system",
     "announce": "pa_system",
     "pa": "pa_system",
+    "popup": "panel_popup",
 }
 
 _LEADING_ACK_RE = re.compile(

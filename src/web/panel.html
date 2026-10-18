@@ -963,6 +963,51 @@
   .m-actions .btn + .btn { margin-left: 0.6rem; }
   .m-hide { border-color: rgba(255, 111, 139, 0.4); background: rgba(255, 111, 139, 0.1); }
 
+  /* ---------- agent popup (yes/no decision or custom HTML card) ---------- */
+
+  .pp-modal {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    z-index: 80; display: none;
+    align-items: center; justify-content: center;
+    background: rgba(2, 5, 12, 0.8);
+  }
+  .pp-modal.open { display: flex; }
+  .pp-card {
+    width: 94%; max-width: 560px;
+    max-height: 88%; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    background: rgba(15, 24, 39, 0.98);
+    border: 1px solid var(--stroke-strong);
+    border-radius: 22px;
+    padding: 1.05rem;
+    animation: rise-in 0.22s ease;
+  }
+  .pp-head { display: flex; align-items: center; margin-bottom: 0.75rem; }
+  .pp-head > * + * { margin-left: 0.65rem; }
+  .pp-icon { font-size: 1.7rem; line-height: 1; flex-shrink: 0; }
+  .pp-title { min-width: 0; flex: 1; }
+  .pp-name { font-size: 1.02rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pp-state { font-size: 0.64rem; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.08em; margin-top: 0.15rem; }
+  .pp-close {
+    width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0;
+    border: 1px solid var(--stroke-soft); background: var(--surface-2);
+    color: var(--text-1); font-size: 1.3rem; line-height: 1; font-family: inherit; cursor: pointer;
+  }
+  .pp-question { font-size: 0.98rem; line-height: 1.5; color: var(--text-0); margin-bottom: 0.75rem; white-space: pre-wrap; word-break: break-word; }
+  .pp-countdown { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.62rem; color: var(--warn); margin-bottom: 0.65rem; }
+  .pp-actions { display: flex; }
+  .pp-actions .btn + .btn { margin-left: 0.6rem; }
+  .pp-actions .btn { flex: 1; font-size: 0.95rem; min-height: 54px; }
+  .pp-yes { border-color: rgba(66, 223, 173, 0.5); background: linear-gradient(145deg, rgba(66, 223, 173, 0.2), rgba(66, 223, 173, 0.07)); }
+  .pp-no { border-color: rgba(255, 111, 139, 0.5); background: linear-gradient(145deg, rgba(255, 111, 139, 0.16), rgba(255, 111, 139, 0.05)); }
+  .pp-frame-wrap {
+    border: 1px solid rgba(143, 217, 255, 0.18);
+    border-radius: var(--radius-md);
+    background: rgba(0, 0, 0, 0.25);
+    overflow: hidden;
+  }
+  .pp-frame { width: 100%; height: 56vh; max-height: 480px; border: 0; display: block; }
+
+
   /* ---------- iOS 12 perf mode: kill expensive effects ---------- */
 
   .perf-lite .svc-tile.warn .svc-emoji, .perf-lite .ha-tile.on::after,
@@ -1490,6 +1535,34 @@
     <div class="help-note">
       Changes save automatically on this iPad and apply immediately.
       Reordering moves a panel within its column (left or right); drag the bars between panels to resize them.
+    </div>
+  </div>
+</div>
+
+<div class="pp-modal" id="pp-modal">
+  <div class="pp-card">
+    <div class="pp-head">
+      <span class="pp-icon" id="pp-icon">&#129302;</span>
+      <div class="pp-title">
+        <div class="pp-name" id="pp-name"></div>
+        <div class="pp-state" id="pp-state"></div>
+      </div>
+      <button class="pp-close" id="pp-close" aria-label="Close">&times;</button>
+    </div>
+    <div id="pp-confirm-body" style="display:none;">
+      <div class="pp-question" id="pp-question"></div>
+      <div class="pp-countdown" id="pp-countdown"></div>
+      <div class="pp-actions">
+        <button class="btn pp-yes" id="pp-yes">Yes</button>
+        <button class="btn pp-no" id="pp-no">No</button>
+      </div>
+    </div>
+    <div id="pp-html-body" style="display:none;">
+      <div class="pp-question" id="pp-note" style="display:none;"></div>
+      <div class="pp-frame-wrap"><iframe class="pp-frame" id="pp-frame" sandbox="allow-scripts" title="Content from your assistant"></iframe></div>
+      <div class="pp-actions" style="margin-top:0.7rem;">
+        <button class="btn" id="pp-dismiss">Close</button>
+      </div>
     </div>
   </div>
 </div>
@@ -3747,6 +3820,135 @@
     sysRefreshAfterConfig();
   });
 
+  /* ---------- agent popups (yes/no decisions + custom HTML cards) ---------- */
+  /* ES5 only: this page must keep running on iOS 12 Safari (iPad mini). */
+
+  var ppShown = null;      // popup currently on screen
+  var ppLocalClosed = {};  // ids closed locally on THIS tab; don't force them open again
+  var ppTimer = null;      // countdown interval for confirm popups
+  var ppFrameUrl = null;   // blob URL backing the html iframe (revoked on close)
+
+  function ppCloseModal() {
+    $('pp-modal').classList.remove('open');
+    if (ppTimer) { clearInterval(ppTimer); ppTimer = null; }
+    if (ppFrameUrl) { try { window.URL.revokeObjectURL(ppFrameUrl); } catch (e) {} ppFrameUrl = null; }
+    ppShown = null;
+  }
+
+  function ppDocUrl(html) {
+    try {
+      return window.URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+    } catch (e) {
+      return 'data:text/html;charset=utf-8,' + encodeURIComponent(html);
+    }
+  }
+
+  function ppOpen(popup) {
+    ppCloseModal();
+    ppShown = popup;
+    $('pp-name').textContent = popup.title || 'From your assistant';
+
+    if (popup.kind === 'confirm') {
+      $('pp-state').textContent = 'your assistant needs a decision';
+      $('pp-confirm-body').style.display = 'block';
+      $('pp-html-body').style.display = 'none';
+      $('pp-question').textContent = popup.text || '';
+      var yes = $('pp-yes'), no = $('pp-no');
+      yes.textContent = popup.yes_label || 'Yes';
+      no.textContent = popup.no_label || 'No';
+      yes.disabled = false;
+      no.disabled = false;
+      var countdown = $('pp-countdown');
+      var tick = function () {
+        if (!ppShown || ppShown.id !== popup.id) return;
+        var left = Math.max(0, Math.round(popup.expires_ts - Date.now() / 1000));
+        if (countdown) countdown.textContent = 'waiting for an answer \u00b7 ' + left + 's';
+        if (left <= 0 && ppTimer) { clearInterval(ppTimer); ppTimer = null; }
+      };
+      tick();
+      if (ppTimer) clearInterval(ppTimer);
+      ppTimer = setInterval(tick, 1000);
+    } else {
+      $('pp-state').textContent = 'temporary card \u00b7 closes on its own';
+      $('pp-confirm-body').style.display = 'none';
+      $('pp-html-body').style.display = 'block';
+      var note = $('pp-note');
+      if (popup.text) { note.textContent = popup.text; note.style.display = 'block'; }
+      else { note.style.display = 'none'; }
+      var frame = $('pp-frame');
+      if (ppFrameUrl) { try { window.URL.revokeObjectURL(ppFrameUrl); } catch (e) {} ppFrameUrl = null; }
+      ppFrameUrl = ppDocUrl(popup.html || '');
+      frame.setAttribute('src', ppFrameUrl);
+    }
+    $('pp-modal').classList.add('open');
+  }
+
+  function ppAnswer(answer) {
+    if (!ppShown) return;
+    var popup = ppShown;
+    $('pp-yes').disabled = true;
+    $('pp-no').disabled = true;
+    postJSON('/api/panel/popups/respond', { popup_id: popup.id, answer: answer }).then(function (d) {
+      // 409 (someone answered on another tab first) still resolves: close either way.
+      if (d && d.error) toast(d.error, true);
+      ppLocalClosed[popup.id] = true;
+      ppCloseModal();
+    }).catch(function () {
+      $('pp-yes').disabled = false;
+      $('pp-no').disabled = false;
+      toast('Could not send the answer. Please try again.', true);
+    });
+  }
+
+  function ppPoll() {
+    getJSON('/api/panel/popups').then(function (d) {
+      var list = (d && d.popups) || [];
+      if (ppShown) {
+        var stillThere = false;
+        for (var i = 0; i < list.length; i++) {
+          if (list[i].id === ppShown.id) { stillThere = true; break; }
+        }
+        if (!stillThere) {
+          ppLocalClosed[ppShown.id] = true;
+          ppCloseModal();
+        }
+      }
+      var next = null;
+      for (var j = 0; j < list.length; j++) {
+        var p = list[j];
+        if (!ppLocalClosed[p.id]) next = p; // oldest → newest; the newest wins
+      }
+      if (next && (!ppShown || ppShown.id !== next.id)) ppOpen(next);
+    }).catch(function () {});
+  }
+
+  $('pp-yes').addEventListener('click', function () { ppAnswer('yes'); });
+  $('pp-no').addEventListener('click', function () { ppAnswer('no'); });
+
+  $('pp-dismiss').addEventListener('click', function () {
+    if (!ppShown) return;
+    var popup = ppShown;
+    postJSON('/api/panel/popups/dismiss', { popup_id: popup.id }).then(function (d) {
+      if (d && d.error) toast(d.error, true);
+      ppLocalClosed[popup.id] = true;
+      ppCloseModal();
+    }).catch(function () { toast('Could not close it. Please try again.', true); });
+  });
+
+  $('pp-close').addEventListener('click', function () {
+    if (ppShown) ppLocalClosed[ppShown.id] = true;
+    ppCloseModal();
+  });
+
+  $('pp-modal').addEventListener('click', function (ev) {
+    // Backdrop tap: an HTML card closes like the ×; a yes/no question stays
+    // open so a stray tap cannot silently ignore the assistant.
+    if (ev.target !== $('pp-modal') || !ppShown) return;
+    if (ppShown.kind === 'confirm') return;
+    ppLocalClosed[ppShown.id] = true;
+    ppCloseModal();
+  });
+
   /* ---------- boot ---------- */
 
   /* old iPads (iOS 12): strip the expensive effects so drags stay smooth */
@@ -3769,6 +3971,9 @@
   setInterval(function () { if (!document.hidden) renderActivity(); }, 2000);
   setInterval(function () { if (!document.hidden) layoutSplitters(); }, 2000);
   setInterval(function () { if (!document.hidden) tickWave(); }, WAVE_MS);
+
+  ppPoll();
+  setInterval(function () { if (!document.hidden) ppPoll(); }, 4000);
 
   renderHaStatus();
   setInterval(function () { if (!document.hidden) renderHaStatus(); }, 45000);

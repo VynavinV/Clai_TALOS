@@ -74,6 +74,27 @@ def test_raid_prompt_included_only_in_raid(tmp_path, monkeypatch):
     assert "NOT THE PRODUCER" in on
     assert "You do NOT write deliverables yourself" in on
     assert "revision notes back to the producing agent" in on
+    # Raid pushes work down harder, with double coverage on critical paths.
+    assert "under-spawning" in on
+    assert "DOUBLE-PUSH critical paths" in on
+
+
+def test_orchestrator_doctrine_delegates_everything(tmp_path, monkeypatch):
+    """The conductor doctrine: all work is delegated, even simple tasks."""
+    _fresh_user(monkeypatch, tmp_path)
+    system = AI._build_system(1, "hello", include_memories=False, raid_mode=False) or ""
+    assert "You are the orchestrator — a CONDUCTOR, not a worker" in system
+    assert "DELEGATE EVERYTHING" in system
+    # Even simple one-step tasks get a subagent.
+    assert "Even simple one-step tasks: spawn a subagent to do and deliver it" in system
+    # Slideshows/deck building is explicitly delegated with the create_project pattern.
+    assert "deck-builder that calls create_project" in system
+    # Self-confirmation before working.
+    assert "CONFIRM BEFORE YOU WORK" in system
+    # The orchestrator frees itself with background subagents.
+    assert "spawn with background=true and END your turn" in system
+    # Direct answers are for pure conversation only.
+    assert "pure conversation that needs no tools" in system
 
 
 def test_raid_subagents_are_silent(tmp_path, monkeypatch):
