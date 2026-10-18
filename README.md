@@ -647,7 +647,7 @@ Main pages:
 | GET | `/api/panel/popups/content/{id}` | Popup HTML page (same-origin iframe source) |
 | POST | `/api/panel/popups/respond` | Answer a yes/no popup (first answer wins) |
 | POST | `/api/panel/popups/dismiss` | Dismiss an HTML popup |
-| GET | `/api/qr?data=...` | Local QR code generator (SVG) |
+| GET | `/api/qr?data=...` | Local QR code generator (PNG) |
 
 #### Setting up the Panel on an iPad (grandma edition)
 

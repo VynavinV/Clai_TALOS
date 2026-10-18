@@ -2780,15 +2780,16 @@ async def handle_api_panel_popup_content(request):
 
 
 async def handle_api_qr(request):
-    """Tiny local QR generator: returns an SVG for ?data=... . Unauthenticated —
+    """Tiny local QR generator: returns a PNG for ?data=... . Unauthenticated —
     it only encodes the given text, nothing private — and it must work from
-    inside sandboxed popup iframes."""
+    inside sandboxed popup iframes. PNG (not SVG) on purpose: old iOS 12
+    Safari renders plain PNG images reliably but is flaky with SVG in <img>."""
     data = str(request.query.get("data", "")).strip()
-    scale = request.query.get("scale", "4")
+    scale = request.query.get("scale", "8")
     try:
-        scale = max(1, min(int(scale), 12))
+        scale = max(1, min(int(scale), 16))
     except ValueError:
-        scale = 4
+        scale = 8
     if not data:
         return web.json_response({"error": "data query parameter is required"}, status=400)
     if len(data) > 1000:
@@ -2796,13 +2797,13 @@ async def handle_api_qr(request):
     try:
         import segno
         buf = io.BytesIO()
-        segno.make(data, error="m").save(buf, kind="svg", scale=scale, border=2)
-        svg = buf.getvalue()
+        segno.make(data, error="m").save(buf, kind="png", scale=scale, border=2)
+        png = buf.getvalue()
     except Exception as e:
         return web.json_response({"error": f"QR generation failed: {e}"}, status=500)
     return web.Response(
-        body=svg,
-        content_type="image/svg+xml",
+        body=png,
+        content_type="image/png",
         headers={"Cache-Control": "public, max-age=86400"},
     )
 
