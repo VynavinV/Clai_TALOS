@@ -875,6 +875,36 @@
     background: linear-gradient(155deg, rgba(255, 111, 139, 0.2), rgba(28, 10, 15, 0.74));
   }
 
+  .raid-card {
+    border-color: rgba(255, 82, 110, 0.5);
+    background: linear-gradient(155deg, rgba(255, 82, 110, 0.12), rgba(28, 10, 15, 0.78));
+  }
+  .raid-card.on {
+    border-color: rgba(255, 82, 110, 0.85);
+    background: linear-gradient(155deg, rgba(255, 82, 110, 0.24), rgba(34, 8, 14, 0.85));
+    box-shadow: 0 0 22px rgba(255, 82, 110, 0.18);
+  }
+  .raid-card .context-value { color: #ff8fa3; }
+  .raid-btn {
+    font-family: inherit;
+    width: 100%;
+    margin-top: 0.5rem;
+    padding: 0.5rem 0.6rem;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 82, 110, 0.6);
+    background: rgba(255, 82, 110, 0.14);
+    color: #ffb3c0;
+    font-size: 0.82rem;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .raid-btn:active { transform: scale(0.98); }
+  .raid-warning {
+    margin-top: 0.45rem;
+    font-size: 0.68rem;
+    color: rgba(255, 185, 105, 0.85);
+  }
+
   .context-head {
     display: flex;
     align-items: center;
@@ -1171,6 +1201,17 @@
           <div class="telemetry-label">Time Running</div>
           <div class="uptime-value" id="uptime">--:--:--</div>
           <p class="telemetry-note">This updates automatically every few seconds.</p>
+        </section>
+
+        <section class="telemetry raid-card" id="raid-card">
+          <div class="telemetry-label">Raid Mode</div>
+          <div class="context-head">
+            <div class="context-value" id="raid-state">OFF</div>
+            <span class="state-pill safe" id="raid-pill">Normal limits</span>
+          </div>
+          <p class="telemetry-note" id="raid-note">Lift subagent limits and swarm large tasks with up to 100 specialized parallel agents.</p>
+          <button class="raid-btn" id="raid-btn" onclick="toggleRaid()">&#9876; Activate Raid</button>
+          <p class="raid-warning">&#9888; Token heavy — the swarm spends tokens freely for speed.</p>
         </section>
 
         <section class="panel quick-actions">
@@ -1856,6 +1897,47 @@ setInterval(poll, 5000);
 // Repair labels, so the Fix All confirmation can name each action rather than
 // showing raw repair ids.
 loadRepairMeta();
+
+// ---------- raid mode ----------
+function renderRaidCard(on) {
+  var card = document.getElementById('raid-card');
+  var state = document.getElementById('raid-state');
+  var pill = document.getElementById('raid-pill');
+  var btn = document.getElementById('raid-btn');
+  if (!card || !state) return;
+  card.classList.toggle('on', !!on);
+  state.textContent = on ? 'ON' : 'OFF';
+  if (pill) {
+    pill.textContent = on ? 'Swarm active' : 'Normal limits';
+    pill.className = 'state-pill ' + (on ? 'critical' : 'safe');
+  }
+  if (btn) btn.innerHTML = on ? '&#9876; Deactivate Raid' : '&#9876; Activate Raid';
+}
+
+function loadRaidStatus() {
+  fetch('/api/raid/status').then(function (r) { return r.json(); }).then(function (d) {
+    renderRaidCard(!!d.raid);
+  }).catch(function () {});
+}
+
+async function toggleRaid() {
+  var btn = document.getElementById('raid-btn');
+  if (btn) btn.disabled = true;
+  try {
+    var res = await fetch('/api/raid/toggle', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ csrf_token: csrfToken() })
+    });
+    if (res.status === 401) { window.location.href = '/'; return; }
+    var d = await res.json();
+    renderRaidCard(!!d.raid);
+  } catch (e) {
+    // Leave the card as-is on failure.
+  }
+  if (btn) btn.disabled = false;
+}
+loadRaidStatus();
 
 (function() {
   var events = [];

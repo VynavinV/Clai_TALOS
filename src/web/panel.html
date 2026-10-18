@@ -600,6 +600,16 @@
   .svc-tile.ok { border-color: rgba(66, 223, 173, 0.32); }
   .svc-tile.warn { border-color: rgba(255, 185, 105, 0.4); }
   .svc-tile.err { border-color: rgba(255, 111, 139, 0.45); }
+
+  /* RAID mode toggle tile — always red, glows when active. */
+  .svc-tile.raid { border-color: rgba(255, 82, 110, 0.55); background: rgba(255, 82, 110, 0.08); cursor: pointer; }
+  .svc-tile.raid .svc-emoji { filter: drop-shadow(0 0 8px rgba(255, 82, 110, 0.45)); }
+  .svc-tile.raid .svc-name { color: #ff8fa3; }
+  .svc-tile.raid .svc-sub { font-size: 0.46rem; font-weight: 600; letter-spacing: 0.05em; color: rgba(255, 143, 163, 0.75); text-transform: uppercase; margin-top: 0.12rem; }
+  .svc-tile.raid.on { background: rgba(255, 82, 110, 0.16); animation: raidPulse 1.6s ease-in-out infinite; }
+  .svc-tile.raid.on .svc-ring { color: #ff526e; opacity: 1; }
+  @keyframes raidPulse { 0%, 100% { box-shadow: 0 0 0 rgba(255, 82, 110, 0); } 50% { box-shadow: 0 0 14px rgba(255, 82, 110, 0.35); } }
+  .svc-tile.raid:active { transform: scale(0.96); }
   .svc-emoji { font-size: 1.35rem; line-height: 1; filter: drop-shadow(0 0 8px rgba(143, 217, 255, 0.3)); }
   .svc-tile.ok .svc-emoji { filter: drop-shadow(0 0 8px rgba(66, 223, 173, 0.5)); }
   .svc-tile.warn .svc-emoji { filter: drop-shadow(0 8px 8px rgba(255, 185, 105, 0.5)); animation: wobble 2.2s ease-in-out infinite; }
@@ -1217,7 +1227,14 @@
           </div>
         </div>
 
-        <div class="svc-grid" id="svc-grid"></div>
+        <div class="svc-grid" id="svc-grid">
+          <div class="svc-tile raid" id="raid-tile" onclick="toggleRaid()" title="RAID mode: lift subagent limits and swarm large tasks. Token heavy.">
+            <span class="svc-ring"></span>
+            <span class="svc-emoji">&#9876;</span>
+            <span class="svc-name">Raid</span>
+            <span class="svc-sub" id="raid-sub">off · token heavy</span>
+          </div>
+        </div>
 
         <div>
           <div class="ha-group-title" style="margin-bottom:0.4rem;">&#9201; Scheduled Tasks</div>
@@ -1912,6 +1929,41 @@
 
   /* ---------- system checks ---------- */
 
+  var RAID_ON = false;
+
+  function renderRaidTile() {
+    var tile = $('raid-tile');
+    var sub = $('raid-sub');
+    if (!tile || !sub) return;
+    if (RAID_ON) {
+      tile.classList.add('on');
+      sub.textContent = 'ON · token heavy';
+    } else {
+      tile.classList.remove('on');
+      sub.textContent = 'off · token heavy';
+    }
+  }
+
+  function loadRaidStatus() {
+    getJSON('/api/raid/status').then(function (d) {
+      RAID_ON = !!d.raid;
+      renderRaidTile();
+    }).catch(function () {});
+  }
+
+  function toggleRaid() {
+    var tile = $('raid-tile');
+    if (!tile) return;
+    tile.style.opacity = '0.6';
+    postJSON('/api/raid/toggle', {}).then(function (d) {
+      RAID_ON = !!d.raid;
+      renderRaidTile();
+      tile.style.opacity = '1';
+    }).catch(function () {
+      tile.style.opacity = '1';
+    });
+  }
+
   var SERVICES = [
     { id: 'bot', label: 'Telegram', icon: '&#128233;' },
     { id: 'tailscale', label: 'Access', icon: '&#128737;' },
@@ -1945,7 +1997,10 @@
       var okCount = SERVICES.filter(function (s) { return states[s.id].ok; }).length;
       var allOk = okCount === SERVICES.length;
 
-      $('svc-grid').innerHTML = SERVICES.map(function (s) {
+      var raidTile = $('raid-tile');
+      var svcHtml = raidTile ? raidTile.outerHTML : '';
+
+      $('svc-grid').innerHTML = svcHtml + SERVICES.map(function (s) {
         var st = states[s.id];
         var cls = svcClass(st.ok, st.detail);
         return '<div class="svc-tile ' + cls + '" title="' + esc(s.label) + ': ' + esc(st.detail || '') + '">'
@@ -1954,6 +2009,8 @@
           + '<span class="svc-name">' + esc(s.label) + '</span>'
           + '</div>';
       }).join('');
+
+      loadRaidStatus();
 
       setDot($('checks-dot'), allOk ? 'ok' : 'warn');
       setStat($('stat-health'), allOk ? '100%' : Math.round(okCount / SERVICES.length * 100) + '%', 'stat-num' + (allOk ? ' ok' : ''));

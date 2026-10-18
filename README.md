@@ -781,7 +781,8 @@ Requests are proxied through the TALOS server, so the token never reaches the br
 | `MAX_TASK_CONTINUATIONS` | `6` | Fresh round budgets granted while a task keeps making progress (long-running tasks) |
 | `MAX_TOOL_RESULT_CHARS` | `12000` | Tool results are truncated to this size in agent context |
 | `MAX_RUN_CONTEXT_CHARS` | `160000` | Past this, older tool results inside a run are compacted |
-| `BACKGROUND_SUBAGENT_MAX` | `4` | Concurrent background subagents |
+| `BACKGROUND_SUBAGENT_MAX` | `8` | Concurrent background subagents |
+| `RAID_BACKGROUND_SUBAGENT_MAX` | `100` | Background subagent cap while raid mode is on |
 | `MODEL_CALL_TIMEOUT_S` | `300` | Idle timeout for one model call (reasoning models think slowly) |
 | `MODEL_CALL_RETRIES` | `1` | Retries of the SAME model on timeout before erroring (no mid-task model switch) |
 | `MAX_SUBAGENT_TOOL_ROUNDS` | `20` | Subagent tool rounds cap |

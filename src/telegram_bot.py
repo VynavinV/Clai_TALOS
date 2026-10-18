@@ -212,6 +212,7 @@ async def _post_init(application: Application) -> None:
         BotCommand("reasoning", "Toggle deep reasoning (on|off)"),
         BotCommand("fast", "Use fast model for next message"),
         BotCommand("voice", "Toggle voice mode (respond with voice)"),
+        BotCommand("raid", "Toggle RAID mode: max parallel subagents (token heavy)"),
         BotCommand("clear", "Clear chat history"),
         BotCommand("help", "Show help message"),
         BotCommand("checkupdate", "Check for OTA updates"),
@@ -1982,7 +1983,21 @@ def _handle_web_model_command(user_id: int, text: str) -> list[dict] | None:
         db.set_model(user_id, requested)
         return [{"type": "text", "text": f"Model set to {requested}"}]
 
+    if normalized == "/raid":
+        enabled = db.set_raid_mode(user_id, not db.get_raid_mode(user_id))
+        return [{"type": "text", "text": raid_status_text(enabled)}]
+
     return None
+
+
+def raid_status_text(enabled: bool) -> str:
+    if enabled:
+        return (
+            "RAID MODE ON. Subagent limits lifted — the orchestrator will build a "
+            "specialized swarm (up to 100 background agents) for large tasks. "
+            "Warning: token heavy. Toggle again with /raid."
+        )
+    return "RAID MODE OFF. Back to normal limits. Toggle again with /raid."
 
 
 async def handle_root(request):
@@ -2479,6 +2494,25 @@ auth.raw = "{safe_password}"
 # ---------------------------------------------------------------------------
 # System Check — deterministic diagnostics and repair. No model involved.
 # ---------------------------------------------------------------------------
+
+@require_auth
+async def handle_api_raid_status(request):
+    """Current raid mode state, for the panel/dashboard toggle buttons."""
+    user_id = _get_web_user_id(request)
+    return web.json_response({"ok": True, "raid": db.get_raid_mode(user_id)})
+
+
+@require_auth_csrf
+async def handle_api_raid_toggle(request):
+    """Toggle raid mode: lifts subagent limits and primes swarm orchestration."""
+    user_id = _get_web_user_id(request)
+    enabled = db.set_raid_mode(user_id, not db.get_raid_mode(user_id))
+    return web.json_response({
+        "ok": True,
+        "raid": enabled,
+        "message": raid_status_text(enabled),
+    })
+
 
 @require_auth
 async def handle_api_diagnostics_run(request):
@@ -4869,6 +4903,8 @@ async def main():
     web_app.router.add_post("/api/laya/test", handle_api_laya_test)
     web_app.router.add_post("/api/laya/install", handle_api_laya_install)
     web_app.router.add_post("/api/ollama/upgrade", handle_api_ollama_upgrade)
+    web_app.router.add_get("/api/raid/status", handle_api_raid_status)
+    web_app.router.add_post("/api/raid/toggle", handle_api_raid_toggle)
     web_app.router.add_post("/api/chat", handle_api_chat)
     web_app.router.add_get("/api/activity/history", handle_api_activity_history)
     web_app.router.add_get("/api/activity/stream", handle_api_activity_stream)

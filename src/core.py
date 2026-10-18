@@ -268,6 +268,18 @@ async def process_message(user_id: int, text: str, send_func, model_override: st
         await _send_with_optional_voice(send_func, f"Chat cleared ({deleted} messages removed). Memories preserved.")
         return
 
+    if stripped == "/raid":
+        enabled = db.set_raid_mode(user_id, not db.get_raid_mode(user_id))
+        if enabled:
+            await _send_with_optional_voice(
+                send_func,
+                "RAID MODE ON. Subagent limits lifted — I'll build a specialized swarm for large "
+                "tasks. Warning: token heavy. Toggle again with /raid.",
+            )
+        else:
+            await _send_with_optional_voice(send_func, "RAID MODE OFF. Back to normal limits.")
+        return
+
     if stripped in GREETINGS:
         await _send_with_optional_voice(send_func, "hello I am Clai TALOS")
         return

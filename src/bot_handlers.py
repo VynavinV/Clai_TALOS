@@ -482,6 +482,25 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(HELP_TEXT)
 
 
+async def cmd_raid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Toggle raid mode: lifts subagent limits for swarm orchestration."""
+    uid = update.effective_user.id
+    if not db.has_user_profile(uid):
+        context.user_data[_ONBOARDING_STEP_KEY] = "name"
+        await update.message.reply_text("Please complete onboarding first. What's your name?")
+        return
+
+    enabled = db.set_raid_mode(uid, not db.get_raid_mode(uid))
+    if enabled:
+        await update.message.reply_text(
+            "RAID MODE ON. Subagent limits lifted — I'll build a specialized swarm "
+            "(up to 100 background agents) for large tasks. "
+            "Warning: token heavy. Toggle again with /raid."
+        )
+    else:
+        await update.message.reply_text("RAID MODE OFF. Back to normal limits.")
+
+
 async def cmd_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Toggle voice mode on/off."""
     current = context.user_data.get("voice_mode", False)
@@ -1014,6 +1033,7 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("clear", cmd_clear))
     app.add_handler(CommandHandler("fast", cmd_fast))
     app.add_handler(CommandHandler("voice", cmd_voice))
+    app.add_handler(CommandHandler("raid", cmd_raid))
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("checkupdate", cmd_checkupdate))
     app.add_handler(CommandHandler("update", cmd_update))

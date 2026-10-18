@@ -72,7 +72,14 @@ _MAX_RUN_CONTEXT_CHARS = int(os.getenv("MAX_RUN_CONTEXT_CHARS", "160000"))
 # rounds instead of dying at 40 with "break the task into smaller pieces".
 _MAX_TASK_CONTINUATIONS = int(os.getenv("MAX_TASK_CONTINUATIONS", "6"))
 # Concurrent background subagents the orchestrator may have in flight.
-_BACKGROUND_SUBAGENT_MAX = int(os.getenv("BACKGROUND_SUBAGENT_MAX", "4"))
+_BACKGROUND_SUBAGENT_MAX = int(os.getenv("BACKGROUND_SUBAGENT_MAX", "8"))
+# Raid mode lifts the subagent ceiling: the swarm is bounded only by how much
+# work the task actually has. Token-heavy by design.
+RAID_BACKGROUND_SUBAGENT_MAX = int(os.getenv("RAID_BACKGROUND_SUBAGENT_MAX", "100"))
+
+
+def background_subagent_cap(raid: bool = False) -> int:
+    return max(1, RAID_BACKGROUND_SUBAGENT_MAX if raid else _BACKGROUND_SUBAGENT_MAX)
 
 _VALID_SPEED_MODES = {"quick", "fast", "normal"}
 
@@ -101,9 +108,15 @@ def _pick_runtime_model(base_model: str, speed_mode: str) -> str:
     return base_model
 
 
-def _agent_limits_for_speed(speed_mode: str) -> tuple[int, int, int | None]:
+def _agent_limits_for_speed(speed_mode: str, raid: bool = False) -> tuple[int, int, int | None]:
     rounds = max(1, _MAX_TOOL_ROUNDS)
     calls = max(1, _MAX_TOOL_CALLS_PER_ROUND)
+    if raid:
+        # Raid mode: the orchestrator coordinates a swarm, which means many
+        # more spawn calls per response and longer runs. Doubled, not uncapped,
+        # so a confused model cannot loop forever.
+        rounds *= 2
+        calls = max(calls, 50)
     if os.getenv("ORCHESTRATOR_TIMEOUT_ENABLED", "1") == "0":
         timeout = None  # Read live from env so Settings changes apply without a restart.
     else:
@@ -111,8 +124,13 @@ def _agent_limits_for_speed(speed_mode: str) -> tuple[int, int, int | None]:
     return rounds, calls, timeout
 
 
-def _subagent_limits_for_speed(speed_mode: str) -> tuple[int, int]:
-    return max(1, _MAX_SUBAGENT_TOOL_ROUNDS), max(1, _MAX_SUBAGENT_TOOL_CALLS_PER_ROUND)
+def _subagent_limits_for_speed(speed_mode: str, raid: bool = False) -> tuple[int, int]:
+    rounds = max(1, _MAX_SUBAGENT_TOOL_ROUNDS)
+    calls = max(1, _MAX_SUBAGENT_TOOL_CALLS_PER_ROUND)
+    if raid:
+        rounds *= 2
+        calls *= 2
+    return rounds, calls
 
 
 def reload_clients():
@@ -137,7 +155,7 @@ def reload_clients():
     _MAX_TOOL_RESULT_CHARS = int(os.getenv("MAX_TOOL_RESULT_CHARS", "12000"))
     _MAX_RUN_CONTEXT_CHARS = int(os.getenv("MAX_RUN_CONTEXT_CHARS", "160000"))
     _MAX_TASK_CONTINUATIONS = int(os.getenv("MAX_TASK_CONTINUATIONS", "6"))
-    _BACKGROUND_SUBAGENT_MAX = int(os.getenv("BACKGROUND_SUBAGENT_MAX", "4"))
+    _BACKGROUND_SUBAGENT_MAX = int(os.getenv("BACKGROUND_SUBAGENT_MAX", "8"))
     _SUBAGENT_MAX_TELEGRAM_MESSAGES = int(os.getenv("SUBAGENT_MAX_TELEGRAM_MESSAGES", "3"))
     _SUBAGENT_MAX_TELEGRAM_MESSAGE_CHARS = int(os.getenv("SUBAGENT_MAX_TELEGRAM_MESSAGE_CHARS", "260"))
     _SUBAGENT_MIN_UPDATE_INTERVAL_S = float(os.getenv("SUBAGENT_MIN_UPDATE_INTERVAL_S", "30"))
@@ -211,11 +229,54 @@ def _is_email_configured() -> bool:
     return False
 
 
+# The raid doctrine: aggressive parallelism, but with the orchestration rules
+# that keep a 20-100 agent swarm coherent instead of a token bonfire.
+_RAID_MODE_PROMPT = (
+    "[RAID MODE ACTIVE — swarm orchestration]\n"
+    "The user has lifted your subagent limits and asked for maximum speed on a large task. "
+    "Token cost is not a constraint right now; speed and coverage are. Build an army — but a "
+    "DISCIPLINED one. A swarm without orchestration is just noise.\n\n"
+    "PLAN BEFORE YOU SPAWN:\n"
+    "1. Decompose the task into non-overlapping specializations BEFORE spawning anything. "
+    "Decide the division of labor first: who covers what, and what is explicitly out of each "
+    "agent's scope. Overlap is waste; gaps are failure. If two agents would produce the same "
+    "thing, the split is wrong — re-split before spawning.\n"
+    "2. Scale the army to the task: a big multi-faceted task deserves 20-100 specialized "
+    "subagents; a modest one deserves 3-6. Spawn the SMALLEST army that fully covers the "
+    "task — do not pad with duplicate roles.\n"
+    "3. Use waves: a first wave of parallel scouts/researchers (background=true for anything "
+    "long, foreground batches for short passes), then synthesize what came back, then a second "
+    "wave of executors with the refined context. Waves, not one mob.\n"
+    "4. Every subagent gets: a sharp role label, a task with explicit scope boundaries, and "
+    "the context it needs. Specify exactly which files/sites/sources/aspects belong to it — "
+    "and tell it NOT to touch the others.\n\n"
+    "YOU ARE THE CONDUCTOR:\n"
+    "- Track who is running (subagent_status) and what each scope was. Reconcile conflicts "
+    "between agents yourself; when two results disagree, decide or spawn one tie-breaker — "
+    "do not let agents argue with each other.\n"
+    "- Synthesize progressively: as results land, assemble the whole; do not sit idle waiting "
+    "for everything if you can start integrating.\n"
+    "- If a subagent fails or stalls, respawn just that scope with a clearer task — never "
+    "restart the whole swarm.\n\n"
+    "SUBAGENT DISCIPLINE (critical):\n"
+    "- Subagents report to YOU through their final result — they do NOT message the user. "
+    "You decide what the user hears and when: brief milestone updates from you, one synthesis "
+    "at the end. A wall of per-agent messages is a raid failure, not a raid feature.\n"
+    "- Their final results should be complete enough for you to integrate without re-asking.\n"
+    "- If a subagent genuinely needs the user (missing credential, destructive action "
+    "approval), it must say so in its result and YOU relay the question — batch questions "
+    "from multiple agents into one message when possible.\n\n"
+    "Raid ends when the task is done: synthesize all results into one coherent, complete "
+    "answer for the user, noting which parts of the army produced what."
+)
+
+
 def _build_system(
     user_id: int,
     current_message: str = "",
     include_memories: bool = True,
     relevant_memories: list[dict] | None = None,
+    raid_mode: bool = False,
 ) -> str | None:
     parts = []
     prompt = db.read_system_prompt()
@@ -240,19 +301,35 @@ def _build_system(
 
     parts.append(
         "[Orchestrator Instructions]\n"
-        "You are the orchestrator. When a task benefits from decomposition, use spawn_subagent "
-        "to delegate focused subtasks. Subagent Telegram updates must be minimal and concise. "
-        "Use at most one optional progress update plus one completion update per subagent, "
-        "and never stream step-by-step internal logs. "
+        "You are the orchestrator — your job is to finish tasks FAST, and subagents are your "
+        "speed lever. Doing everything yourself, one step at a time, is the slow path.\n\n"
+        "PARALLELIZE BY DEFAULT:\n"
+        "- If a request has two or more independent parts (several files, pages, sources, topics, "
+        "items, or questions), spawn one subagent per part IN THE SAME RESPONSE — they run in "
+        "PARALLEL and you get all results together. Sequential handling of independent parts "
+        "wastes the user's time.\n"
+        "- Split compound requests at their natural seams: 'find X and do Y' → researcher finds X "
+        "while you set up Y; 'compare A, B, and C' → three parallel researchers; 'refactor these "
+        "files' → one subagent per file or per coherent group; 'research, then write, then "
+        "review' → delegate the research, do the writing, delegate the review.\n"
+        "- Delegate anything focused that would otherwise occupy your rounds: research, data "
+        "gathering, verification, review, testing, drafting sections. You keep the overall "
+        "answer and the synthesis.\n"
+        "- For LONG-RUNNING subtasks (over ~15 minutes), use background=true: they run detached "
+        "while you continue other work, and results are delivered to you when they finish.\n"
+        "- When in doubt between doing it yourself and delegating: delegate. A subagent that "
+        "turns out unnecessary costs a little; serial handling of parallelizable work costs "
+        "the user's time every round.\n"
+        "- Foreground subagents wait for you in one batch; background ones (up to 8) run "
+        "alongside. Use subagent_status to check on background work.\n"
+        "After all subagents complete, synthesize their results into one coherent response. "
+        "Keep the user informed: when spawning subagents, say what you're delegating and why.\n\n"
+        "Subagent Telegram updates must be minimal and concise: at most one optional progress "
+        "update plus one completion update per subagent, never step-by-step internal logs. "
         "For action requests (open/click/search/screenshot/send), execute tools first and then report results. "
         "For send-email tasks, use email_execute/send_message (ask only for missing fields like subject/body) and do not open browser compose URLs. "
         "Do not return a plan-only final reply like 'let me' or 'I will'. "
-        "For browser tasks, stay in the current tab unless the user explicitly asks for new tabs/windows. "
-        "You can spawn multiple subagents in a single response - they will run in PARALLEL. "
-        "For LONG-RUNNING subtasks (over ~15 minutes), spawn subagents with background=true so they "
-        "run detached while you continue; their results are delivered to you when they finish. "
-        "After all subagents complete, synthesize their results into a final coherent response. "
-        "Keep the user informed: if spawning subagents, tell the user what you're delegating and why.\n\n"
+        "For browser tasks, stay in the current tab unless the user explicitly asks for new tabs/windows.\n\n"
         "LONG TASKS: You are built to run for as long as a task needs. If you use your whole round "
         "budget while still making progress you will be granted continuations automatically — keep "
         "working, do not restart or summarize prematurely. To avoid drowning in your own output: "
@@ -277,6 +354,9 @@ def _build_system(
         "If you already ran a command and got a result, do not run it again. Check the conversation "
         "history before calling any tool — if you already have the answer, use it."
     )
+
+    if raid_mode:
+        parts.append(_RAID_MODE_PROMPT)
 
     summary = db.get_summary(user_id)
     if summary:
@@ -392,7 +472,7 @@ async def _triage_model(base_model: str, text: str) -> str | None:
     return None
 
 
-def _build_subagent_system(user_id: int, role: str, task: str, context: str = "") -> str | None:
+def _build_subagent_system(user_id: int, role: str, task: str, context: str = "", raid_mode: bool = False) -> str | None:
     parts = []
     prompt = db.read_system_prompt()
     if prompt:
@@ -400,26 +480,51 @@ def _build_subagent_system(user_id: int, role: str, task: str, context: str = ""
 
     parts.append(f"[Current time] {_now_str()}")
 
-    parts.append(
-        "You are a subagent delegated by the main TALOS orchestrator. "
-        "Stay narrowly focused on the assigned task. Do not spawn other subagents.\n\n"
-        "IMPORTANT: You have access to send_telegram_message for concise status updates only.\n"
-        "Rules:\n"
-        "1. Send at most one brief start update and one completion update\n"
-        "2. For LONG tasks, send one short update at each real milestone (or roughly every 10 minutes) — "
-        "the user cannot see your tool calls and needs to know you are alive and what is happening\n"
-        "3. Never stream per-step logs, repeated narration, raw transcripts, or generic 'still working' spam\n"
-        "4. Keep each update short (one paragraph, max ~240 chars)\n"
-        "Write updates in clean plain English with complete sentences. Avoid random or unusual characters.\n"
-        "Do not run passive wait commands like sleep/timeout/checking-in loops.\n"
-        "Never end on a 'still working' update without later sending an explicit completion or failure update.\n"
-        "Keep messages concise and useful. Sign off with your role in brackets so the user "
-        "knows which subagent is talking, e.g. [researcher] or [executor].\n\n"
-        "CRITICAL — Command Loop Prevention:\n"
-        "Many shell commands (cp, mv, mkdir, chmod, ln, etc.) succeed SILENTLY with no output. "
-        "An empty stdout with exit_code 0 means SUCCESS. Do NOT re-run a command that succeeded. "
-        "If you already ran a command and got a result, do not run it again. Move on."
-    )
+    if raid_mode:
+        # Raid mode: the orchestrator runs the show. Subagents stay silent and
+        # report through their final result; only true blockers reach the user,
+        # relayed by the orchestrator.
+        parts.append(
+            "You are a subagent delegated by the main TALOS orchestrator, currently running "
+            "a coordinated swarm (RAID MODE). Stay narrowly focused on the assigned task and "
+            "its scope boundaries. Do not spawn other subagents.\n\n"
+            "IMPORTANT — REPORTING (raid rules):\n"
+            "1. Do NOT send Telegram messages to the user. All reporting goes to the "
+            "orchestrator through your FINAL result — make it complete, structured, and "
+            "integration-ready: what you did, what you found, what is missing.\n"
+            "2. The ONLY exception: if you hit a hard blocker that needs the user (missing "
+            "credential, approval for a destructive action, ambiguous requirement), state it "
+            "clearly in your result as 'NEEDS USER:' plus the question — the orchestrator "
+            "will relay it.\n"
+            "3. Never stream per-step logs or 'still working' updates. Work quietly, "
+            "finish, report once.\n"
+            "Do not run passive wait commands like sleep/timeout/checking-in loops.\n\n"
+            "CRITICAL — Command Loop Prevention:\n"
+            "Many shell commands (cp, mv, mkdir, chmod, ln, etc.) succeed SILENTLY with no output. "
+            "An empty stdout with exit code 0 means SUCCESS. Do NOT re-run a command that succeeded. "
+            "If you already ran a command and got a result, do not run it again. Move on."
+        )
+    else:
+        parts.append(
+            "You are a subagent delegated by the main TALOS orchestrator. "
+            "Stay narrowly focused on the assigned task. Do not spawn other subagents.\n\n"
+            "IMPORTANT: You have access to send_telegram_message for concise status updates only.\n"
+            "Rules:\n"
+            "1. Send at most one brief start update and one completion update\n"
+            "2. For LONG tasks, send one short update at each real milestone (or roughly every 10 minutes) — "
+            "the user cannot see your tool calls and needs to know you are alive and what is happening\n"
+            "3. Never stream per-step logs, repeated narration, raw transcripts, or generic 'still working' spam\n"
+            "4. Keep each update short (one paragraph, max ~240 chars)\n"
+            "Write updates in clean plain English with complete sentences. Avoid random or unusual characters.\n"
+            "Do not run passive wait commands like sleep/timeout/checking-in loops.\n"
+            "Never end on a 'still working' update without later sending an explicit completion or failure update.\n"
+            "Keep messages concise and useful. Sign off with your role in brackets so the user "
+            "knows which subagent is talking, e.g. [researcher] or [executor].\n\n"
+            "CRITICAL — Command Loop Prevention:\n"
+            "Many shell commands (cp, mv, mkdir, chmod, ln, etc.) succeed SILENTLY with no output. "
+            "An empty stdout with exit code 0 means SUCCESS. Do NOT re-run a command that succeeded. "
+            "If you already ran a command and got a result, do not run it again. Move on."
+        )
     parts.append(f"[Subagent role]\n{role or 'general'}")
     parts.append(f"[Delegated task]\n{task}")
     if context.strip():
@@ -1954,11 +2059,14 @@ def _get_all_tools(include_subagent: bool = True, include_telegram: bool = False
                 "name": "spawn_subagent",
                 "description": (
                     "Delegate a task to a subagent that can message the user directly on "
-                    "Telegram. Multiple spawn_subagent calls in one response run in PARALLEL. "
-                    "Use for research, planning, review, or execution subtasks. Use "
-                    "background=true for LONG-RUNNING subtasks (over ~15 minutes): the subagent "
-                    "keeps working while you continue other work, its result is delivered to "
-                    "you when it finishes, and you can check on it with subagent_status."
+                    "Telegram. Multiple spawn_subagent calls in one response run in PARALLEL — "
+                    "this is the fast path: give each independent part of a request its own "
+                    "subagent in the SAME response instead of handling parts sequentially. "
+                    "Use for research, planning, review, data gathering, testing, or execution "
+                    "subtasks — anything focused that would otherwise occupy your rounds. "
+                    "Use background=true for LONG-RUNNING subtasks (over ~15 minutes): the subagent "
+                    "keeps working while you continue other work (up to 8 at once), its result is "
+                    "delivered to you when it finishes, and you can check on it with subagent_status."
                 ),
                 "parameters": {
                     "type": "object",
@@ -3022,11 +3130,12 @@ async def _execute_tool_call(
                 # into this run's interrupt queue (delivered between rounds)
                 # and, if the parent run already ended, straight to the user.
                 running = [e for e in _BACKGROUND_SUBAGENTS.values() if e.get("status") == "running"]
-                if len(running) >= max(1, _BACKGROUND_SUBAGENT_MAX):
+                cap = background_subagent_cap(raid_mode)
+                if len(running) >= cap:
                     return json.dumps(
                         {
                             "error": "too_many_background_subagents",
-                            "limit": max(1, _BACKGROUND_SUBAGENT_MAX),
+                            "limit": cap,
                             "running": [e["id"] for e in running],
                             "instruction": "Wait for one to finish (check subagent_status) or run this task in the foreground.",
                         },
@@ -3465,6 +3574,7 @@ async def _run_agent(
     speed_mode: str = "normal",
     reasoning_enabled: bool = True,
     activity_state: dict | None = None,
+    raid_mode: bool = False,
     _agent_id: str = "orchestrator",
     _parent_agent_id: str | None = None,
 ) -> str:
@@ -3991,8 +4101,9 @@ async def _run_subagent(
     model = db.get_model(user_id)
     speed_mode = db.get_speed_mode(user_id)
     reasoning_enabled = db.get_reasoning_enabled(user_id)
-    subagent_rounds, subagent_calls = _subagent_limits_for_speed(speed_mode)
-    system = _build_subagent_system(user_id, role, task, context)
+    raid_mode = db.get_raid_mode(user_id)
+    subagent_rounds, subagent_calls = _subagent_limits_for_speed(speed_mode, raid_mode)
+    system = _build_subagent_system(user_id, role, task, context, raid_mode=raid_mode)
     history = db.get_history(user_id)
     return await _run_agent(
         model, task,
@@ -4006,6 +4117,7 @@ async def _run_subagent(
         speed_mode=speed_mode,
         reasoning_enabled=reasoning_enabled,
         activity_state=activity_state,
+        raid_mode=raid_mode,
         _agent_id=_agent_id,
         _parent_agent_id=_parent_agent_id,
     )
@@ -4087,16 +4199,17 @@ async def respond(
     await _t.emit("receive", "orchestrator", "Message received", text[:200])
     speed_mode = db.get_speed_mode(user_id)
     reasoning_enabled = db.get_reasoning_enabled(user_id)
+    raid_mode = db.get_raid_mode(user_id)
     base_model = model_override or db.get_model(user_id)
     model = base_model if model_override else _pick_runtime_model(base_model, speed_mode)
     if not model_override and speed_mode == "normal":
         triaged_model = await _triage_model(base_model, text)
         if triaged_model:
             model = triaged_model
-    agent_rounds, agent_calls, orchestrator_timeout = _agent_limits_for_speed(speed_mode)
+    agent_rounds, agent_calls, orchestrator_timeout = _agent_limits_for_speed(speed_mode, raid_mode)
     run_activity = {"start": time.monotonic(), "last": time.monotonic()}
     history = db.get_history(user_id)
-    system = _build_system(user_id, text, relevant_memories=await _rerank_memories(user_id, text))
+    system = _build_system(user_id, text, relevant_memories=await _rerank_memories(user_id, text), raid_mode=raid_mode)
     
     messages = []
     if system:
@@ -4179,6 +4292,7 @@ Based on this analysis and the user's current request, proceed with any tasks ne
                     speed_mode=speed_mode,
                     reasoning_enabled=reasoning_enabled,
                     activity_state=run_activity,
+                    raid_mode=raid_mode,
                 ),
                 orchestrator_timeout,
                 run_activity,
@@ -4211,6 +4325,7 @@ Based on this analysis and the user's current request, proceed with any tasks ne
                     speed_mode=speed_mode,
                     reasoning_enabled=reasoning_enabled,
                     activity_state=run_activity,
+                    raid_mode=raid_mode,
                 ),
                 orchestrator_timeout,
                 run_activity,

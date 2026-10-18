@@ -2,11 +2,25 @@
 
 Use `spawn_subagent` to delegate a task to an internal subagent.
 
-## When to use
+## Parallelize by default
 
-- Break a large request into narrower research, planning, review, or execution passes.
-- Offload focused work while the main orchestrator keeps control of the overall answer.
-- Multiple `spawn_subagent` calls in a single response run in PARALLEL.
+Subagents are the speed lever — doing everything yourself, one step at a
+time, is the slow path.
+
+- If a request has **two or more independent parts** (several files, pages,
+  sources, topics, items, or questions), spawn one subagent per part **in the
+  same response** — they run in PARALLEL and all results come back together.
+- Split compound requests at their natural seams:
+  - "find X and do Y" → researcher finds X while you set up Y
+  - "compare A, B, and C" → three parallel researchers
+  - "refactor these files" → one subagent per file or coherent group
+  - research → write → review: delegate the research and the review
+- Delegate anything focused that would otherwise occupy your rounds:
+  research, data gathering, verification, testing, drafting sections. Keep
+  the overall answer and the synthesis yourself.
+- When in doubt between doing it yourself and delegating: delegate. An
+  unnecessary subagent costs a little; serial handling of parallelizable
+  work costs the user's time every round.
 
 ## Parameters
 
@@ -24,10 +38,11 @@ Use `spawn_subagent` to delegate a task to an internal subagent.
 ## Foreground vs background
 
 - Foreground (default): you wait, then get the result as the tool output.
-  Good for short, focused passes.
+  Good for short, focused passes — and multiple foreground spawns in one
+  response run in parallel.
 - Background (`background: true`): you keep working. When the subagent finishes,
   its result arrives as a `[SUBAGENT RESULT]` message between your rounds —
-  incorporate it into your final answer. Up to 4 background subagents at once.
+  incorporate it into your final answer. Up to 8 background subagents at once.
 
 ## Telegram Messaging
 
