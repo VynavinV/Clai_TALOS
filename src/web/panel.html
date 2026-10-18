@@ -316,20 +316,34 @@
   .agents-web-links line.active { stroke: rgba(86, 206, 255, 0.55); }
   .agents-web-stage { position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 2; pointer-events: none; }
 
-  .agent-node {
-    position: absolute;
-    transform: translate(-50%, -50%);
-    width: 148px;
-    min-height: 74px;
-    padding: 0.55rem 0.58rem;
-    border-radius: 12px;
-    border: 1px solid rgba(143, 217, 255, 0.22);
-    background: rgba(15, 24, 39, 0.94);
-    box-shadow: 0 8px 18px rgba(2, 8, 16, 0.32);
-    overflow: hidden;
-    pointer-events: auto;
-    cursor: pointer;
-  }
+   .agent-node {
+     position: absolute;
+     transform: translate(-50%, -50%);
+     width: 148px;
+     min-height: 74px;
+     padding: 0.55rem 0.58rem;
+     border-radius: 12px;
+     border: 1px solid rgba(143, 217, 255, 0.22);
+     background: rgba(15, 24, 39, 0.94);
+     box-shadow: 0 8px 18px rgba(2, 8, 16, 0.32);
+     overflow: hidden;
+     pointer-events: auto;
+     cursor: pointer;
+     /* Cards glide when the layout changes and stay perfectly still when it
+        doesn't — the fix for cards glitching back and forth on activity. */
+     transition: left 0.45s cubic-bezier(0.2, 0.8, 0.3, 1), top 0.45s cubic-bezier(0.2, 0.8, 0.3, 1);
+   }
+   .agent-node.enter { transition: none; }
+   /* Swarm sizing: matches getNodeMetrics(w, count) when count > 10. */
+   .agents-web.swarm .agent-node { width: 108px; min-height: 62px; padding: 0.4rem 0.45rem; }
+   .agents-web.swarm .agent-node.orchestrator { width: 168px; min-height: 82px; }
+   .agents-web.swarm .agent-node-name { font-size: 0.66rem; }
+   .agents-web.swarm .agent-node-task { font-size: 0.58rem; }
+   .agents-web.swarm .agent-node-status { font-size: 0.56rem; }
+   .agent-node.more-node {
+     width: 120px; min-height: 56px; text-align: center;
+     border-style: dashed; background: rgba(15, 24, 39, 0.7);
+   }
   .agent-node::after {
     content: '';
     position: absolute;
@@ -610,6 +624,25 @@
   .svc-tile.raid.on .svc-ring { color: #ff526e; opacity: 1; }
   @keyframes raidPulse { 0%, 100% { box-shadow: 0 0 0 rgba(255, 82, 110, 0); } 50% { box-shadow: 0 0 14px rgba(255, 82, 110, 0.35); } }
   .svc-tile.raid:active { transform: scale(0.96); }
+
+  /* RAID MODE — whole-panel war paint. body.raid-on is the master switch. */
+  body.raid-on { background: linear-gradient(180deg, #1a0a10, #0a0810); }
+  body.raid-on .topbar { border-bottom: 1px solid rgba(255, 82, 110, 0.55); box-shadow: 0 2px 18px rgba(255, 82, 110, 0.18); }
+  body.raid-on .brand-icon::after { background: #ff526e; box-shadow: 0 0 8px rgba(255, 82, 110, 0.8); }
+  body.raid-on .brand-icon img { border-color: rgba(255, 82, 110, 0.5); }
+  body.raid-on .clock .time { color: #ff8fa3; text-shadow: 0 0 18px rgba(255, 82, 110, 0.5); }
+  body.raid-on .section { border-color: rgba(255, 82, 110, 0.22); }
+  body.raid-on #sec-side .sec-head .sec-dot { background: #ff526e; box-shadow: 0 0 8px rgba(255, 82, 110, 0.7); }
+  body.raid-on .meta-pill { color: #ffb3c0; border-color: rgba(255, 82, 110, 0.55); background: rgba(255, 82, 110, 0.12); }
+  body.raid-on .meta-pill .live-dot { background: #ff526e; box-shadow: 0 0 8px rgba(255, 82, 110, 0.9); animation: pulse-dot 0.9s ease-in-out infinite; }
+  body.raid-on .agents-web { border-color: rgba(255, 82, 110, 0.3); background: rgba(26, 8, 14, 0.6); }
+  body.raid-on .agents-web-links line { stroke: rgba(255, 82, 110, 0.28); }
+  body.raid-on .agent-node { border-color: rgba(255, 82, 110, 0.35); }
+  body.raid-on .raid-status-line {
+    display: block; margin-top: 0.5rem; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.08em;
+    color: #ff8fa3; text-transform: uppercase; animation: pulse-dot 1.4s ease-in-out infinite;
+  }
+  .raid-status-line { display: none; }
   .svc-emoji { font-size: 1.35rem; line-height: 1; filter: drop-shadow(0 0 8px rgba(143, 217, 255, 0.3)); }
   .svc-tile.ok .svc-emoji { filter: drop-shadow(0 0 8px rgba(66, 223, 173, 0.5)); }
   .svc-tile.warn .svc-emoji { filter: drop-shadow(0 8px 8px rgba(255, 185, 105, 0.5)); animation: wobble 2.2s ease-in-out infinite; }
@@ -1235,6 +1268,7 @@
             <span class="svc-sub" id="raid-sub">off · token heavy</span>
           </div>
         </div>
+        <div class="raid-status-line" id="raid-status-line">&#9876; RAID MODE ACTIVE — swarm limits lifted</div>
 
         <div>
           <div class="ha-group-title" style="margin-bottom:0.4rem;">&#9201; Scheduled Tasks</div>
@@ -1934,35 +1968,51 @@
   function renderRaidTile() {
     var tile = $('raid-tile');
     var sub = $('raid-sub');
-    if (!tile || !sub) return;
-    if (RAID_ON) {
-      tile.classList.add('on');
-      sub.textContent = 'ON · token heavy';
-    } else {
-      tile.classList.remove('on');
-      sub.textContent = 'off · token heavy';
+    if (tile) {
+      if (RAID_ON) tile.classList.add('on');
+      else tile.classList.remove('on');
     }
+    if (sub) sub.textContent = RAID_ON ? 'ON · token heavy' : 'off · token heavy';
+    // War paint: the whole panel goes red while the swarm is armed.
+    if (RAID_ON) document.body.classList.add('raid-on');
+    else document.body.classList.remove('raid-on');
   }
 
   function loadRaidStatus() {
     getJSON('/api/raid/status').then(function (d) {
-      RAID_ON = !!d.raid;
-      renderRaidTile();
+      var on = !!d.raid;
+      if (on !== RAID_ON) {
+        RAID_ON = on;
+        renderRaidTile();
+      }
     }).catch(function () {});
   }
 
   function toggleRaid() {
     var tile = $('raid-tile');
     if (!tile) return;
-    tile.style.opacity = '0.6';
+    tile.style.opacity = '0.5';
     postJSON('/api/raid/toggle', {}).then(function (d) {
-      RAID_ON = !!d.raid;
-      renderRaidTile();
+      if (d && typeof d.raid !== 'undefined') {
+        RAID_ON = !!d.raid;
+        renderRaidTile();
+        if (RAID_ON) {
+          setStat($('stat-health'), 'RAID', 'stat-num');
+          $('side-meta').textContent = 'raid mode: swarm armed';
+        } else {
+          loadChecks();
+        }
+      }
       tile.style.opacity = '1';
-    }).catch(function () {
+    }).catch(function (e) {
       tile.style.opacity = '1';
+      var sub = $('raid-sub');
+      if (sub) { sub.textContent = 'error — check settings'; }
     });
   }
+  // Keep raid state fresh so /raid from Telegram or the dashboard shows up here.
+  loadRaidStatus();
+  setInterval(loadRaidStatus, 10000);
 
   var SERVICES = [
     { id: 'bot', label: 'Telegram', icon: '&#128233;' },
@@ -2206,8 +2256,20 @@
 
   function setDot(el, cls) { el.className = 'sec-dot ' + cls; }
 
-  function getNodeMetrics(w) {
+  function getNodeMetrics(w, count) {
     var compact = w < 560;
+    // Swarm sizes: raid can show 20+ agents — shrink cards so they fit
+    // without overlapping instead of piling on top of each other.
+    var swarm = (count || 0) > 10;
+    if (swarm) {
+      return {
+        rootW: compact ? Math.min(150, w * 0.5) : 168,
+        rootH: 82,
+        childW: compact ? 100 : 108,
+        childH: 62,
+        gap: 8
+      };
+    }
     return {
       rootW: compact ? Math.min(168, w * 0.5) : clamp(w * 0.2, 150, 200),
       rootH: compact ? 90 : 92,
@@ -2313,7 +2375,7 @@
   }
 
   function buildNodeLayout(count, w, h) {
-    var metrics = getNodeMetrics(w);
+    var metrics = getNodeMetrics(w, count);
     var padX = clamp(Math.round(w * 0.09), 32, 76);
     var padY = clamp(Math.round(h * 0.12), 22, 56);
     var root = { x: w / 2, y: clamp(h * 0.5, padY + (metrics.rootH / 2), h - padY - (metrics.rootH / 2)) };
@@ -2344,26 +2406,57 @@
   }
 
   var seenAgents = {};
+  // Sticky, keyed agent rendering: nodes keep their DOM element and slot
+  // across updates, so activity bursts never make cards swap or flicker.
+  var agentEls = {};
+  var agentSlots = {};
+  var layoutSignature = '';
+  var MAX_AGENT_CARDS = 24;
 
-  function nodeHTML(agentId, x, y, isRoot, age, evt) {
+  function buildAgentNode(agentId, isRoot) {
+    var el = document.createElement('div');
+    el.className = 'agent-node ' + (isRoot ? 'orchestrator' : 'subagent') + ' enter';
+    el.setAttribute('data-agent', esc(agentId));
+    el.innerHTML =
+      '<div class="agent-node-head">'
+      + '<span class="agent-node-icon" aria-hidden="true">' + (isRoot ? '&#129302;' : '&#128126;') + '</span>'
+      + '<span class="agent-node-name"></span>'
+      + '</div>'
+      + '<div class="agent-node-status"></div>'
+      + '<div class="agent-node-task"></div>';
+    strip.appendChild(el);
+    agentEls[agentId] = el;
+    setTimeout(function () { el.classList.remove('enter'); }, 700);
+    return el;
+  }
+
+  function paintAgentNode(el, agentId, isRoot, age, evt) {
     var isActive = age < 30;
-    var isNew = !seenAgents[agentId];
-    seenAgents[agentId] = true;
-    var nodeCls = 'agent-node ' + (isRoot ? 'orchestrator' : 'subagent') + (isActive ? ' active' : ' is-idle') + (selectedAgent === agentId ? ' selected' : '') + (isNew ? ' enter' : '');
-    var icon = isRoot ? '&#129302;' : '&#128126;';
+    var cls = 'agent-node ' + (isRoot ? 'orchestrator' : 'subagent')
+      + (isActive ? ' active' : ' is-idle')
+      + (selectedAgent === agentId ? ' selected' : '');
+    if (el.className !== cls) el.className = cls;
+    var spin = el.querySelector('.node-spin');
+    if (isRoot && isActive && !spin) {
+      spin = document.createElement('span');
+      spin.className = 'node-spin';
+      el.insertBefore(spin, el.firstChild);
+    } else if ((!isRoot || !isActive) && spin) {
+      spin.parentNode.removeChild(spin);
+    }
+    el.querySelector('.agent-node-name').textContent = isRoot ? 'Orchestrator' : prettyAgentName(agentId);
     var statusWord = isActive ? 'Working' : 'Idle';
-    var name = isRoot ? 'Orchestrator' : prettyAgentName(agentId);
+    el.querySelector('.agent-node-status').innerHTML = '<span class="live-dot-sm ' + (isActive ? 'on' : 'off') + '"></span>' + statusWord + ' · ' + ago(evt && evt.ts || Date.now() / 1000);
     var label = trunc((evt && evt.label) || 'Thinking', 30);
     var detail = trunc((evt && evt.detail) || 'Waiting for next task', 62);
-    var spin = (isRoot && isActive) ? '<span class="node-spin"></span>' : '';
-    return '<div class="' + nodeCls + '" style="left:' + x.toFixed(1) + 'px;top:' + y.toFixed(1) + 'px;" data-agent="' + esc(agentId) + '">' + spin
-      + '<div class="agent-node-head">'
-      + '<span class="agent-node-icon" aria-hidden="true">' + icon + '</span>'
-      + '<span class="agent-node-name">' + esc(name) + '</span>'
-      + '</div>'
-      + '<div class="agent-node-status"><span class="live-dot-sm ' + (isActive ? 'on' : 'off') + '"></span>' + statusWord + ' · ' + ago(evt && evt.ts || Date.now() / 1000) + '</div>'
-      + '<div class="agent-node-task"><strong>' + esc(label) + '</strong> ' + esc(detail) + '</div>'
-      + '</div>';
+    el.querySelector('.agent-node-task').innerHTML = '<strong>' + esc(label) + '</strong> ' + esc(detail);
+  }
+
+  function removeAgentNode(agentId) {
+    var el = agentEls[agentId];
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+    delete agentEls[agentId];
+    delete agentSlots[agentId];
   }
 
   function snapshotAgents(now) {
@@ -2375,7 +2468,13 @@
       var age = now - e.ts;
       if (age > 300 && !agents[e.agent]) continue;
       if (!agents[e.agent] || e.ts > agents[e.agent].last.ts) {
-        agents[e.agent] = { id: e.agent, last: e };
+        if (!agents[e.agent]) {
+          // First sighting = stable ordering key. Cards are laid out by
+          // spawn order and never reshuffled by activity.
+          agents[e.agent] = { id: e.agent, first: e, last: e };
+        } else {
+          agents[e.agent].last = e;
+        }
       }
       var extra = e.extra || {};
       if (extra.parent_agent && e.agent !== extra.parent_agent) {
@@ -2400,12 +2499,13 @@
     var ids = Object.keys(agents);
 
     if (ids.length === 0) {
-      strip.innerHTML = '';
+      Object.keys(agentEls).forEach(removeAgentNode);
       links.innerHTML = '';
       emptyEl.style.display = 'flex';
       setDot($('agents-dot'), 'idle');
       $('agents-meta').textContent = '';
       seenAgents = {};
+      layoutSignature = '';
       setStat($('stat-agents'), '0<span class="denom">/0</span>', 'stat-num');
       return;
     }
@@ -2419,46 +2519,95 @@
       if (parent === rootId) return true;
       return id.indexOf('sub-') === 0;
     });
-    children.sort(function (a, b) { return agents[b].last.ts - agents[a].last.ts; });
-    children = children.slice(0, 10);
+    // Spawn order, not activity order: positions never swap mid-run.
+    children.sort(function (a, b) {
+      var fa = agents[a].first.ts, fb = agents[b].first.ts;
+      if (fa !== fb) return fa - fb;
+      return a < b ? -1 : 1;
+    });
+
+    var total = children.length + 1;
+    var overflow = Math.max(0, children.length - MAX_AGENT_CARDS);
+    var displayed = children.slice(0, MAX_AGENT_CARDS);
+    var slotCount = displayed.length + (overflow > 0 ? 1 : 0);
 
     var rect = graph.getBoundingClientRect();
     var w = Math.max(280, Math.round(rect.width || 280));
     var h = Math.max(170, Math.round(rect.height || 170));
-    var layout = buildNodeLayout(children.length, w, h);
-    var rootPos = layout.root;
+
+    // Relayout ONLY when the visible set or the container changes — never
+    // just because an agent got louder. That is what used to make cards
+    // glitch back and forth on every event.
+    var signature = rootId + '|' + displayed.join(',') + '|' + w + 'x' + h;
+    if (signature !== layoutSignature) {
+      layoutSignature = signature;
+      var layout = buildNodeLayout(slotCount, w, h);
+      agentSlots['__root'] = layout.root;
+      for (var i = 0; i < displayed.length; i++) {
+        agentSlots[displayed[i]] = layout.positions[i];
+      }
+      agentSlots['__more'] = overflow > 0 ? layout.positions[slotCount - 1] : null;
+    }
+
+    // Compact cards for swarms; CSS sizes match getNodeMetrics.
+    if (graph.classList) {
+      if (displayed.length > 10) graph.classList.add('swarm');
+      else graph.classList.remove('swarm');
+    }
 
     links.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
     links.innerHTML = '';
 
     var root = agents[rootId] || { id: rootId, last: { ts: now } };
     var rootAge = now - (root.last.ts || now);
-    var html = [nodeHTML(rootId, rootPos.x, rootPos.y, true, rootAge, root.last)];
+    var rootPos = agentSlots['__root'] || { x: w / 2, y: h / 2 };
+    var rootEl = agentEls[rootId] || buildAgentNode(rootId, true);
+    paintAgentNode(rootEl, rootId, true, rootAge, root.last);
+    rootEl.style.left = rootPos.x.toFixed(1) + 'px';
+    rootEl.style.top = rootPos.y.toFixed(1) + 'px';
 
+    var working = rootAge < 30 ? 1 : 0;
     var currentIds = {};
     currentIds[rootId] = true;
 
-    var working = rootAge < 30 ? 1 : 0;
-    var positions = layout.positions;
-    for (var i = 0; i < children.length; i++) {
-      var childId = children[i];
+    for (var j = 0; j < displayed.length; j++) {
+      var childId = displayed[j];
       var child = agents[childId];
       var childAge = now - (child.last.ts || now);
       if (childAge < 30) working++;
-      var pos = positions[i];
+      var pos = agentSlots[childId] || { x: w / 2, y: h / 2 };
       addLink(rootPos.x, rootPos.y, pos.x, pos.y, childAge < 30 || rootAge < 30);
-      html.push(nodeHTML(childId, pos.x, pos.y, false, childAge, child.last));
+      var el = agentEls[childId] || buildAgentNode(childId, false);
+      paintAgentNode(el, childId, false, childAge, child.last);
+      el.style.left = pos.x.toFixed(1) + 'px';
+      el.style.top = pos.y.toFixed(1) + 'px';
       currentIds[childId] = true;
     }
 
-    // forget agents that vanished so a later return pops in again
-    Object.keys(seenAgents).forEach(function (id) {
-      if (!currentIds[id]) delete seenAgents[id];
+    // "+N more" chip when the swarm outgrew the card budget.
+    if (overflow > 0 && agentSlots['__more']) {
+      var moreKey = '__more__';
+      var moreEl = agentEls[moreKey];
+      if (!moreEl) {
+        moreEl = buildAgentNode(moreKey, false);
+        moreEl.className = 'agent-node more-node';
+      }
+      moreEl.innerHTML =
+        '<div class="agent-node-head"><span class="agent-node-icon" aria-hidden="true">&#43;</span>'
+        + '<span class="agent-node-name">' + overflow + ' more</span></div>'
+        + '<div class="agent-node-status">' + children.length + ' agents spawned</div>';
+      moreEl.style.left = agentSlots['__more'].x.toFixed(1) + 'px';
+      moreEl.style.top = agentSlots['__more'].y.toFixed(1) + 'px';
+      currentIds[moreKey] = true;
+    } else {
+      removeAgentNode('__more__');
+    }
+
+    // Drop nodes for agents that vanished.
+    Object.keys(agentEls).forEach(function (id) {
+      if (!currentIds[id]) removeAgentNode(id);
     });
 
-    strip.innerHTML = html.join('');
-
-    var total = children.length + 1;
     setDot($('agents-dot'), working > 0 ? 'ok' : 'idle');
     $('agents-meta').textContent = total + (total === 1 ? ' agent' : ' agents');
     setStat($('stat-agents'), working + '<span class="denom">/' + total + '</span>', 'stat-num' + (working > 0 ? ' ok' : ''));

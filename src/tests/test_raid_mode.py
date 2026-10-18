@@ -70,6 +70,10 @@ def test_raid_prompt_included_only_in_raid(tmp_path, monkeypatch):
     assert "PLAN BEFORE YOU SPAWN" in on
     assert "YOU ARE THE CONDUCTOR" in on
     assert "do NOT message the user" in on
+    # The orchestrator delegates deliverables; it does not produce them itself.
+    assert "NOT THE PRODUCER" in on
+    assert "You do NOT write deliverables yourself" in on
+    assert "revision notes back to the producing agent" in on
 
 
 def test_raid_subagents_are_silent(tmp_path, monkeypatch):

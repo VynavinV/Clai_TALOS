@@ -66,6 +66,11 @@ def init():
 
             CREATE INDEX IF NOT EXISTS idx_chat_history_user
                 ON chat_history(user_id, created_at);
+
+            CREATE TABLE IF NOT EXISTS system_state (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            );
         """)
         cols = [r["name"] for r in conn.execute("PRAGMA table_info(user_settings)").fetchall()]
         if "summary" not in cols:
@@ -78,12 +83,9 @@ def init():
             conn.execute("ALTER TABLE user_settings ADD COLUMN reasoning_enabled INTEGER NOT NULL DEFAULT 1")
         if "fallback_model" not in cols:
             conn.execute("ALTER TABLE user_settings ADD COLUMN fallback_model TEXT")
-        if "raid_mode" not in cols:
-            conn.execute("ALTER TABLE user_settings ADD COLUMN raid_mode INTEGER NOT NULL DEFAULT 0")
 
         conn.execute("UPDATE user_settings SET speed_mode = COALESCE(speed_mode, 'normal')")
         conn.execute("UPDATE user_settings SET reasoning_enabled = COALESCE(reasoning_enabled, 1)")
-        conn.execute("UPDATE user_settings SET raid_mode = COALESCE(raid_mode, 0)")
 
         # Retire models that upstream providers no longer serve. Without this,
         # existing installs keep a dead image_model in the DB and vision fails.
@@ -303,26 +305,26 @@ def set_speed_mode(user_id: int, speed_mode: str) -> str:
     return normalized
 
 
-def get_raid_mode(user_id: int) -> bool:
+def get_raid_mode(user_id: int | None = None) -> bool:
+    """Raid mode is a system-wide state: any toggle affects every channel."""
     with _conn() as conn:
         row = conn.execute(
-            "SELECT raid_mode FROM user_settings WHERE user_id = ?",
-            (user_id,),
+            "SELECT value FROM system_state WHERE key = 'raid_mode'",
         ).fetchone()
-        if row and row["raid_mode"] is not None:
-            return bool(int(row["raid_mode"]))
+        if row and row["value"]:
+            return row["value"] == "1"
     return False
 
 
-def set_raid_mode(user_id: int, enabled: bool) -> bool:
-    value = 1 if bool(enabled) else 0
+def set_raid_mode(user_id: int | None = None, enabled: bool | None = None) -> bool:
+    value = "1" if bool(enabled) else "0"
     with _conn() as conn:
         conn.execute(
-            """INSERT INTO user_settings (user_id, model, raid_mode) VALUES (?, ?, ?)
-               ON CONFLICT(user_id) DO UPDATE SET raid_mode = excluded.raid_mode""",
-            (user_id, get_model(user_id), value),
+            """INSERT INTO system_state (key, value) VALUES ('raid_mode', ?)
+               ON CONFLICT(key) DO UPDATE SET value = excluded.value""",
+            (value,),
         )
-    return bool(value)
+    return value == "1"
 
 
 def get_reasoning_enabled(user_id: int) -> bool:
