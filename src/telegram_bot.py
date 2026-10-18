@@ -2495,6 +2495,14 @@ auth.raw = "{safe_password}"
 # System Check — deterministic diagnostics and repair. No model involved.
 # ---------------------------------------------------------------------------
 
+@require_auth_csrf
+async def handle_api_stop(request):
+    """Emergency stop: cancel the user's orchestrator run and its agent swarm."""
+    user_id = _get_web_user_id(request)
+    result = core.stop_user_runs(user_id)
+    return web.json_response({"ok": True, **result})
+
+
 @require_auth
 async def handle_api_raid_status(request):
     """Current raid mode state, for the panel/dashboard toggle buttons."""
@@ -4905,6 +4913,7 @@ async def main():
     web_app.router.add_post("/api/ollama/upgrade", handle_api_ollama_upgrade)
     web_app.router.add_get("/api/raid/status", handle_api_raid_status)
     web_app.router.add_post("/api/raid/toggle", handle_api_raid_toggle)
+    web_app.router.add_post("/api/stop", handle_api_stop)
     web_app.router.add_post("/api/chat", handle_api_chat)
     web_app.router.add_get("/api/activity/history", handle_api_activity_history)
     web_app.router.add_get("/api/activity/stream", handle_api_activity_stream)

@@ -12,6 +12,24 @@ logger = logging.getLogger("talos.core")
 
 GREETINGS = {"hi", "hello", "hey"}
 
+# Active orchestrator runs by user id, so /stop and the panel stop button can
+# cancel a run in flight no matter which channel started it.
+_ACTIVE_RUNS: dict[int, asyncio.Task] = {}
+
+
+def stop_user_runs(user_id: int) -> dict:
+    """Emergency stop: cancel the user's orchestrator run and its swarm.
+
+    Returns what was stopped so callers can tell the user exactly that.
+    """
+    agents_stopped = AI.stop_background_subagents(user_id)
+    task = _ACTIVE_RUNS.get(user_id)
+    run_stopped = False
+    if task is not None and not task.done():
+        task.cancel()
+        run_stopped = True
+    return {"run_stopped": run_stopped, "agents_stopped": agents_stopped}
+
 
 def _int_env(key: str, default: int, lo: int) -> int:
     try:
@@ -261,6 +279,17 @@ def _format_failure_message(error: Exception) -> str:
 
 
 async def process_message(user_id: int, text: str, send_func, model_override: str | None = None) -> None:
+    """Run a chat turn, registered so an emergency stop can cancel it."""
+    run_task = asyncio.current_task()
+    _ACTIVE_RUNS[user_id] = run_task
+    try:
+        await _process_message_impl(user_id, text, send_func, model_override)
+    finally:
+        if _ACTIVE_RUNS.get(user_id) is run_task:
+            _ACTIVE_RUNS.pop(user_id, None)
+
+
+async def _process_message_impl(user_id: int, text: str, send_func, model_override: str | None = None) -> None:
     stripped = text.lower().strip().rstrip("!")
 
     if stripped == "/clear":

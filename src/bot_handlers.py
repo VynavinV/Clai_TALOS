@@ -812,12 +812,19 @@ async def _safe_send(chat, text: str, locked: bool = False) -> bool:
 
 async def cmd_stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     uid = update.effective_user.id
+    # Full emergency stop: the orchestrator run AND its background swarm.
+    # Without this, /stop killed the conductor but left raid subagents running.
+    agents_stopped = AI.stop_background_subagents(uid)
     task = _active_run_tasks.get(uid)
-    if task is None or task.done():
+    if (task is None or task.done()) and agents_stopped == 0:
         await update.message.reply_text("Nothing is running right now.")
         return
-    task.cancel()
-    await update.message.reply_text("Stopping the current job...")
+    if task is not None and not task.done():
+        task.cancel()
+    message = "Stopping the current job"
+    if agents_stopped:
+        message += f" and cancelled {agents_stopped} background agent{'s' if agents_stopped != 1 else ''}"
+    await update.message.reply_text(message + ".")
 
 
 async def _run_with_user_lock(user_id: int, chat, runner_coro, message_text: str | None = None):

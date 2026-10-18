@@ -78,6 +78,30 @@ _BACKGROUND_SUBAGENT_MAX = int(os.getenv("BACKGROUND_SUBAGENT_MAX", "8"))
 RAID_BACKGROUND_SUBAGENT_MAX = int(os.getenv("RAID_BACKGROUND_SUBAGENT_MAX", "100"))
 
 
+def stop_background_subagents(user_id: int | None = None) -> int:
+    """Cancel running background subagents — the emergency stop for swarms.
+
+    Returns how many were stopped. With user_id, only that user's subagents
+    are cancelled (legacy entries without a user are included).
+    """
+    stopped = 0
+    for entry in list(_BACKGROUND_SUBAGENTS.values()):
+        if entry.get("status") != "running":
+            continue
+        owner = entry.get("user_id")
+        if user_id is not None and owner is not None and owner != user_id:
+            continue
+        task = entry.get("task")
+        if task is not None and not task.done():
+            task.cancel()
+            stopped += 1
+        entry["status"] = "cancelled"
+        entry["error"] = "Cancelled by the user (stop)."
+    if stopped:
+        logger.info("Stopped %d background subagent(s).", stopped)
+    return stopped
+
+
 def background_subagent_cap(raid: bool = False) -> int:
     return max(1, RAID_BACKGROUND_SUBAGENT_MAX if raid else _BACKGROUND_SUBAGENT_MAX)
 
@@ -3069,6 +3093,7 @@ async def _execute_tool_call(
                 "result": None,
                 "error": None,
                 "parent_agent": _agent_id,
+                "user_id": user_id,
             }
 
             async def _run_and_record() -> str:
@@ -3140,7 +3165,11 @@ async def _execute_tool_call(
                 # into this run's interrupt queue (delivered between rounds)
                 # and, if the parent run already ended, straight to the user.
                 running = [e for e in _BACKGROUND_SUBAGENTS.values() if e.get("status") == "running"]
-                cap = background_subagent_cap(raid_mode)
+                # Raid mode is a live global toggle: read it here rather than
+                # threading a parameter through every call site. (This gate
+                # used to reference an out-of-scope `raid_mode` name and
+                # crashed every background spawn.)
+                cap = background_subagent_cap(db.get_raid_mode(user_id))
                 if len(running) >= cap:
                     return json.dumps(
                         {
@@ -3187,7 +3216,9 @@ async def _execute_tool_call(
                     for k in finished[:20]:
                         _BACKGROUND_SUBAGENTS.pop(k, None)
 
-                asyncio.create_task(_background_runner())
+                # Keep the task handle: an emergency stop (/stop, panel button)
+                # must be able to cancel a running swarm, not just watch it.
+                entry["task"] = asyncio.create_task(_background_runner())
                 return json.dumps(
                     {
                         "ok": True,

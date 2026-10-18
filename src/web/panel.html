@@ -625,6 +625,14 @@
   @keyframes raidPulse { 0%, 100% { box-shadow: 0 0 0 rgba(255, 82, 110, 0); } 50% { box-shadow: 0 0 14px rgba(255, 82, 110, 0.35); } }
   .svc-tile.raid:active { transform: scale(0.96); }
 
+  /* Emergency stop tile — always red, distinct from raid. */
+  .svc-tile.stop { border-color: rgba(255, 82, 110, 0.55); background: rgba(255, 82, 110, 0.08); cursor: pointer; }
+  .svc-tile.stop .svc-emoji { filter: drop-shadow(0 0 8px rgba(255, 82, 110, 0.45)); }
+  .svc-tile.stop .svc-name { color: #ff8fa3; }
+  .svc-tile.stop .svc-sub { font-size: 0.46rem; font-weight: 600; letter-spacing: 0.05em; color: rgba(255, 143, 163, 0.75); text-transform: uppercase; margin-top: 0.12rem; }
+  .svc-tile.stop:active { transform: scale(0.96); }
+  .svc-tile.stop.stopped { animation: raidPulse 0.8s ease-in-out 2; }
+
   /* RAID MODE — whole-panel war paint. body.raid-on is the master switch: the
      theme's own variables flip to red, so every surface, stroke, accent and
      glow that uses them shifts at once; the rules below catch the few
@@ -1307,6 +1315,12 @@
             <span class="svc-emoji">&#9876;</span>
             <span class="svc-name">Raid</span>
             <span class="svc-sub" id="raid-sub">off · token heavy</span>
+          </div>
+          <div class="svc-tile stop" id="stop-tile" onclick="stopAllRuns()" title="Emergency stop: cancel the running job and all its agents.">
+            <span class="svc-ring"></span>
+            <span class="svc-emoji">&#9209;</span>
+            <span class="svc-name">Stop</span>
+            <span class="svc-sub" id="stop-sub">kill job + agents</span>
           </div>
         </div>
         <div class="raid-status-line" id="raid-status-line">&#9876; RAID MODE ACTIVE — swarm limits lifted</div>
@@ -2055,6 +2069,24 @@
   // in global scope, so the raid tile's handler must be exposed like the
   // other clickable controls (toggleSection, zoomStep, ...).
   window.toggleRaid = toggleRaid;
+
+  function stopAllRuns() {
+    var tile = $('stop-tile');
+    var sub = $('stop-sub');
+    if (tile) tile.style.opacity = '0.5';
+    postJSON('/api/stop', {}).then(function (d) {
+      if (tile) { tile.style.opacity = '1'; tile.classList.add('stopped'); setTimeout(function () { tile.classList.remove('stopped'); }, 1800); }
+      var parts = [];
+      if (d && d.run_stopped) parts.push('job cancelled');
+      if (d && d.agents_stopped) parts.push(d.agents_stopped + ' agent' + (d.agents_stopped === 1 ? '' : 's') + ' stopped');
+      if (sub) sub.textContent = parts.length ? parts.join(' · ') : 'nothing running';
+      setTimeout(function () { if (sub) sub.textContent = 'kill job + agents'; }, 6000);
+    }).catch(function () {
+      if (tile) tile.style.opacity = '1';
+      if (sub) sub.textContent = 'error — check settings';
+    });
+  }
+  window.stopAllRuns = stopAllRuns;
   // Keep raid state fresh so /raid from Telegram or the dashboard shows up here.
   loadRaidStatus();
   setInterval(loadRaidStatus, 10000);
@@ -2093,7 +2125,8 @@
       var allOk = okCount === SERVICES.length;
 
       var raidTile = $('raid-tile');
-      var svcHtml = raidTile ? raidTile.outerHTML : '';
+      var stopTile = $('stop-tile');
+      var svcHtml = (raidTile ? raidTile.outerHTML : '') + (stopTile ? stopTile.outerHTML : '');
 
       $('svc-grid').innerHTML = svcHtml + SERVICES.map(function (s) {
         var st = states[s.id];

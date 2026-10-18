@@ -93,3 +93,84 @@ def test_toggle_round_trip_through_text():
     assert "RAID MODE ON" in text_on and "token heavy" in text_on.lower()
     text_off = __import__("telegram_bot").raid_status_text(False)
     assert "RAID MODE OFF" in text_off
+
+
+def test_stop_background_subagents_cancels_swarm():
+    """The emergency stop must actually cancel running background agents."""
+    import AI
+
+    cancelled = []
+
+    class _FakeTask:
+        def __init__(self):
+            self.done = lambda: False
+
+        def cancel(self):
+            cancelled.append(1)
+
+    entries = {
+        "sub-1": {"id": "sub-1", "status": "running", "user_id": 1, "task": _FakeTask()},
+        "sub-2": {"id": "sub-2", "status": "running", "user_id": 2, "task": _FakeTask()},
+        "sub-3": {"id": "sub-3", "status": "done", "user_id": 1, "task": _FakeTask()},
+        "sub-4": {"id": "sub-4", "status": "running", "user_id": 1, "task": None},  # legacy: no handle
+    }
+    original = dict(AI._BACKGROUND_SUBAGENTS)
+    AI._BACKGROUND_SUBAGENTS.clear()
+    AI._BACKGROUND_SUBAGENTS.update(entries)
+    try:
+        stopped = AI.stop_background_subagents(1)
+        # Own running agents cancelled; other users untouched; done skipped.
+        # Only agents with a live task handle count as "stopped" — sub-4 has
+        # none (legacy format), so it is just marked cancelled.
+        assert stopped == 1
+        assert len(cancelled) == 1  # only sub-1 had a cancellable task
+        assert entries["sub-1"]["status"] == "cancelled"
+        assert entries["sub-4"]["status"] == "cancelled"
+        assert entries["sub-2"]["status"] == "running"
+        assert entries["sub-3"]["status"] == "done"
+    finally:
+        AI._BACKGROUND_SUBAGENTS.clear()
+        AI._BACKGROUND_SUBAGENTS.update(original)
+
+
+def test_stop_user_runs_cancels_registered_run():
+    """core.stop_user_runs cancels the registered orchestrator task + swarm."""
+    import core
+
+    cancelled = []
+
+    class _FakeTask:
+        def done(self):
+            return False
+
+        def cancel(self):
+            cancelled.append("run")
+
+    def fake_stop_agents(user_id):
+        cancelled.append("agents")
+        return 3
+
+    original_runs = dict(core._ACTIVE_RUNS)
+    original_stop = AI.stop_background_subagents
+    core._ACTIVE_RUNS.clear()
+    core._ACTIVE_RUNS[7] = _FakeTask()
+    AI.stop_background_subagents = fake_stop_agents
+    try:
+        result = core.stop_user_runs(7)
+        assert result == {"run_stopped": True, "agents_stopped": 3}
+        assert cancelled == ["agents", "run"]  # swarm first, then the run
+        assert 7 not in core._ACTIVE_RUNS or core._ACTIVE_RUNS.get(7) is not None
+    finally:
+        core._ACTIVE_RUNS.clear()
+        core._ACTIVE_RUNS.update(original_runs)
+        AI.stop_background_subagents = original_stop
+
+    # No run registered: nothing crashed, agents still stopped.
+    core._ACTIVE_RUNS.clear()
+    AI.stop_background_subagents = fake_stop_agents
+    try:
+        result = core.stop_user_runs(7)
+        assert result["run_stopped"] is False
+        assert result["agents_stopped"] == 3
+    finally:
+        AI.stop_background_subagents = original_stop

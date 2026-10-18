@@ -915,6 +915,24 @@
     color: rgba(255, 185, 105, 0.85);
   }
 
+  /* Emergency stop button (homepage). */
+  .stop-all-btn {
+    font-family: inherit;
+    padding: 0.38rem 0.8rem;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 82, 110, 0.6);
+    background: rgba(255, 82, 110, 0.12);
+    color: #ff8fa3;
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.2s ease, transform 0.1s ease;
+  }
+  .stop-all-btn:hover { background: rgba(255, 82, 110, 0.22); }
+  .stop-all-btn:active { transform: scale(0.97); }
+  .stop-all-btn.stopped { animation: stopPulse 0.8s ease-in-out 2; }
+  @keyframes stopPulse { 0%, 100% { box-shadow: 0 0 0 rgba(255, 82, 110, 0); } 50% { box-shadow: 0 0 16px rgba(255, 82, 110, 0.5); } }
+
   /* RAID MODE — homepage war paint. body.raid-on flips the theme's own
      variables to red (every surface, stroke, accent and glow that uses them
      shifts at once); the rules below catch hardcoded cyan surfaces on top. */
@@ -1242,7 +1260,10 @@
       <section class="panel">
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 0.7rem;">
           <h2 class="panel-title" style="margin-bottom:0;">Live Agents <span class="meta-pill subtle" id="agents-count" style="display:none;"></span></h2>
-          <a href="/activity" class="view-activity-link">Full activity monitor <span class="arrow">&rarr;</span></a>
+          <div style="display:flex; align-items:center; gap:0.7rem;">
+            <button class="stop-all-btn" id="stop-all-btn" onclick="stopAllAgents()" title="Emergency stop: cancel the running job and all its agents.">&#9209; Stop all</button>
+            <a href="/activity" class="view-activity-link">Full activity monitor <span class="arrow">&rarr;</span></a>
+          </div>
         </div>
         <div class="agents-web" id="agents-web">
           <svg class="agents-web-links" id="agents-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg>
@@ -2017,6 +2038,37 @@ async function toggleRaid() {
 }
 loadRaidStatus();
 setInterval(loadRaidStatus, 10000);
+
+// ---------- emergency stop ----------
+async function stopAllAgents() {
+  var btn = document.getElementById('stop-all-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '\u23F9 Stopping...'; }
+  try {
+    var res = await fetch('/api/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ csrf_token: csrfToken() })
+    });
+    if (res.status === 401) { window.location.href = '/'; return; }
+    var d = await res.json();
+    var parts = [];
+    if (d.run_stopped) parts.push('job cancelled');
+    if (d.agents_stopped) parts.push(d.agents_stopped + ' agent' + (d.agents_stopped === 1 ? '' : 's') + ' stopped');
+    if (btn) {
+      btn.textContent = parts.length ? '\u23F9 ' + parts.join(' · ') : '\u23F9 Nothing running';
+      btn.classList.add('stopped');
+    }
+    // Agents-web clears within a few seconds as cancelled tasks wind down.
+    setTimeout(function () {
+      if (btn) { btn.textContent = '\u23F9 Stop all'; btn.classList.remove('stopped'); btn.disabled = false; }
+    }, 4000);
+  } catch (e) {
+    if (btn) btn.textContent = '\u23F9 Stop failed';
+    setTimeout(function () {
+      if (btn) { btn.textContent = '\u23F9 Stop all'; btn.disabled = false; }
+    }, 3000);
+  }
+}
 
 (function() {
   var events = [];
