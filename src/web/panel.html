@@ -625,18 +625,59 @@
   @keyframes raidPulse { 0%, 100% { box-shadow: 0 0 0 rgba(255, 82, 110, 0); } 50% { box-shadow: 0 0 14px rgba(255, 82, 110, 0.35); } }
   .svc-tile.raid:active { transform: scale(0.96); }
 
-  /* RAID MODE — whole-panel war paint. body.raid-on is the master switch. */
-  body.raid-on { background: linear-gradient(180deg, #1a0a10, #0a0810); }
-  body.raid-on .topbar { border-bottom: 1px solid rgba(255, 82, 110, 0.55); box-shadow: 0 2px 18px rgba(255, 82, 110, 0.18); }
+  /* RAID MODE — whole-panel war paint. body.raid-on is the master switch: the
+     theme's own variables flip to red, so every surface, stroke, accent and
+     glow that uses them shifts at once; the rules below catch the few
+     hardcoded cyan surfaces on top. */
+  body.raid-on {
+    --bg-0: #150409;
+    --bg-1: #26090f;
+    --surface-0: rgba(38, 9, 16, 0.82);
+    --surface-1: rgba(56, 13, 22, 0.92);
+    --surface-2: rgba(255, 82, 110, 0.05);
+    --stroke-soft: rgba(255, 82, 110, 0.18);
+    --stroke-strong: rgba(255, 82, 110, 0.42);
+    --accent: #ff526e;
+    --accent-2: #ffb84d;
+    background: linear-gradient(180deg, #1d070d, #0e0508);
+  }
+  body.raid-on .topbar { background: rgba(26, 6, 11, 0.94); border-bottom: 1px solid rgba(255, 82, 110, 0.5); box-shadow: 0 2px 18px rgba(255, 82, 110, 0.18); }
   body.raid-on .brand-icon::after { background: #ff526e; box-shadow: 0 0 8px rgba(255, 82, 110, 0.8); }
   body.raid-on .brand-icon img { border-color: rgba(255, 82, 110, 0.5); }
   body.raid-on .clock .time { color: #ff8fa3; text-shadow: 0 0 18px rgba(255, 82, 110, 0.5); }
-  body.raid-on .section { border-color: rgba(255, 82, 110, 0.22); }
-  body.raid-on #sec-side .sec-head .sec-dot { background: #ff526e; box-shadow: 0 0 8px rgba(255, 82, 110, 0.7); }
   body.raid-on .meta-pill { color: #ffb3c0; border-color: rgba(255, 82, 110, 0.55); background: rgba(255, 82, 110, 0.12); }
   body.raid-on .meta-pill .live-dot { background: #ff526e; box-shadow: 0 0 8px rgba(255, 82, 110, 0.9); animation: pulse-dot 0.9s ease-in-out infinite; }
+  body.raid-on .nav a { color: #ff9dae; }
+  body.raid-on .section { border-color: rgba(255, 82, 110, 0.22); }
+
+  /* Hardcoded-cyan surfaces become red-tinged in one sweep. */
+  body.raid-on .svc-tile, body.raid-on .sys-tile, body.raid-on .ha-tile, body.raid-on .sensor-chip,
+  body.raid-on .out-tab, body.raid-on .out-box, body.raid-on .task-row, body.raid-on .task-next,
+  body.raid-on .field input, body.raid-on .stat, body.raid-on .status-card, body.raid-on .cfg-row,
+  body.raid-on .switch, body.raid-on .m-slider::before, body.raid-on .ha-mini-btn,
+  body.raid-on .agents-web, body.raid-on .agent-node, body.raid-on .fold summary, body.raid-on .help-note {
+    border-color: rgba(255, 82, 110, 0.22);
+  }
+  body.raid-on .svc-emoji { filter: drop-shadow(0 0 8px rgba(255, 82, 110, 0.45)); }
+  body.raid-on .sys-bar i { background: linear-gradient(90deg, #ff526e, #ffb84d); }
+  body.raid-on .wv-bar { background: rgba(255, 82, 110, 0.55); }
+  body.raid-on .wv-bar.hot { background: #ffb84d; }
+  body.raid-on .wave-strip { border-color: rgba(255, 82, 110, 0.3); }
+  body.raid-on .out-tab.active { color: #ff8fa3; border-bottom-color: #ff526e; }
+  body.raid-on .out-kind, body.raid-on .out-ticker, body.raid-on .caret { color: #ff9dae; }
+  body.raid-on .out-ticker .tag { border-color: rgba(255, 82, 110, 0.4); color: #ff9dae; }
+  body.raid-on .switch.on, body.raid-on .m-slider-fill { background: linear-gradient(90deg, #ff526e, #ff8fa3); }
+  body.raid-on .task-next { color: #ff9dae; }
+  body.raid-on .step-num { background: rgba(255, 82, 110, 0.18); color: #ff8fa3; }
+  body.raid-on .btn:active, body.raid-on .ha-mini-btn:active, body.raid-on .ha-tile:active { color: #ff8fa3; border-color: rgba(255, 82, 110, 0.5); }
+  body.raid-on .split .grip { color: rgba(255, 82, 110, 0.55); }
+  body.raid-on .node-spin { border-top-color: #ff526e; border-right-color: #ff526e; }
+  body.raid-on .agent-node::after { background: #ff526e; }
+  body.raid-on .agent-node.orchestrator { border-color: rgba(255, 82, 110, 0.5); background: rgba(48, 10, 17, 0.94); }
+  body.raid-on .agent-node.orchestrator .agent-node-icon { background: rgba(255, 82, 110, 0.85); }
   body.raid-on .agents-web { border-color: rgba(255, 82, 110, 0.3); background: rgba(26, 8, 14, 0.6); }
-  body.raid-on .agents-web-links line { stroke: rgba(255, 82, 110, 0.28); }
+  body.raid-on .agents-web-links line { stroke: rgba(255, 82, 110, 0.24); }
+  body.raid-on .agents-web-links line.active { stroke: rgba(255, 82, 110, 0.6); }
   body.raid-on .agent-node { border-color: rgba(255, 82, 110, 0.35); }
   body.raid-on .raid-status-line {
     display: block; margin-top: 0.5rem; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.08em;
