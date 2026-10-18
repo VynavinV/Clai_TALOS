@@ -1145,6 +1145,18 @@
   .ha-tile:active { transform: scale(0.97); }
 
   .meta-pill { transition: all 0.35s ease; }
+
+  /* Update pill: appears in the topbar only when an OTA update is ready. */
+  .update-pill {
+    font-family: inherit;
+    font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700;
+    padding: 0.32rem 0.62rem; border-radius: 999px;
+    border: 1px solid rgba(255, 185, 105, 0.5); color: #ffd9a3; background: rgba(255, 185, 105, 0.12);
+    white-space: nowrap; cursor: pointer; min-height: 30px;
+    animation: pulse-dot 1.8s ease-in-out infinite;
+  }
+  .update-pill:active { background: rgba(255, 185, 105, 0.3); }
+  .update-pill.busy { opacity: 0.65; pointer-events: none; animation: none; }
   .svc-dots span { transition: all 0.35s ease; }
   .stat-num, .uptime-value { transition: color 0.3s ease; }
 
@@ -1212,6 +1224,7 @@
   </div>
   <div class="svc-dots" id="svc-dots" title="System health"></div>
   <div class="pills">
+    <button class="update-pill" id="update-pill" style="display:none;" onclick="applyPanelUpdate()" title="A TALOS update is available. Tap to install it.">&#11014; Update</button>
     <span class="meta-pill off" id="live-badge"><span class="live-dot"></span>LIVE</span>
   </div>
   <div class="zoom-ctl" title="Text size — tap the % to reset">
@@ -3937,6 +3950,69 @@
     ppCloseModal();
   });
 
+  /* ---------- update available pill (OTA) ---------- */
+
+  var ppUpdateBusy = false;
+  var ppUpdateVersion = '';
+
+  function loadUpdatePill() {
+    getJSON('/api/updates/check').then(function (d) {
+      var pill = $('update-pill');
+      if (!pill || !d) return;
+      ppUpdateVersion = d.current_version || '';
+      if (d.ok && d.enabled !== false && d.update_available && d.can_apply) {
+        pill.style.display = 'inline-block';
+      } else {
+        pill.style.display = 'none';
+      }
+    }).catch(function () { /* offline: stay quiet */ });
+  }
+
+  function applyPanelUpdate() {
+    if (ppUpdateBusy) return;
+    if (!window.confirm('Update TALOS now? It restarts for about 15 seconds.')) return;
+    ppUpdateBusy = true;
+    var pill = $('update-pill');
+    pill.classList.add('busy');
+    postJSON('/api/updates/apply', {}).then(function (d) {
+      if (d && d.ok === false) {
+        ppUpdateBusy = false;
+        pill.classList.remove('busy');
+        toast(d.error || 'Could not apply the update.', true);
+        return;
+      }
+      ppWaitForRestart();
+    }).catch(function () {
+      // Connection dropping mid-restart is expected, not a failure.
+      ppWaitForRestart();
+    });
+  }
+
+  function ppWaitForRestart() {
+    var pill = $('update-pill');
+    pill.innerHTML = '&#8987; Updating&hellip;';
+    var seenDown = false;
+    var attempts = 0;
+    var poll = function () {
+      attempts++;
+      fetch('/api/updates/check', { cache: 'no-store' })
+        .then(function (r) { if (!r.ok) throw new Error('down'); return r.json(); })
+        .then(function (d) {
+          var changed = ppUpdateVersion && d && d.current_version && d.current_version !== ppUpdateVersion;
+          if (seenDown || changed || attempts > 40) { window.location.reload(); return; }
+          setTimeout(poll, 3000);
+        })
+        .catch(function () {
+          seenDown = true;
+          if (attempts > 40) { window.location.reload(); return; }
+          setTimeout(poll, 3000);
+        });
+    };
+    setTimeout(poll, 4000);
+  }
+
+  window.applyPanelUpdate = applyPanelUpdate;
+
   /* ---------- boot ---------- */
 
   /* old iPads (iOS 12): strip the expensive effects so drags stay smooth */
@@ -3962,6 +4038,9 @@
 
   ppPoll();
   setInterval(function () { if (!document.hidden) ppPoll(); }, 4000);
+
+  loadUpdatePill();
+  setInterval(function () { if (!document.hidden) loadUpdatePill(); }, 30 * 60 * 1000);
 
   renderHaStatus();
   setInterval(function () { if (!document.hidden) renderHaStatus(); }, 45000);

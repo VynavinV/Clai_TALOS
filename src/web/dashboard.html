@@ -967,6 +967,41 @@
     animation: raidGlow 1.6s ease-in-out infinite;
   }
   @keyframes raidGlow { 0%, 100% { box-shadow: 0 0 0 rgba(255, 82, 110, 0); } 50% { box-shadow: 0 0 18px rgba(255, 82, 110, 0.3); } }
+
+  /* ---------- OTA update banner ---------- */
+
+  .update-banner {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 0.5rem 0.8rem;
+    margin: 0 0 1.1rem;
+    padding: 0.55rem 0.8rem;
+    border-radius: 12px;
+    border: 1px solid rgba(86, 206, 255, 0.55);
+    background: linear-gradient(90deg, rgba(86, 206, 255, 0.14), rgba(86, 206, 255, 0.04), rgba(86, 206, 255, 0.14));
+    color: #9fdcff;
+    font-weight: 700;
+    font-size: 0.8rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .update-banner .update-apply-btn {
+    font-family: inherit;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    padding: 0.4rem 0.9rem;
+    border-radius: 999px;
+    border: 1px solid rgba(86, 206, 255, 0.6);
+    background: rgba(86, 206, 255, 0.18);
+    color: #dff4ff;
+    cursor: pointer;
+  }
+  .update-banner .update-apply-btn:active { background: rgba(86, 206, 255, 0.35); }
+  .update-banner .update-apply-btn:disabled { opacity: 0.5; pointer-events: none; }
   body.raid-on .hero .pulse-ring img { border-color: rgba(255, 82, 110, 0.6); box-shadow: 0 0 26px rgba(255, 82, 110, 0.4); }
   body.raid-on .hero-title { color: #ff8fa3; }
   body.raid-on .hero-sub { color: rgba(255, 143, 163, 0.85); }
@@ -1254,6 +1289,11 @@
   </div>
 
   <div class="raid-banner">&#9876; Raid mode active — swarm limits lifted · token heavy</div>
+
+  <div class="update-banner" id="update-banner" style="display:none;">
+    <span>&#11014; Update available — you're on <span id="update-current">?</span>, latest is <span id="update-latest">?</span></span>
+    <button class="update-apply-btn" id="update-apply-btn" onclick="applyDashboardUpdate()">Download and apply</button>
+  </div>
 
   <div class="board">
     <div class="board-main">
@@ -2038,6 +2078,70 @@ async function toggleRaid() {
 }
 loadRaidStatus();
 setInterval(loadRaidStatus, 10000);
+
+// ---------- OTA update banner ----------
+var _otaBannerVersion = '';
+
+function loadUpdateBanner() {
+  fetch('/api/updates/check', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (d) {
+    var banner = document.getElementById('update-banner');
+    if (!banner || !d) return;
+    _otaBannerVersion = d.current_version || '';
+    if (d.ok && d.enabled !== false && d.update_available && d.can_apply) {
+      document.getElementById('update-current').textContent = d.current_version || '?';
+      document.getElementById('update-latest').textContent = d.latest_version || 'latest';
+      banner.style.display = 'flex';
+    } else {
+      banner.style.display = 'none';
+    }
+  }).catch(function () { /* offline or OTA unreachable: stay quiet */ });
+}
+
+async function applyDashboardUpdate() {
+  var btn = document.getElementById('update-apply-btn');
+  var banner = document.getElementById('update-banner');
+  if (!confirm('Apply the latest update now? TALOS will restart for about 15 seconds.')) return;
+  if (btn) btn.disabled = true;
+  try {
+    var res = await fetch('/api/updates/apply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ csrf_token: csrfToken() })
+    });
+    if (res.status === 401) { window.location.href = '/'; return; }
+    var data = await res.json();
+    if (!data.ok) {
+      if (btn) btn.disabled = false;
+      alert(data.error || 'Could not apply the update.');
+      loadUpdateBanner();
+      return;
+    }
+  } catch (e) {
+    // Connection dropping mid-restart is expected, not a failure.
+  }
+  // Wait for the server to come back, then reload into the new version.
+  var seenDown = false;
+  var attempts = 0;
+  if (banner) banner.innerHTML = '&#8987; Updating — waiting for TALOS to restart...';
+  (function poll() {
+    attempts++;
+    fetch('/api/updates/check', { cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error('down'); return r.json(); })
+      .then(function (d) {
+        var versionChanged = _otaBannerVersion && d && d.current_version && d.current_version !== _otaBannerVersion;
+        if (seenDown || versionChanged || attempts > 40) { window.location.reload(); return; }
+        setTimeout(poll, 3000);
+      })
+      .catch(function () {
+        seenDown = true;
+        if (attempts > 40) { window.location.reload(); return; }
+        setTimeout(poll, 3000);
+      });
+  })();
+}
+
+loadUpdateBanner();
+setInterval(loadUpdateBanner, 30 * 60 * 1000);
 
 // ---------- emergency stop ----------
 async function stopAllAgents() {
