@@ -3826,21 +3826,11 @@
   var ppShown = null;      // popup currently on screen
   var ppLocalClosed = {};  // ids closed locally on THIS tab; don't force them open again
   var ppTimer = null;      // countdown interval for confirm popups
-  var ppFrameUrl = null;   // blob URL backing the html iframe (revoked on close)
 
   function ppCloseModal() {
     $('pp-modal').classList.remove('open');
     if (ppTimer) { clearInterval(ppTimer); ppTimer = null; }
-    if (ppFrameUrl) { try { window.URL.revokeObjectURL(ppFrameUrl); } catch (e) {} ppFrameUrl = null; }
     ppShown = null;
-  }
-
-  function ppDocUrl(html) {
-    try {
-      return window.URL.createObjectURL(new Blob([html], { type: 'text/html' }));
-    } catch (e) {
-      return 'data:text/html;charset=utf-8,' + encodeURIComponent(html);
-    }
   }
 
   function ppOpen(popup) {
@@ -3876,9 +3866,7 @@
       if (popup.text) { note.textContent = popup.text; note.style.display = 'block'; }
       else { note.style.display = 'none'; }
       var frame = $('pp-frame');
-      if (ppFrameUrl) { try { window.URL.revokeObjectURL(ppFrameUrl); } catch (e) {} ppFrameUrl = null; }
-      ppFrameUrl = ppDocUrl(popup.html || '');
-      frame.setAttribute('src', ppFrameUrl);
+      frame.setAttribute('src', '/api/panel/popups/content/' + encodeURIComponent(popup.id));
     }
     $('pp-modal').classList.add('open');
   }

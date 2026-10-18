@@ -206,6 +206,14 @@ class PanelPopupHub:
         pending.sort(key=lambda p: p["created_ts"])
         return [self._public(p) for p in pending]
 
+    def get_html(self, popup_id: str) -> str | None:
+        """The HTML body of a pending popup, for same-origin iframe rendering."""
+        self._expire_stale()
+        popup = self._popups.get(str(popup_id or ""))
+        if not popup or popup["kind"] != "html" or popup["status"] != "pending":
+            return None
+        return popup.get("html", "")
+
 
 hub = PanelPopupHub()
 

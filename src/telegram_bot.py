@@ -2768,6 +2768,45 @@ async def handle_api_panel_popups(request):
     return web.json_response({"ok": True, "popups": panel_popups.hub.pending_list()})
 
 
+async def handle_api_panel_popup_content(request):
+    """Popup HTML as its own same-origin page, so the panel can render it in an
+    iframe without CSP or blob: trouble. The 48-bit random popup id is the
+    capability; popups are short-lived display content."""
+    popup_id = request.match_info.get("popup_id", "")
+    html = panel_popups.hub.get_html(popup_id)
+    if html is None:
+        return web.Response(status=404, text="popup is gone")
+    return web.Response(text=html, content_type="text/html")
+
+
+async def handle_api_qr(request):
+    """Tiny local QR generator: returns an SVG for ?data=... . Unauthenticated —
+    it only encodes the given text, nothing private — and it must work from
+    inside sandboxed popup iframes."""
+    data = str(request.query.get("data", "")).strip()
+    scale = request.query.get("scale", "4")
+    try:
+        scale = max(1, min(int(scale), 12))
+    except ValueError:
+        scale = 4
+    if not data:
+        return web.json_response({"error": "data query parameter is required"}, status=400)
+    if len(data) > 1000:
+        return web.json_response({"error": "data too long (max 1000 chars)"}, status=400)
+    try:
+        import segno
+        buf = io.BytesIO()
+        segno.make(data, error="m").save(buf, kind="svg", scale=scale, border=2)
+        svg = buf.getvalue()
+    except Exception as e:
+        return web.json_response({"error": f"QR generation failed: {e}"}, status=500)
+    return web.Response(
+        body=svg,
+        content_type="image/svg+xml",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
 @require_auth_csrf
 async def handle_api_panel_popup_respond(request):
     """Answer a pending confirm popup from a Panel tab. First answer wins."""
@@ -4867,8 +4906,9 @@ async def main():
             response.headers["Cache-Control"] = "no-store"
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; script-src 'self' 'unsafe-inline'; "
-            "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
-            "connect-src 'self' wss: ws:; font-src 'self'"
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "img-src 'self' data:; connect-src 'self' wss: ws:; "
+            "font-src 'self' https://fonts.gstatic.com; frame-src 'self' blob: data:"
         )
         return response
 
@@ -4899,8 +4939,10 @@ async def main():
     web_app.router.add_get("/projects", handle_projects_page)
     web_app.router.add_get("/panel", handle_panel)
     web_app.router.add_get("/api/panel/popups", handle_api_panel_popups)
+    web_app.router.add_get("/api/panel/popups/content/{popup_id}", handle_api_panel_popup_content)
     web_app.router.add_post("/api/panel/popups/respond", handle_api_panel_popup_respond)
     web_app.router.add_post("/api/panel/popups/dismiss", handle_api_panel_popup_dismiss)
+    web_app.router.add_get("/api/qr", handle_api_qr)
     web_app.router.add_get("/api/tasks", handle_api_tasks)
     web_app.router.add_get("/api/homeassistant/status", handle_api_homeassistant_status)
     web_app.router.add_get("/api/homeassistant/states", handle_api_homeassistant_states)

@@ -644,8 +644,10 @@ Main pages:
 | GET | `/api/homeassistant/states` | Home Assistant entity states |
 | POST | `/api/homeassistant/service` | Call a Home Assistant service (toggle/run) |
 | GET | `/api/panel/popups` | Pending agent popups for open Panel tabs (poll) |
+| GET | `/api/panel/popups/content/{id}` | Popup HTML page (same-origin iframe source) |
 | POST | `/api/panel/popups/respond` | Answer a yes/no popup (first answer wins) |
 | POST | `/api/panel/popups/dismiss` | Dismiss an HTML popup |
+| GET | `/api/qr?data=...` | Local QR code generator (SVG) |
 
 #### Setting up the Panel on an iPad (grandma edition)
 

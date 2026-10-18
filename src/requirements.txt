@@ -19,3 +19,4 @@ numpy
 discord.py[voice]
 PyNaCl
 pillow
+segno

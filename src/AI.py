@@ -1671,10 +1671,12 @@ def _get_all_tools(include_subagent: bool = True, include_telegram: bool = False
             "function": {
                 "name": "panel_popup",
                 "description": (
-                    "Push a popup to the user's open Panel browser tabs (the always-on tablet dashboard). "
-                    "Use action 'confirm' for yes/no decisions — the call waits until the user answers "
-                    "(or times out) and returns the answer. Use action 'show_html' to display temporary "
-                    "custom HTML (diagrams, tables, sketches) on the Panel until dismissed or expired."
+                    "Push a popup to the user's open Panel browser tabs (the always-on tablet screen). "
+                    "Use it PROACTIVELY: made something with a link? Push a card with the link and a QR "
+                    "(<img src=\"/api/qr?data=URL\">). Explaining a structure or design? Show a small diagram. "
+                    "Use action 'confirm' for yes/no decisions — it waits until the user answers on the Panel "
+                    "(or times out) and returns the answer. Use action 'show_html' for temporary custom HTML "
+                    "cards (dark theme, self-contained, under ~300 lines) until dismissed or expired."
                 ),
                 "parameters": {
                     "type": "object",
@@ -3014,6 +3016,11 @@ async def _execute_tool_call(
                 "share_this_link": reg["url"],
                 "path": reg["path"],
                 "instruction": "Send the url to the user — this is the live clickable link to their project",
+                "panel_hint": (
+                    "The user has an always-on Panel screen. Push the deliverable there too with "
+                    "panel_popup action=show_html: a short title, one line about it, the link, and a "
+                    "scannable QR — <img src=\"/api/qr?data=URL\" width=\"180\"> — inside the HTML."
+                ),
             }
             # Conductor doctrine nudge: the deck itself should be BUILT by a
             # subagent. Never blocks — just reminds the orchestrator to push
