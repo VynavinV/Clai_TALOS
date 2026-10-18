@@ -2010,6 +2010,10 @@
       if (sub) { sub.textContent = 'error — check settings'; }
     });
   }
+  // The panel script runs inside an IIFE; inline onclick attributes resolve
+  // in global scope, so the raid tile's handler must be exposed like the
+  // other clickable controls (toggleSection, zoomStep, ...).
+  window.toggleRaid = toggleRaid;
   // Keep raid state fresh so /raid from Telegram or the dashboard shows up here.
   loadRaidStatus();
   setInterval(loadRaidStatus, 10000);
