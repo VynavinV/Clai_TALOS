@@ -46,6 +46,7 @@ import diagnostics
 import claistore
 import system_stats
 import whatsapp_bot
+import whatsapp_personal_bot
 import discord_bot
 import webrtc_audio
 from auth_policy import MIN_DASHBOARD_PASSWORD_LENGTH, validate_dashboard_password
@@ -5010,6 +5011,7 @@ async def main():
     web_app.router.add_static("/static", STATIC_DIR)
     gateway.setup_routes(web_app, auth_decorator=require_auth)
     whatsapp_bot.setup_routes(web_app)
+    whatsapp_personal_bot.start()
     discord_bot.start_gateway()
 
     runner = web.AppRunner(web_app)
@@ -5076,6 +5078,8 @@ async def main():
 
     if whatsapp_bot.is_configured():
         print("WhatsApp bot online (Cloud API webhook).")
+    elif whatsapp_personal_bot.is_configured():
+        print("WhatsApp personal mode active (QR auth via WhatsApp Web).")
     else:
         print("WhatsApp not configured. Set WHATSAPP_TOKEN/WHATSAPP_PHONE_NUMBER_ID/WHATSAPP_VERIFY_TOKEN/WHATSAPP_ENABLED to enable.")
 
