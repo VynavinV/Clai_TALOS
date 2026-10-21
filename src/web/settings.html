@@ -487,6 +487,29 @@
   </div>
 
   <div class="section">
+    <div class="section-title">WhatsApp Personal</div>
+    <div class="form-hint" style="margin-bottom:0.8rem;">
+      Use your own WhatsApp account instead of the Cloud API. The bot acts as you &mdash; reads and sends messages from your personal WhatsApp. Requires QR code scan on first setup.
+    </div>
+    <div class="toggle-row">
+      <input type="checkbox" id="whatsapp-personal-enabled" onchange="toggleWhatsAppPersonalFields()">
+      <div class="toggle-label"><strong>Enable Personal Mode</strong>
+        <div class="toggle-sub">Links your personal WhatsApp via QR code (like WhatsApp Desktop). Cannot be used at the same time as Cloud API.</div>
+      </div>
+    </div>
+    <div id="whatsapp-personal-config-area" style="display:none;">
+      <div class="toggle-row">
+        <input type="checkbox" id="whatsapp-personal-headless" checked>
+        <div class="toggle-label"><strong>Headless Browser</strong>
+          <div class="toggle-sub">Run the WhatsApp Web browser in the background. Turn off if you need to see the browser window (e.g. to re-scan QR code).</div>
+        </div>
+      </div>
+      <div class="form-hint">On first start, a browser window will open showing a QR code. Scan it with your phone to link the device.</div>
+    </div>
+    <div class="status-line" id="whatsapp-personal-status"></div>
+  </div>
+
+  <div class="section">
     <div class="section-title">Discord Bot</div>
     <div class="form-hint" style="margin-bottom:0.8rem;">
       Connect Discord so you can message your assistant from a Discord server. Create a bot at <a href="https://discord.com/developers/applications" target="_blank">Discord Developer Portal</a>.
@@ -1436,6 +1459,9 @@ async function loadSettings() {
     document.getElementById('whatsapp-phone-id').value = d.WHATSAPP_PHONE_NUMBER_ID || '';
     document.getElementById('whatsapp-verify-token').value = d.WHATSAPP_VERIFY_TOKEN || '';
     toggleWhatsAppFields();
+    document.getElementById('whatsapp-personal-enabled').checked = (d.WHATSAPP_PERSONAL_ENABLED || '0') === '1';
+    document.getElementById('whatsapp-personal-headless').checked = (d.WHATSAPP_PERSONAL_HEADLESS || '1') === '1';
+    toggleWhatsAppPersonalFields();
     document.getElementById('discord-enabled').checked = (d.DISCORD_ENABLED || '0') === '1';
     document.getElementById('discord-token').value = d.DISCORD_TOKEN || '';
     document.getElementById('discord-application-id').value = d.DISCORD_APPLICATION_ID || '';
@@ -2161,6 +2187,8 @@ async function saveSettings() {
     WHATSAPP_TOKEN: document.getElementById('whatsapp-token').value.trim(),
     WHATSAPP_PHONE_NUMBER_ID: document.getElementById('whatsapp-phone-id').value.trim(),
     WHATSAPP_VERIFY_TOKEN: document.getElementById('whatsapp-verify-token').value.trim(),
+    WHATSAPP_PERSONAL_ENABLED: document.getElementById('whatsapp-personal-enabled').checked ? '1' : '0',
+    WHATSAPP_PERSONAL_HEADLESS: document.getElementById('whatsapp-personal-headless').checked ? '1' : '0',
     DISCORD_ENABLED: document.getElementById('discord-enabled').checked ? '1' : '0',
     DISCORD_TOKEN: document.getElementById('discord-token').value.trim(),
     DISCORD_APPLICATION_ID: document.getElementById('discord-application-id').value.trim(),
@@ -2730,6 +2758,11 @@ function toggleEmailReconfigure() {
 function toggleWhatsAppFields() {
   var enabled = document.getElementById('whatsapp-enabled').checked;
   document.getElementById('whatsapp-config-area').style.display = enabled ? 'block' : 'none';
+}
+
+function toggleWhatsAppPersonalFields() {
+  var enabled = document.getElementById('whatsapp-personal-enabled').checked;
+  document.getElementById('whatsapp-personal-config-area').style.display = enabled ? 'block' : 'none';
 }
 
 function toggleDiscordFields() {

@@ -547,31 +547,59 @@
     </div>
   </div>
 
-  <!-- Step 6: Optional - WhatsApp -->
+  <!-- Step 7: Optional - WhatsApp -->
   <div class="step" data-step="6">
-    <h2>Step 6: WhatsApp (Optional)</h2>
+    <h2>Step 7: WhatsApp (Optional)</h2>
     <p class="desc">Connect WhatsApp so you can message your assistant from there too.</p>
-    <div class="info-box">
-      <ol>
-        <li>Go to <a href="https://developers.facebook.com/apps/" target="_blank">Meta for Developers</a> and create an app</li>
-        <li>Add the <strong>WhatsApp</strong> product to your app</li>
-        <li>Under <strong>WhatsApp &gt; API Setup</strong>, copy the <strong>Temporary access token</strong>, <strong>Phone number ID</strong></li>
-        <li>Set a <strong>Webhook verify token</strong> (any secret string you choose)</li>
-      </ol>
+
+    <div class="section-label">Choose Mode</div>
+    <div class="provider-grid" id="wa-mode-grid" style="margin-bottom:1.2rem;">
+      <div class="provider-card" id="wa-mode-cloud" onclick="selectWhatsAppMode('cloud')">
+        <div class="provider-name">Cloud API</div>
+        <div class="provider-desc">Business account via Meta Developer Portal. Needs a Facebook app.</div>
+      </div>
+      <div class="provider-card" id="wa-mode-personal" onclick="selectWhatsAppMode('personal')">
+        <div class="provider-name">Personal</div>
+        <div class="provider-desc">Use your own WhatsApp account. Scan a QR code to link (like WhatsApp Desktop).</div>
+      </div>
     </div>
-    <div class="field">
-      <label>Access Token</label>
-      <input type="password" id="wa-token" placeholder="EAAG..." autocomplete="off">
+
+    <div id="wa-cloud-area" style="display:none;">
+      <div class="info-box">
+        <ol>
+          <li>Go to <a href="https://developers.facebook.com/apps/" target="_blank">Meta for Developers</a> and create an app</li>
+          <li>Add the <strong>WhatsApp</strong> product to your app</li>
+          <li>Under <strong>WhatsApp &gt; API Setup</strong>, copy the <strong>Temporary access token</strong>, <strong>Phone number ID</strong></li>
+          <li>Set a <strong>Webhook verify token</strong> (any secret string you choose)</li>
+        </ol>
+      </div>
+      <div class="field">
+        <label>Access Token</label>
+        <input type="password" id="wa-token" placeholder="EAAG..." autocomplete="off">
+      </div>
+      <div class="field">
+        <label>Phone Number ID</label>
+        <input type="text" id="wa-phone-id" placeholder="1234567890" autocomplete="off">
+      </div>
+      <div class="field">
+        <label>Webhook Verify Token</label>
+        <input type="password" id="wa-verify-token" placeholder="your-secret-token" autocomplete="off">
+        <div class="hint">The secret string you set in the webhook configuration.</div>
+      </div>
     </div>
-    <div class="field">
-      <label>Phone Number ID</label>
-      <input type="text" id="wa-phone-id" placeholder="1234567890" autocomplete="off">
+
+    <div id="wa-personal-area" style="display:none;">
+      <div class="info-box">
+        Your personal WhatsApp will be linked to this assistant, similar to linking WhatsApp Desktop.
+        <ol>
+          <li>On the next screen (or when the bot starts), a QR code will appear</li>
+          <li>Open WhatsApp on your phone and go to <strong>Linked Devices</strong></li>
+          <li>Scan the QR code to connect</li>
+        </ol>
+        No API keys needed &mdash; just scan and go.
+      </div>
     </div>
-    <div class="field">
-      <label>Webhook Verify Token</label>
-      <input type="password" id="wa-verify-token" placeholder="your-secret-token" autocomplete="off">
-      <div class="hint">The secret string you set in the webhook configuration.</div>
-    </div>
+
     <div class="error" id="err-whatsapp"></div>
     <div class="btn-row">
       <button class="btn btn-skip" onclick="goStep(7)">Skip for now</button>
@@ -579,9 +607,9 @@
     </div>
   </div>
 
-  <!-- Step 7: Optional - Discord -->
+  <!-- Step 8: Optional - Discord -->
   <div class="step" data-step="7">
-    <h2>Step 7: Discord (Optional)</h2>
+    <h2>Step 8: Discord (Optional)</h2>
     <p class="desc">Connect Discord so you can message your assistant from a Discord server.</p>
     <div class="info-box">
       <ol>
@@ -626,6 +654,7 @@
 var TOTAL_STEPS = 9;
 var currentStep = 0;
 var selectedProvider = '';
+var _waMode = '';
 var _csrfToken = document.querySelector('meta[name="csrf-token"]') ? document.querySelector('meta[name="csrf-token"]').getAttribute('content') : '';
 
 function _post(url, body) {
@@ -1470,22 +1499,42 @@ async function connectGoogleOnboarding() {
   }
 }
 
+function selectWhatsAppMode(mode) {
+  _waMode = mode;
+  document.getElementById('wa-mode-cloud').classList.toggle('selected', mode === 'cloud');
+  document.getElementById('wa-mode-personal').classList.toggle('selected', mode === 'personal');
+  document.getElementById('wa-cloud-area').style.display = mode === 'cloud' ? 'block' : 'none';
+  document.getElementById('wa-personal-area').style.display = mode === 'personal' ? 'block' : 'none';
+}
+
 async function saveWhatsApp() {
-  var token = document.getElementById('wa-token').value.trim();
-  var phoneId = document.getElementById('wa-phone-id').value.trim();
-  var verifyToken = document.getElementById('wa-verify-token').value.trim();
   var err = document.getElementById('err-whatsapp');
   err.textContent = '';
 
-  if (!token || !phoneId || !verifyToken) { err.textContent = 'All three fields are required.'; return; }
+  if (!_waMode) { err.textContent = 'Please choose Cloud API or Personal mode.'; return; }
 
   try {
-    var res = await _post('/api/onboarding/whatsapp', {
-      token: token, phone_number_id: phoneId, verify_token: verifyToken
-    });
-    var data = await res.json();
-    if (data.ok) goStep(7);
-    else err.textContent = data.error || 'Could not save WhatsApp settings.';
+    if (_waMode === 'personal') {
+      var res = await _post('/api/onboarding/whatsapp', {
+        mode: 'personal'
+      });
+      var data = await res.json();
+      if (data.ok) goStep(7);
+      else err.textContent = data.error || 'Could not save WhatsApp settings.';
+    } else {
+      var token = document.getElementById('wa-token').value.trim();
+      var phoneId = document.getElementById('wa-phone-id').value.trim();
+      var verifyToken = document.getElementById('wa-verify-token').value.trim();
+
+      if (!token || !phoneId || !verifyToken) { err.textContent = 'All three fields are required.'; return; }
+
+      var res = await _post('/api/onboarding/whatsapp', {
+        mode: 'cloud', token: token, phone_number_id: phoneId, verify_token: verifyToken
+      });
+      var data = await res.json();
+      if (data.ok) goStep(7);
+      else err.textContent = data.error || 'Could not save WhatsApp settings.';
+    }
   } catch (e) { err.textContent = 'Connection problem. Please try again.'; }
 }
 

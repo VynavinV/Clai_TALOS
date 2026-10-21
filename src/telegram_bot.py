@@ -2632,24 +2632,34 @@ async def handle_api_onboarding_google(request):
 
 @require_auth_csrf
 async def handle_api_onboarding_whatsapp(request):
-    """Save WhatsApp Cloud API credentials during onboarding."""
+    """Save WhatsApp credentials during onboarding. Supports cloud and personal modes."""
     try:
         body = await request.json()
     except Exception:
         return web.json_response({"error": "Invalid request."}, status=400)
 
-    token = str(body.get("token", "")).strip()
-    phone_number_id = str(body.get("phone_number_id", "")).strip()
-    verify_token = str(body.get("verify_token", "")).strip()
-
-    if not token or not phone_number_id or not verify_token:
-        return web.json_response({"error": "All three WhatsApp fields are required."}, status=400)
-
+    mode = str(body.get("mode", "cloud")).strip().lower()
     env_vars = _read_env_file()
-    env_vars["WHATSAPP_TOKEN"] = token
-    env_vars["WHATSAPP_PHONE_NUMBER_ID"] = phone_number_id
-    env_vars["WHATSAPP_VERIFY_TOKEN"] = verify_token
-    env_vars["WHATSAPP_ENABLED"] = "true"
+
+    if mode == "personal":
+        env_vars["WHATSAPP_MODE"] = "personal"
+        env_vars["WHATSAPP_PERSONAL_ENABLED"] = "true"
+        # Disable cloud mode to avoid conflicts
+        env_vars["WHATSAPP_ENABLED"] = "false"
+    else:
+        token = str(body.get("token", "")).strip()
+        phone_number_id = str(body.get("phone_number_id", "")).strip()
+        verify_token = str(body.get("verify_token", "")).strip()
+
+        if not token or not phone_number_id or not verify_token:
+            return web.json_response({"error": "All three WhatsApp fields are required."}, status=400)
+
+        env_vars["WHATSAPP_TOKEN"] = token
+        env_vars["WHATSAPP_PHONE_NUMBER_ID"] = phone_number_id
+        env_vars["WHATSAPP_VERIFY_TOKEN"] = verify_token
+        env_vars["WHATSAPP_ENABLED"] = "true"
+        env_vars["WHATSAPP_MODE"] = "cloud"
+        env_vars["WHATSAPP_PERSONAL_ENABLED"] = "false"
 
     _write_env_file(env_vars)
 
@@ -3121,6 +3131,9 @@ async def handle_api_settings_get(request):
         "WHATSAPP_PHONE_NUMBER_ID": env_vars.get("WHATSAPP_PHONE_NUMBER_ID", ""),
         "WHATSAPP_VERIFY_TOKEN": env_vars.get("WHATSAPP_VERIFY_TOKEN", ""),
         "WHATSAPP_ENABLED": env_vars.get("WHATSAPP_ENABLED", "0"),
+        "WHATSAPP_MODE": env_vars.get("WHATSAPP_MODE", ""),
+        "WHATSAPP_PERSONAL_ENABLED": env_vars.get("WHATSAPP_PERSONAL_ENABLED", "0"),
+        "WHATSAPP_PERSONAL_HEADLESS": env_vars.get("WHATSAPP_PERSONAL_HEADLESS", "1"),
         "DISCORD_TOKEN": env_vars.get("DISCORD_TOKEN", ""),
         "DISCORD_APPLICATION_ID": env_vars.get("DISCORD_APPLICATION_ID", ""),
         "DISCORD_ENABLED": env_vars.get("DISCORD_ENABLED", "0"),
@@ -3443,6 +3456,7 @@ async def handle_api_settings_post(request):
         "GOOGLE_OAUTH_REDIRECT_URI", "GOOGLE_APPS_SCRIPT_URL", "GOOGLE_OAUTH_SCOPES",
         "HIMALAYA_BIN", "HIMALAYA_CONFIG", "HIMALAYA_DEFAULT_ACCOUNT",
         "WHATSAPP_TOKEN", "WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_VERIFY_TOKEN",
+        "WHATSAPP_MODE",
         "DISCORD_TOKEN", "DISCORD_APPLICATION_ID",
         "PIPER_VOICE", "CLIENT_BASE_URL", "NVIDIA_BASE_URL", "CEREBRAS_BASE_URL", "GROQ_BASE_URL", "QWEN_BASE_URL", "OPENROUTER_BASE_URL", "MISTRAL_BASE_URL", "OLLAMA_BASE_URL", "OTHER_BASE_URL", "OLLAMA_MODEL",
         "OLLAMA_NUM_CTX", "OLLAMA_TEMPERATURE", "OLLAMA_MAX_TOKENS", "OLLAMA_KEEP_ALIVE", "OLLAMA_KEEP_WARM", "OLLAMA_TIMEOUT_S",
@@ -3456,7 +3470,8 @@ async def handle_api_settings_post(request):
 
     # On/off switches, stored as "1"/"0" so they survive the flat .env format.
     _BOOL_KEYS = [
-        "HOMEASSISTANT_ENABLED", "WHATSAPP_ENABLED", "DISCORD_ENABLED",
+        "HOMEASSISTANT_ENABLED", "WHATSAPP_ENABLED", "WHATSAPP_PERSONAL_ENABLED",
+        "WHATSAPP_PERSONAL_HEADLESS", "DISCORD_ENABLED",
         "TALOS_STUCK_ENABLED", "ORCHESTRATOR_TIMEOUT_ENABLED", "TALOS_PROGRESS_ENABLED",
         "LAYA_ENABLED", "LAYA_AUTO_PULL", "LAYA_AUTO_INSTALL", "LAYA_AUTO_UPDATE_OLLAMA",
         "LAYA_EMAIL_TRIAGE", "LAYA_MEMORY_RERANK",
