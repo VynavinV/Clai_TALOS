@@ -2280,6 +2280,8 @@ async function saveSettings() {
     DISCORD_ENABLED: document.getElementById('discord-enabled').checked ? '1' : '0',
     DISCORD_TOKEN: document.getElementById('discord-token').value.trim(),
     DISCORD_APPLICATION_ID: document.getElementById('discord-application-id').value.trim(),
+    BLAND_ENABLED: document.getElementById('bland-enabled').checked ? '1' : '0',
+    BLAND_API_KEY: document.getElementById('bland-api-key').value.trim(),
     CLIENT_BASE_URL: (document.getElementById('client-base-url') || {}).value || _baseUrlValues.zhipu || '',
     NVIDIA_BASE_URL: (document.getElementById('nvidia-base-url') || {}).value || _baseUrlValues.nvidia || '',
     CEREBRAS_BASE_URL: (document.getElementById('cerebras-base-url') || {}).value || _baseUrlValues.cerebras || '',
