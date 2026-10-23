@@ -505,6 +505,11 @@
         </div>
       </div>
       <div class="form-hint">On first start, a browser window will open showing a QR code. Scan it with your phone to link the device.</div>
+      <div id="whatsapp-personal-qr-area" style="display:none; margin-top:1rem; text-align:center;">
+        <div class="form-hint" id="whatsapp-personal-qr-hint">Scan this QR code with WhatsApp on your phone:</div>
+        <img id="whatsapp-personal-qr-img" src="" alt="WhatsApp QR Code" style="max-width:300px; border:2px solid #444; border-radius:8px; margin:0.5rem auto; display:block;">
+        <button type="button" id="whatsapp-personal-qr-refresh" onclick="fetchWhatsAppQR()" style="margin-top:0.4rem;">Refresh QR Code</button>
+      </div>
     </div>
     <div class="status-line" id="whatsapp-personal-status"></div>
   </div>
@@ -2852,6 +2857,53 @@ function toggleWhatsAppFields() {
 function toggleWhatsAppPersonalFields() {
   var enabled = document.getElementById('whatsapp-personal-enabled').checked;
   document.getElementById('whatsapp-personal-config-area').style.display = enabled ? 'block' : 'none';
+  if (enabled) {
+    fetchWhatsAppQR();
+  } else {
+    stopQRPolling();
+  }
+}
+
+var _qrPollTimer = null;
+function fetchWhatsAppQR() {
+  fetch('/api/whatsapp-personal/qr', {credentials:'include'})
+    .then(r => r.json())
+    .then(data => {
+      var area = document.getElementById('whatsapp-personal-qr-area');
+      var img = document.getElementById('whatsapp-personal-qr-img');
+      var hint = document.getElementById('whatsapp-personal-qr-hint');
+      var status = document.getElementById('whatsapp-personal-status');
+      if (data.status === 'waiting_for_scan' && data.qr_image) {
+        img.src = 'data:image/png;base64,' + data.qr_image;
+        area.style.display = 'block';
+        hint.textContent = 'Scan this QR code with WhatsApp on your phone:';
+        if (status) status.textContent = 'Waiting for QR scan...';
+      } else if (data.status === 'waiting_for_qr') {
+        area.style.display = 'block';
+        hint.textContent = 'Loading QR code...';
+        img.src = '';
+      } else if (data.status === 'connected') {
+        area.style.display = 'none';
+        if (status) status.textContent = 'Connected';
+        stopQRPolling();
+      } else if (data.status === 'error') {
+        area.style.display = 'none';
+        if (status) status.textContent = 'Error — check logs';
+        stopQRPolling();
+      } else {
+        area.style.display = 'none';
+      }
+    })
+    .catch(() => {});
+  if (!_qrPollTimer) {
+    _qrPollTimer = setInterval(fetchWhatsAppQR, 3000);
+  }
+}
+function stopQRPolling() {
+  if (_qrPollTimer) {
+    clearInterval(_qrPollTimer);
+    _qrPollTimer = null;
+  }
 }
 
 function toggleDiscordFields() {

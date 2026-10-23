@@ -25,6 +25,8 @@ WHATSAPP_HEADLESS = os.getenv("WHATSAPP_PERSONAL_HEADLESS", "true").lower() in (
 
 _session_dir = None
 _task = None
+_qr_image_b64 = None  # base64-encoded PNG of the current QR code
+_qr_status = "idle"  # idle | waiting_for_qr | waiting_for_scan | connected | error
 
 
 def _session_dir_path() -> str:
@@ -42,6 +44,11 @@ def _phone_to_user_id(phone: str) -> int:
 
 def is_configured() -> bool:
     return WHATSAPP_PERSONAL_ENABLED
+
+
+def get_qr_status() -> dict:
+    """Return current QR status and image for the settings UI."""
+    return {"status": _qr_status, "qr_image": _qr_image_b64}
 
 
 def start():
@@ -67,6 +74,7 @@ async def _run_loop():
 
 
 async def _run_session():
+    global _qr_image_b64, _qr_status
     from playwright.async_api import async_playwright
 
     session_dir = _session_dir_path()
@@ -111,6 +119,8 @@ async def _run_session():
             )
         except Exception:
             logger.error("WhatsApp Web did not load in time")
+            _qr_status = "error"
+            _qr_image_b64 = None
             await browser.close()
             return
 
@@ -119,12 +129,34 @@ async def _run_session():
 
         if not is_logged_in:
             logger.info("WhatsApp QR code displayed — waiting for scan...")
-            logger.info("Scan the QR code with your phone to link this device.")
+            _qr_status = "waiting_for_qr"
+            # Capture the QR code element as a screenshot
+            try:
+                qr_el = await page.query_selector(
+                    '[data-testid="qr-code"], div[data-ref]'
+                )
+                if qr_el:
+                    png_bytes = await qr_el.screenshot()
+                    _qr_image_b64 = base64.b64encode(png_bytes).decode("ascii")
+                    _qr_status = "waiting_for_scan"
+                else:
+                    # Fallback: screenshot the whole page
+                    png_bytes = await page.screenshot()
+                    _qr_image_b64 = base64.b64encode(png_bytes).decode("ascii")
+                    _qr_status = "waiting_for_scan"
+            except Exception:
+                logger.warning("Could not capture QR code screenshot", exc_info=True)
+                _qr_status = "waiting_for_scan"
+
             try:
                 await page.wait_for_selector('[data-testid="main"]', timeout=120_000)
                 logger.info("WhatsApp QR scanned successfully, logged in!")
+                _qr_status = "connected"
+                _qr_image_b64 = None
             except Exception:
                 logger.error("QR scan timed out (2 minutes)")
+                _qr_status = "error"
+                _qr_image_b64 = None
                 await browser.close()
                 return
 

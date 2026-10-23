@@ -2992,6 +2992,14 @@ async def handle_api_qr(request):
     )
 
 
+@require_auth
+async def handle_api_whatsapp_personal_qr(request):
+    """Return WhatsApp Personal QR status and image for the settings UI."""
+    import whatsapp_personal_bot
+    status = whatsapp_personal_bot.get_qr_status()
+    return web.json_response(status)
+
+
 @require_auth_csrf
 async def handle_api_panel_popup_respond(request):
     """Answer a pending confirm popup from a Panel tab. First answer wins."""
@@ -5157,6 +5165,7 @@ async def main():
     web_app.router.add_post("/api/panel/popups/respond", handle_api_panel_popup_respond)
     web_app.router.add_post("/api/panel/popups/dismiss", handle_api_panel_popup_dismiss)
     web_app.router.add_get("/api/qr", handle_api_qr)
+    web_app.router.add_get("/api/whatsapp-personal/qr", handle_api_whatsapp_personal_qr)
     web_app.router.add_get("/api/tasks", handle_api_tasks)
     web_app.router.add_get("/api/homeassistant/status", handle_api_homeassistant_status)
     web_app.router.add_get("/api/homeassistant/states", handle_api_homeassistant_states)
