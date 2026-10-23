@@ -15,8 +15,14 @@ pandas
 openpyxl
 pytest
 aiortc
-numpy
+numpy>=1.24.0
 discord.py[voice]
 PyNaCl
 pillow
 segno
+
+# TALOS Voice Agent (local voice pipeline)
+faster-whisper>=0.10.0
+websockets>=12.0
+torch>=2.0.0
+onnxruntime>=1.16.0

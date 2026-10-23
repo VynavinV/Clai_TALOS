@@ -529,6 +529,77 @@
   </div>
 
   <div class="section">
+    <div class="section-title">Phone Calls (Bland.ai)</div>
+    <div class="form-hint" style="margin-bottom:0.8rem;">
+      Enable phone calling via <a href="https://www.bland.ai" target="_blank">Bland.ai</a>. Get your API key from the Bland dashboard.
+    </div>
+    <div class="toggle-row">
+      <input type="checkbox" id="bland-enabled" onchange="toggleBlandFields()">
+      <div class="toggle-label"><strong>Enable Phone Calls</strong>
+        <div class="toggle-sub">Allow the assistant to make and receive phone calls via Bland.ai.</div>
+      </div>
+    </div>
+    <div id="bland-config-area" style="display:none;">
+      <div class="form-group"><label>API Key</label><input type="password" id="bland-api-key" placeholder="sk-..." autocomplete="off"></div>
+      <div class="form-hint">Your Bland.ai API key. Keep this secret.</div>
+    </div>
+    <div class="status-line" id="bland-status"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Local Voice Agent (TALOS)</div>
+    <div class="form-hint" style="margin-bottom:0.8rem;">
+      Fully local voice pipeline: speech-to-text (Faster-Whisper), local LLM (Ollama), and text-to-speech. No cloud APIs needed.
+    </div>
+
+    <div id="talos-hw-box" class="form-hint" style="margin-bottom:0.8rem; padding:0.6rem 0.8rem; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.06); border-radius:8px;">Detecting hardware...</div>
+
+    <div class="toggle-row">
+      <input type="checkbox" id="talos-voice-enabled" onchange="toggleTalosFields()">
+      <div class="toggle-label"><strong>Enable Voice Agent</strong>
+        <div class="toggle-sub">Run local STT, LLM, and TTS pipeline with barge-in support and WebSocket telephony bridge.</div>
+      </div>
+    </div>
+
+    <div id="talos-config-area" style="display:none;">
+      <div class="form-group">
+        <label>STT Model</label>
+        <select id="talos-stt-model">
+          <option value="">Auto (hardware-detected)</option>
+          <option value="tiny.en">tiny.en (fastest)</option>
+          <option value="base.en">base.en (balanced)</option>
+          <option value="small.en">small.en (best, needs GPU)</option>
+        </select>
+        <div class="form-hint">Faster-Whisper model for speech recognition.</div>
+      </div>
+      <div class="form-group">
+        <label>TTS Backend</label>
+        <select id="talos-tts-backend">
+          <option value="">Auto (hardware-detected)</option>
+          <option value="piper">Piper (CPU)</option>
+          <option value="kokoro">Kokoro (GPU)</option>
+        </select>
+        <div class="form-hint">Text-to-speech engine.</div>
+      </div>
+      <div class="form-group">
+        <label>LLM Model</label>
+        <input type="text" id="talos-llm-model" placeholder="qwen2.5:7b" autocomplete="off">
+        <div class="form-hint">Ollama model for conversation.</div>
+      </div>
+      <div class="form-group">
+        <label>Ollama Host</label>
+        <input type="text" id="talos-llm-host" placeholder="http://localhost:11434" autocomplete="off">
+      </div>
+      <div class="form-group">
+        <label>WebSocket Port</label>
+        <input type="text" id="talos-ws-port" placeholder="8765" autocomplete="off">
+        <div class="form-hint">Port for the telephony WebSocket bridge.</div>
+      </div>
+    </div>
+    <div class="status-line" id="talos-voice-status"></div>
+  </div>
+
+  <div class="section">
     <div class="section-title">Over-the-Air Updates</div>
     <div class="toggle-row">
       <input type="checkbox" id="ota-auto-update" onchange="toggleAutoUpdate()">
@@ -1466,6 +1537,18 @@ async function loadSettings() {
     document.getElementById('discord-token').value = d.DISCORD_TOKEN || '';
     document.getElementById('discord-application-id').value = d.DISCORD_APPLICATION_ID || '';
     toggleDiscordFields();
+    document.getElementById('bland-enabled').checked = (d.BLAND_ENABLED || '0') === '1';
+    document.getElementById('bland-api-key').value = d.BLAND_API_KEY || '';
+    toggleBlandFields();
+
+    document.getElementById('talos-voice-enabled').checked = (d.TALOS_VOICE_ENABLED || '0') === '1';
+    document.getElementById('talos-stt-model').value = d.TALOS_STT_MODEL || '';
+    document.getElementById('talos-tts-backend').value = d.TALOS_TTS_BACKEND || '';
+    document.getElementById('talos-llm-model').value = d.TALOS_LLM_MODEL || '';
+    document.getElementById('talos-llm-host').value = d.TALOS_LLM_HOST || 'http://localhost:11434';
+    document.getElementById('talos-ws-port').value = d.TALOS_WEBSOCKET_PORT || '8765';
+    toggleTalosFields();
+    detectTalosHardwareSettings();
     document.getElementById('max-tool-rounds').value = d.MAX_TOOL_ROUNDS || '40';
     document.getElementById('max-tool-calls-per-round').value = d.MAX_TOOL_CALLS_PER_ROUND || '30';
     document.getElementById('max-command-timeout').value = d.MAX_COMMAND_TIMEOUT || '300';
@@ -2257,7 +2340,13 @@ async function saveSettings() {
     LAYA_MODEL_TRIAGE: document.getElementById('laya-model-triage').checked ? '1' : '0',
     LAYA_BROWSER_AUTO: document.getElementById('laya-browser-auto').checked ? '1' : '0',
     LAYA_AUTO_UPDATE_OLLAMA: document.getElementById('laya-auto-upgrade-ollama').checked ? '1' : '0',
-    LAYA_AUTO_INSTALL: document.getElementById('laya-auto-install').checked ? '1' : '0'
+    LAYA_AUTO_INSTALL: document.getElementById('laya-auto-install').checked ? '1' : '0',
+    TALOS_VOICE_ENABLED: document.getElementById('talos-voice-enabled').checked ? '1' : '0',
+    TALOS_STT_MODEL: document.getElementById('talos-stt-model').value.trim(),
+    TALOS_TTS_BACKEND: document.getElementById('talos-tts-backend').value.trim(),
+    TALOS_LLM_MODEL: document.getElementById('talos-llm-model').value.trim(),
+    TALOS_LLM_HOST: document.getElementById('talos-llm-host').value.trim(),
+    TALOS_WEBSOCKET_PORT: document.getElementById('talos-ws-port').value.trim()
   };
 
   // Always sent: a masked value keeps the stored secret, empty clears it.
@@ -2768,6 +2857,30 @@ function toggleWhatsAppPersonalFields() {
 function toggleDiscordFields() {
   var enabled = document.getElementById('discord-enabled').checked;
   document.getElementById('discord-config-area').style.display = enabled ? 'block' : 'none';
+}
+
+function toggleBlandFields() {
+  var enabled = document.getElementById('bland-enabled').checked;
+  document.getElementById('bland-config-area').style.display = enabled ? 'block' : 'none';
+}
+
+function toggleTalosFields() {
+  var enabled = document.getElementById('talos-voice-enabled').checked;
+  document.getElementById('talos-config-area').style.display = enabled ? 'block' : 'none';
+}
+
+function detectTalosHardwareSettings() {
+  var el = document.getElementById('talos-hw-box');
+  fetch('/api/talos/hardware').then(function(r) { return r.json(); }).then(function(d) {
+    var bits = [];
+    bits.push(d.platform + ' | ' + d.cpu_count + ' CPUs');
+    if (d.ram_gb) bits.push(d.ram_gb + ' GB RAM');
+    if (d.has_cuda) bits.push('CUDA GPU (' + d.vram_gb + ' GB)');
+    else if (d.has_mps) bits.push('Apple Silicon (MPS)');
+    else bits.push('CPU-only');
+    bits.push('Recommended: ' + d.recommended_stt + ' / ' + d.recommended_llm);
+    el.textContent = bits.join(' | ');
+  }).catch(function() { el.textContent = 'Could not detect hardware.'; });
 }
 
 function toggleHomeAssistantFields() {

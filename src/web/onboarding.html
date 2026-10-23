@@ -634,8 +634,81 @@
     </div>
   </div>
 
-  <!-- Step 8: Done! -->
+  <!-- Step 8: Bland.ai -->
   <div class="step" data-step="8">
+    <h2>Step 8: Phone Calls (Optional)</h2>
+    <p class="desc">Enable phone calling via Bland.ai so your assistant can make and receive calls.</p>
+    <div class="info-box">
+      <ol>
+        <li>Sign up at <a href="https://www.bland.ai" target="_blank">Bland.ai</a></li>
+        <li>Go to your dashboard and copy your <strong>API Key</strong></li>
+        <li>Paste it below to enable phone calling</li>
+      </ol>
+    </div>
+    <div class="field">
+      <label>Bland API Key</label>
+      <input type="password" id="bland-api-key-onboard" placeholder="sk-..." autocomplete="off">
+    </div>
+    <div class="error" id="err-bland"></div>
+    <div class="btn-row">
+      <button class="btn btn-skip" onclick="goStep(9)">Skip for now</button>
+      <button class="btn btn-primary" onclick="saveBland()">Save & Continue</button>
+    </div>
+  </div>
+
+  <!-- Step 9: TALOS Voice Agent -->
+  <div class="step" data-step="9">
+    <h2>Step 9: Local Voice Agent (Optional)</h2>
+    <p class="desc">Enable a fully local voice pipeline: speech-to-text, local LLM, and text-to-speech. No cloud APIs needed.</p>
+
+    <div id="talos-hw-status" class="info-box">Detecting hardware...</div>
+
+    <div class="toggle-row" style="margin-bottom:1rem;">
+      <input type="checkbox" id="talos-enabled">
+      <div class="toggle-label"><strong>Enable Local Voice Agent</strong>
+        <div class="toggle-sub">Runs STT (Faster-Whisper), LLM (Ollama), and TTS entirely on this machine.</div>
+      </div>
+    </div>
+
+    <div id="talos-config-area" style="display:none;">
+      <div class="field">
+        <label>Speech-to-Text Model</label>
+        <select id="talos-stt-model">
+          <option value="">Auto (detected by hardware)</option>
+          <option value="tiny.en">tiny.en (fastest, least accurate)</option>
+          <option value="base.en">base.en (balanced)</option>
+          <option value="small.en">small.en (best quality, needs GPU)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Text-to-Speech Backend</label>
+        <select id="talos-tts-backend">
+          <option value="">Auto (detected by hardware)</option>
+          <option value="piper">Piper (CPU-friendly)</option>
+          <option value="kokoro">Kokoro (GPU, higher quality)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>LLM Model (Ollama)</label>
+        <input type="text" id="talos-llm-model" placeholder="qwen2.5:7b" autocomplete="off">
+        <div class="hint">Local model for conversation. Must be pulled in Ollama first.</div>
+      </div>
+      <div class="field">
+        <label>WebSocket Port</label>
+        <input type="text" id="talos-ws-port" placeholder="8765" autocomplete="off">
+        <div class="hint">Port for the telephony WebSocket bridge.</div>
+      </div>
+    </div>
+
+    <div class="error" id="err-talos"></div>
+    <div class="btn-row">
+      <button class="btn btn-skip" onclick="goStep(10)">Skip for now</button>
+      <button class="btn btn-primary" onclick="saveTalos()">Save & Continue</button>
+    </div>
+  </div>
+
+  <!-- Step 10: Done! -->
+  <div class="step" data-step="10">
     <div class="finish-wrap">
       <div class="finish-check">&#10003;</div>
       <h2>All set. You did it!</h2>
@@ -651,7 +724,7 @@
 </div>
 
 <script>
-var TOTAL_STEPS = 9;
+var TOTAL_STEPS = 11;
 var currentStep = 0;
 var selectedProvider = '';
 var _waMode = '';
@@ -743,6 +816,7 @@ function goStep(n) {
   document.querySelector('[data-step="' + n + '"]').classList.add('active');
   updateDots();
   window.scrollTo(0, 0);
+  if (n === 9 && !_talosHw) detectTalosHardware();
 }
 
 function initProviderGrid() {
@@ -1556,6 +1630,21 @@ async function saveDiscord() {
   } catch (e) { err.textContent = 'Connection problem. Please try again.'; }
 }
 
+async function saveBland() {
+  var apiKey = document.getElementById('bland-api-key-onboard').value.trim();
+  var err = document.getElementById('err-bland');
+  err.textContent = '';
+
+  if (!apiKey) { err.textContent = 'API key is required.'; return; }
+
+  try {
+    var res = await _post('/api/onboarding/bland', { api_key: apiKey });
+    var data = await res.json();
+    if (data.ok) goStep(10);
+    else err.textContent = data.error || 'Could not save Bland settings.';
+  } catch (e) { err.textContent = 'Connection problem. Please try again.'; }
+}
+
 async function loadGoogleRedirectUri() {
   try {
     var res = await fetch('/api/google/status');
@@ -1603,6 +1692,57 @@ function getModelValue(selectId) {
   }
   return sel.value;
 }
+
+/* --- TALOS Voice Agent setup --- */
+var _talosHw = null;
+
+function toggleTalosFields() {
+  var enabled = document.getElementById('talos-enabled').checked;
+  document.getElementById('talos-config-area').style.display = enabled ? 'block' : 'none';
+}
+
+async function detectTalosHardware() {
+  var el = document.getElementById('talos-hw-status');
+  try {
+    var res = await fetch('/api/talos/hardware');
+    _talosHw = await res.json();
+    var bits = [];
+    bits.push('Platform: ' + _talosHw.platform);
+    bits.push('CPUs: ' + _talosHw.cpu_count);
+    if (_talosHw.ram_gb) bits.push('RAM: ' + _talosHw.ram_gb + ' GB');
+    if (_talosHw.has_cuda) bits.push('GPU: CUDA (' + _talosHw.vram_gb + ' GB VRAM)');
+    else if (_talosHw.has_mps) bits.push('GPU: Apple Silicon (MPS)');
+    else bits.push('GPU: none (CPU-only)');
+    bits.push('Recommended: ' + _talosHw.recommended_stt + ' / ' + _talosHw.recommended_llm);
+    el.innerHTML = '<strong>Hardware detected:</strong><br>' + bits.join('<br>');
+  } catch (e) {
+    el.innerHTML = 'Could not detect hardware. You can still enable the voice agent with default settings.';
+  }
+}
+
+async function saveTalos() {
+  var enabled = document.getElementById('talos-enabled').checked;
+  var err = document.getElementById('err-talos');
+  err.textContent = '';
+
+  var payload = {
+    enabled: enabled,
+    stt_model: document.getElementById('talos-stt-model').value.trim(),
+    tts_backend: document.getElementById('talos-tts-backend').value.trim(),
+    llm_model: document.getElementById('talos-llm-model').value.trim(),
+    llm_host: 'http://localhost:11434',
+    websocket_port: document.getElementById('talos-ws-port').value.trim()
+  };
+
+  try {
+    var res = await _post('/api/onboarding/talos', payload);
+    var data = await res.json();
+    if (data.ok) goStep(10);
+    else err.textContent = data.error || 'Could not save voice agent settings.';
+  } catch (e) { err.textContent = 'Connection problem. Please try again.'; }
+}
+
+document.getElementById('talos-enabled').addEventListener('change', toggleTalosFields);
 
 initDots();
 initProviderGrid();
