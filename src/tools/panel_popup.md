@@ -9,8 +9,10 @@ for you, take a look." Visuals belong on the Panel; chat is for words.
 
 ## Actions
 
-- `confirm`: blocks until the user taps Yes or No on any open Panel page,
-  then returns the answer to you. Times out if nobody answers.
+- `confirm`: blocks until the user answers. The question is asked in TWO
+  places at once — a popup on every open Panel page AND a message in chat
+  showing both options — and the user can answer in either. The answer (and
+  where it came from) is returned to you. Times out if nobody answers.
 - `show_html`: shows a temporary custom HTML card (diagrams, tables, designs,
   links with QR codes) on all open Panel pages until dismissed or its TTL
   ends. Does NOT block — fire and forget, then continue.
@@ -47,9 +49,9 @@ for you, take a look." Visuals belong on the Panel; chat is for words.
 
 - You created a project/deck/site → push a card with the link + QR.
 - You want to show a diagram, layout, table, or design idea.
-- A yes/no decision is blocking you → `confirm` asks on the Panel.
-- NOT for every reply — popups are for things worth looking at. If no Panel
-  page is open, a `confirm` just times out; then ask in chat instead.
+- A yes/no decision is blocking you → `confirm` asks on the Panel AND in
+  chat; the user can answer wherever they are (panel tap or chat reply).
+- NOT for every reply — popups are for things worth looking at.
 
 ## Examples
 

@@ -34,7 +34,6 @@ import model_router
 import core
 import google_integration
 import homeassistant
-import interrupt_hub
 import activity_tracker
 import panel_popups
 import ollama_setup
@@ -4236,6 +4235,15 @@ async def handle_api_chat(request):
         return web.json_response({"ok": True, "events": command_events})
 
     events: list[dict] = []
+
+    # A pending panel confirm also asks here in chat: if this message is the
+    # answer, resolve it instead of interrupting the waiting run.
+    if text and not attachment:
+        answered = panel_popups.answer_from_text(text)
+        if answered is not None:
+            events.append({"type": "text", "text": f"Answered: {str(answered.get('answer', '')).upper()}."})
+            return web.json_response({"ok": True, "answered": True, "events": events})
+
     upload_info = None
     if attachment:
         upload_info = _save_web_upload(attachment)
@@ -4264,14 +4272,16 @@ async def handle_api_chat(request):
     lock = _get_web_chat_lock(user_id)
 
     if lock.locked():
-        # A run is already active for this user: deliver the new message into
-        # the running agent between its rounds instead of queueing a new turn.
-        if text and interrupt_hub.inject_message(user_id, text):
+        # A run is already active for this user, and their new message outranks
+        # it: stop the run and its background swarm COMPLETELY (the cancelled
+        # run acknowledges), then this message is executed as a fresh turn
+        # right after the old one unwinds.
+        stopped = core.interrupt_user_run(user_id)
+        if stopped["run_stopped"] or stopped["agents_stopped"]:
             events.append({
                 "type": "text",
-                "text": "Passed to the running task — it will be answered as part of the current response.",
+                "text": "Stopping the current task — starting on your new message.",
             })
-            return web.json_response({"ok": True, "injected": True, "events": events})
 
     async with lock:
         try:

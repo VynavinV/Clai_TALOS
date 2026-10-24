@@ -12,7 +12,7 @@ import AI
 import db
 import core
 import model_router
-import interrupt_hub
+import panel_popups
 
 HELP_TEXT = (
     "Clai TALOS - Personal AI Assistant\n\n"
@@ -815,6 +815,9 @@ async def cmd_stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # Full emergency stop: the orchestrator run AND its background swarm.
     # Without this, /stop killed the conductor but left raid subagents running.
     agents_stopped = AI.stop_background_subagents(uid)
+    # A confirm the stopped run was waiting on must not swallow a later
+    # bare "yes"/"no" chat reply.
+    panel_popups.hub.dismiss_pending_confirms()
     task = _active_run_tasks.get(uid)
     if (task is None or task.done()) and agents_stopped == 0:
         await update.message.reply_text("Nothing is running right now.")
@@ -827,15 +830,22 @@ async def cmd_stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(message + ".")
 
 
-async def _run_with_user_lock(user_id: int, chat, runner_coro, message_text: str | None = None):
+async def _run_with_user_lock(user_id: int, chat, runner_coro):
     lock = _get_user_process_lock(user_id)
     if lock.locked():
-        # A run is already active for this user. Deliver the new message INTO
-        # the running agent (it is drained between model/tool rounds) instead
-        # of queueing a whole new turn behind it.
-        if message_text and interrupt_hub.inject_message(user_id, message_text):
-            return
-        await _safe_send(chat, "Another request is still running. I queued this one and will respond next.")
+        # A run is already active for this user, and their new message outranks
+        # it: stop the run and its background swarm COMPLETELY (the cancelled
+        # run acknowledges in chat), then execute the new message as a fresh
+        # turn right after the old one unwinds.
+        stopped = core.interrupt_user_run(user_id)
+        if not stopped["run_stopped"]:
+            # Runs core cannot reach directly (image turns): cancel the
+            # runner task itself.
+            task = _active_run_tasks.get(user_id)
+            if task is not None and not task.done():
+                task.cancel()
+        # Fall through: `async with lock` waits for the stopped run to finish
+        # unwinding, then the new message is processed immediately.
 
     async with lock:
         runner_task = asyncio.ensure_future(runner_coro())
@@ -879,6 +889,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if await _ensure_onboarding(update, context, text):
         return
 
+    # A pending panel confirm also asks here in chat: if this message is the
+    # answer, resolve it instead of interrupting the waiting run.
+    answered = panel_popups.answer_from_text(text)
+    if answered is not None:
+        chat = update.message.chat
+        await _safe_send(chat, f"Answered: {str(answered.get('answer', '')).upper()}.")
+        return
+
     chat = update.message.chat
     uid = update.effective_user.id
     send_func = _make_send_func(chat)
@@ -895,7 +913,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await core.process_message(uid, text, send_func, model_override=model_override)
 
     try:
-        await _run_with_user_lock(uid, chat, _runner, message_text=text)
+        await _run_with_user_lock(uid, chat, _runner)
     except Exception:
         logger.exception("Error handling text message")
         await update.message.reply_text("An internal error occurred while processing your message.")

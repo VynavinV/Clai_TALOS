@@ -2801,21 +2801,36 @@ async def _execute_tool_call(
                 if not isinstance(timeout_s, (int, float)) or timeout_s <= 0:
                     timeout_s = 90
                 timeout_s = int(min(timeout_s, panel_popups.MAX_CONFIRM_TIMEOUT_S))
+                yes_label = str(tool_args.get("yes_label", "")).strip() or "Yes"
+                no_label = str(tool_args.get("no_label", "")).strip() or "No"
                 popup = panel_popups.hub.create_confirm(
                     title=str(tool_args.get("title", "")).strip() or "Decision needed",
                     text=question,
                     timeout_s=timeout_s,
-                    yes_label=str(tool_args.get("yes_label", "")).strip() or "Yes",
-                    no_label=str(tool_args.get("no_label", "")).strip() or "No",
+                    yes_label=yes_label,
+                    no_label=no_label,
                 )
+                # Ask in chat too, so the user can answer wherever they are:
+                # both options are shown and a chat reply counts the same as a
+                # Panel tap.
+                if send_func is not None:
+                    try:
+                        await _send_via_send_func(
+                            send_func,
+                            f"[decision needed] {question}\n"
+                            f'Reply "{yes_label}" or "{no_label}" here, or answer on the Panel.',
+                        )
+                    except Exception:
+                        logger.exception("Could not deliver confirm question to chat")
                 result = await panel_popups.hub.wait_for_answer(popup["id"], timeout_s + 5)
                 if result.get("status") == "answered":
                     answer = "yes" if result.get("answer") == "yes" else "no"
+                    via = "chat" if result.get("via") == "chat" else "the Panel"
                     return json.dumps(
                         {
                             "status": "answered",
                             "answer": answer,
-                            "note": "The user answered on the Panel.",
+                            "note": f"The user answered via {via}.",
                         },
                         indent=2,
                     )
@@ -2823,7 +2838,7 @@ async def _execute_tool_call(
                     {
                         "status": result.get("status") or "timeout",
                         "answer": None,
-                        "note": "Nobody answered on the Panel in time. Ask the user in chat instead of retrying.",
+                        "note": "Nobody answered in time (Panel or chat). Ask the user directly in chat instead of retrying.",
                     },
                     indent=2,
                 )

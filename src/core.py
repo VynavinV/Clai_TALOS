@@ -7,6 +7,7 @@ import db
 import model_router
 import activity_tracker
 import interrupt_hub
+import panel_popups
 
 logger = logging.getLogger("talos.core")
 
@@ -16,6 +17,16 @@ GREETINGS = {"hi", "hello", "hey"}
 # cancel a run in flight no matter which channel started it.
 _ACTIVE_RUNS: dict[int, asyncio.Task] = {}
 
+# Inner agent-turn tasks by user id. Cancelling these lands in the run's own
+# cancellation handling (ack message, history bookkeeping) instead of tearing
+# the run down mid-send.
+_ACTIVE_AGENT_TURNS: dict[int, asyncio.Task] = {}
+
+# Users whose run was cancelled because they sent a new message. The run's
+# cancellation branch uses this to acknowledge and keep history coherent
+# instead of reporting an unexplained stop.
+_INTERRUPTED_BY_USER: set[int] = set()
+
 
 def stop_user_runs(user_id: int) -> dict:
     """Emergency stop: cancel the user's orchestrator run and its swarm.
@@ -23,11 +34,43 @@ def stop_user_runs(user_id: int) -> dict:
     Returns what was stopped so callers can tell the user exactly that.
     """
     agents_stopped = AI.stop_background_subagents(user_id)
+    # A confirm the stopped run was waiting on must not swallow a later
+    # bare "yes"/"no" chat reply.
+    panel_popups.hub.dismiss_pending_confirms()
     task = _ACTIVE_RUNS.get(user_id)
     run_stopped = False
     if task is not None and not task.done():
         task.cancel()
         run_stopped = True
+    return {"run_stopped": run_stopped, "agents_stopped": agents_stopped}
+
+
+def interrupt_user_run(user_id: int) -> dict:
+    """Stop the user's active run because they sent a new message.
+
+    The user's fresh message outranks whatever is running: stop the run and its
+    background swarm completely. Unlike stop_user_runs, the cancelled run
+    knows it was interrupted — it acknowledges, keeps chat history coherent,
+    and stays quiet about a "stopped task". The caller should then process the
+    new message as a fresh turn once the old one unwinds.
+    """
+    user_id = int(user_id)
+    agents_stopped = AI.stop_background_subagents(user_id)
+    # The interrupted run can no longer receive a confirm answer; close any
+    # pending confirm so it doesn't swallow the user's next "yes"/"no".
+    panel_popups.hub.dismiss_pending_confirms()
+    run_stopped = False
+    turn_task = _ACTIVE_AGENT_TURNS.get(user_id)
+    if turn_task is not None and not turn_task.done():
+        _INTERRUPTED_BY_USER.add(user_id)
+        turn_task.cancel()
+        run_stopped = True
+    else:
+        task = _ACTIVE_RUNS.get(user_id)
+        if task is not None and not task.done():
+            _INTERRUPTED_BY_USER.add(user_id)
+            task.cancel()
+            run_stopped = True
     return {"run_stopped": run_stopped, "agents_stopped": agents_stopped}
 
 
@@ -50,6 +93,10 @@ def _stuck_settings() -> dict:
         # and, if retries remain, restarted with a recovery prompt.
         "cancel_after_s": _int_env("TALOS_STUCK_CANCEL_S", 600, 60),
         "auto_retries": _int_env("TALOS_STUCK_AUTO_RETRY", 1, 0),
+        # Pause between stopping everything and restarting with the recovery
+        # message: gives the provider time to catch up (in-flight model calls
+        # cancelled, rate limits settling) before the retry fires.
+        "recovery_pause_s": _int_env("TALOS_STUCK_RECOVERY_PAUSE_S", 5, 0),
     }
 
 
@@ -123,14 +170,17 @@ def _build_activity_send(send_func, state: dict):
     return _tracked_send
 
 
-async def _stuck_watchdog(send_func, state: dict, interrupt_queue: asyncio.Queue | None) -> None:
+async def _stuck_watchdog(send_func, state: dict, interrupt_queue: asyncio.Queue | None, user_id: int | None = None) -> None:
     """Recovery ladder for a hung run:
 
-    1. Inject recovery messages the agent sees at its next round boundary.
-    2. If it stays stuck far longer (cancel_after_s), cancel the whole run —
-       injections alone cannot reach an agent that is blocked inside a single
-       long await. core.process_message then optionally restarts the task once
-       with a recovery prompt.
+    1. Recovery available (retries left, cancellable run): STOP everything —
+       the run and its background swarm. core.process_message then pauses
+       `recovery_pause_s` (so the provider can catch up), injects a recovery
+       message, and restarts the task with a recovery prompt.
+    2. Otherwise (image turns, retries spent): inject recovery messages the
+       agent sees at its next round boundary, then cancel outright past
+       `cancel_after_s` — injections cannot reach an agent blocked inside one
+       long await.
     """
     try:
         while True:
@@ -144,6 +194,34 @@ async def _stuck_watchdog(send_func, state: dict, interrupt_queue: asyncio.Queue
             real_activity_age = now - state["last_real_activity"]
 
             if real_activity_age <= cfg["threshold_s"]:
+                continue
+
+            run_task = state.get("run_task")
+            cancellable = run_task is not None and not run_task.done() and not state.get("cancelled_by_watchdog")
+            recovery_available = state.get("retries_left", 0) > 0
+
+            if cancellable and recovery_available:
+                # Hard stop: kill the run AND its swarm. The retry path in
+                # core.process_message restarts it with a recovery prompt.
+                state["cancelled_by_watchdog"] = True
+                state["stuck_for_s"] = int(real_activity_age)
+                agents_stopped = AI.stop_background_subagents(user_id) if user_id is not None else 0
+                logger.warning(
+                    "Watchdog stopping run after %ds stuck (cancelled %d background agent(s))",
+                    int(real_activity_age),
+                    agents_stopped,
+                )
+                run_task.cancel()
+                message = f"No progress for {int(real_activity_age)}s — stopping the task completely"
+                if agents_stopped:
+                    message += f" and its {agents_stopped} background agent{'s' if agents_stopped != 1 else ''}"
+                message += (
+                    f". Pausing {cfg['recovery_pause_s']}s for the provider to catch up, then restarting with a recovery message."
+                    if cfg["recovery_pause_s"] > 0
+                    else ". Restarting with a recovery message."
+                )
+                await _send_with_optional_voice(send_func, message)
+                state["last_activity"] = now
                 continue
 
             if state["interventions_sent"] < cfg["max_interventions"]:
@@ -162,21 +240,20 @@ async def _stuck_watchdog(send_func, state: dict, interrupt_queue: asyncio.Queue
                 state["last_activity"] = now
                 continue
 
-            # All message interventions spent and still no progress. Escalate.
-            if real_activity_age >= cfg["cancel_after_s"] and not state.get("cancelled_by_watchdog"):
-                run_task = state.get("run_task")
-                if run_task is not None and not run_task.done():
-                    state["cancelled_by_watchdog"] = True
-                    logger.warning(
-                        "Watchdog cancelling run after %ds stuck (interventions exhausted)",
-                        int(real_activity_age),
-                    )
-                    run_task.cancel()
-                    await _send_with_optional_voice(
-                        send_func,
-                        f"The task has been hung for {int(real_activity_age)}s and ignored {state['interventions_sent']} recovery attempts. "
-                        + ("Restarting it now with a fresh approach." if state.get("retries_left", 0) > 0 else "Stopping it."),
-                    )
+            # Message interventions spent and still no progress on a run we
+            # can cancel (retries exhausted): stop it for good.
+            if cancellable and real_activity_age >= cfg["cancel_after_s"]:
+                state["cancelled_by_watchdog"] = True
+                agents_stopped = AI.stop_background_subagents(user_id) if user_id is not None else 0
+                logger.warning(
+                    "Watchdog cancelling run after %ds stuck (interventions exhausted)",
+                    int(real_activity_age),
+                )
+                run_task.cancel()
+                await _send_with_optional_voice(
+                    send_func,
+                    f"The task has been hung for {int(real_activity_age)}s and ignored {state['interventions_sent']} recovery attempts. Stopping it.",
+                )
     except asyncio.CancelledError:
         pass
 
@@ -278,10 +355,33 @@ def _format_failure_message(error: Exception) -> str:
     return "An internal error occurred. Check logs for details."
 
 
+async def _acknowledge_user_interrupt(user_id: int, text: str, send_func, handle) -> None:
+    """A run was cancelled because the user sent a new message.
+
+    Persists what the interrupted run was about (plus any messages injected
+    into it) so the conversation stays coherent for the fresh turn, then
+    acknowledges the stop in chat.
+    """
+    db.add_message(user_id, "user", text)
+    try:
+        for injected_text in interrupt_hub.take_injected(user_id, handle.queue):
+            db.add_message(user_id, "user", injected_text)
+    except Exception:
+        logger.exception("Could not persist injected messages after interrupt")
+    db.add_message(user_id, "assistant", "(Task interrupted by your new message — stopped here.)")
+    await _send_with_optional_voice(
+        send_func,
+        "Stopped the previous task completely. Starting on your new message now.",
+    )
+
+
 async def process_message(user_id: int, text: str, send_func, model_override: str | None = None) -> None:
     """Run a chat turn, registered so an emergency stop can cancel it."""
     run_task = asyncio.current_task()
     _ACTIVE_RUNS[user_id] = run_task
+    # A stale interrupt flag (a run that died before consuming it) must not
+    # mislabel this run's cancellation later.
+    _INTERRUPTED_BY_USER.discard(user_id)
     try:
         await _process_message_impl(user_id, text, send_func, model_override)
     finally:
@@ -330,8 +430,8 @@ async def _process_message_impl(user_id: int, text: str, send_func, model_overri
         "run_task": None,
         "cancelled_by_watchdog": False,
     }
-    # Register this run so messages that arrive while we work are injected
-    # between the agent's model calls instead of queueing behind the task.
+    # Register this run so messages that arrive while we work can stop it
+    # (the user's new message outranks the running task) and so /stop works.
     handle = interrupt_hub.register(user_id)
     interrupt_event = asyncio.Event()
     tracked_send = _build_activity_send(send_func, watchdog_state)
@@ -346,37 +446,87 @@ async def _process_message_impl(user_id: int, text: str, send_func, model_overri
             model_override=model_override,
         )
 
+    def _spawn_turn(prompt_text: str) -> asyncio.Task:
+        turn = asyncio.create_task(_run_agent_turn(prompt_text))
+        _ACTIVE_AGENT_TURNS[user_id] = turn
+        return turn
+
     try:
         watcher_task = asyncio.create_task(_real_activity_watcher(watchdog_state))
-        watchdog_task = asyncio.create_task(_stuck_watchdog(send_func, watchdog_state, handle.queue))
+        watchdog_task = asyncio.create_task(_stuck_watchdog(send_func, watchdog_state, handle.queue, user_id=user_id))
         progress_task = asyncio.create_task(_progress_notifier(tracked_send, watchdog_state))
-        run_task = asyncio.create_task(_run_agent_turn(text))
+        run_task = _spawn_turn(text)
         watchdog_state["run_task"] = run_task
         try:
             reply = await run_task
         except asyncio.CancelledError:
+            if user_id in _INTERRUPTED_BY_USER:
+                # The user sent a new message, which outranks this task. Keep
+                # history coherent, acknowledge, and let the new turn run.
+                _INTERRUPTED_BY_USER.discard(user_id)
+                await _acknowledge_user_interrupt(user_id, text, send_func, handle)
+                return
+
             if watchdog_state.get("cancelled_by_watchdog") and watchdog_state.get("retries_left", 0) > 0:
                 watchdog_state["retries_left"] -= 1
                 watchdog_state["cancelled_by_watchdog"] = False
                 watchdog_state["interventions_sent"] = 0
                 watchdog_state["last_real_activity"] = time.monotonic()
-                logger.warning("Watchdog-recovered run for user %s; retrying once with recovery prompt", user_id)
-                await _send_with_optional_voice(
-                    send_func,
-                    "Recovered from a hung task — restarting it now with instructions to take a different approach.",
+                cfg = _stuck_settings()
+                pause_s = max(0, cfg["recovery_pause_s"])
+                logger.warning(
+                    "Watchdog-recovered run for user %s; pausing %ds then retrying once with recovery prompt",
+                    user_id,
+                    pause_s,
                 )
+                try:
+                    await _send_with_optional_voice(
+                        send_func,
+                        "Recovered from a hung task — everything is stopped."
+                        + (
+                            f" Pausing {pause_s}s to let the provider catch up, then restarting with instructions to take a different approach."
+                            if pause_s > 0
+                            else " Restarting it now with instructions to take a different approach."
+                        ),
+                    )
+                    if pause_s > 0:
+                        # Give the provider time to settle: in-flight model calls
+                        # are cancelled, rate limits recover, sockets drain.
+                        await asyncio.sleep(pause_s)
+                except asyncio.CancelledError:
+                    # The user sent a new message even during the recovery
+                    # pause. It still outranks the task.
+                    if user_id in _INTERRUPTED_BY_USER:
+                        _INTERRUPTED_BY_USER.discard(user_id)
+                        await _acknowledge_user_interrupt(user_id, text, send_func, handle)
+                        return
+                    raise
+                # Recovery message the restarted run sees as a system
+                # intervention at its first round boundary.
+                stuck_for = watchdog_state.get("stuck_for_s")
+                recovery_msg = _STUCK_RECOVERY_MESSAGES[0].format(elapsed=stuck_for or "that long")
+                try:
+                    handle.queue.put_nowait({"text": recovery_msg, "source": "stuck_watchdog"})
+                except asyncio.QueueFull:
+                    pass
                 recovery_prompt = (
                     f"{text}\n\n"
-                    "[SYSTEM RECOVERY NOTE] Your previous attempt at this task hung and was cancelled by the "
-                    "recovery watchdog. Take a DIFFERENT approach this time: avoid the exact command or request "
-                    "that hung (add timeouts, split long steps, or use another method), keep the user informed, "
-                    "and finish the task."
+                    "[SYSTEM RECOVERY NOTE] Your previous attempt at this task hung with no progress and was "
+                    "stopped by the recovery watchdog. Take a DIFFERENT approach this time: avoid the exact "
+                    "command or request that hung (add timeouts, split long steps, or use another method), keep "
+                    "the user informed, and finish the task."
                 )
-                retry_task = asyncio.create_task(_run_agent_turn(recovery_prompt))
+                retry_task = _spawn_turn(recovery_prompt)
                 watchdog_state["run_task"] = retry_task
                 try:
                     reply = await retry_task
                 except asyncio.CancelledError:
+                    if user_id in _INTERRUPTED_BY_USER:
+                        # The user's new message outranks even the recovery
+                        # retry: stop, acknowledge, let the new turn run.
+                        _INTERRUPTED_BY_USER.discard(user_id)
+                        await _acknowledge_user_interrupt(user_id, text, send_func, handle)
+                        return
                     await _send_with_optional_voice(
                         send_func,
                         "The task stayed hung even after a recovery restart and was stopped. "
@@ -408,6 +558,9 @@ async def _process_message_impl(user_id: int, text: str, send_func, model_overri
         await _send_with_optional_voice(send_func, f"Execution failed. {failure}")
     finally:
         interrupt_hub.unregister(user_id, handle)
+        turn = _ACTIVE_AGENT_TURNS.get(user_id)
+        if turn is not None and turn.done():
+            _ACTIVE_AGENT_TURNS.pop(user_id, None)
         await _cancel_task(watchdog_task)
         await _cancel_task(watcher_task)
         await _cancel_task(progress_task)
@@ -441,7 +594,7 @@ async def process_image_message(user_id: int, text: str, image_b64: str, send_fu
     tracked_send = _build_activity_send(send_func, watchdog_state)
     try:
         watcher_task = asyncio.create_task(_real_activity_watcher(watchdog_state))
-        watchdog_task = asyncio.create_task(_stuck_watchdog(send_func, watchdog_state, interrupt_queue))
+        watchdog_task = asyncio.create_task(_stuck_watchdog(send_func, watchdog_state, interrupt_queue, user_id=user_id))
         reply = await AI.respond_with_image(
             user_id=user_id,
             text=text,

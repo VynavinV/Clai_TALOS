@@ -26,6 +26,17 @@ MAX_CONFIRM_TIMEOUT_S = 300
 MAX_HTML_TTL_S = 3600
 
 
+def _norm_reply(text: str) -> str:
+    """Normalize a chat reply for confirm matching (case, punctuation, emoji)."""
+    cleaned = str(text or "").strip().lower()
+    # Strip surrounding punctuation, emojis, and formatting characters.
+    while cleaned and (cleaned[0] in "!.?\"'`*_~-([ " or ord(cleaned[0]) > 0x2000):
+        cleaned = cleaned[1:]
+    while cleaned and (cleaned[-1] in "!.?\"'`*_~-)] " or ord(cleaned[-1]) > 0x2000):
+        cleaned = cleaned[:-1]
+    return cleaned
+
+
 class PanelPopupHub:
     def __init__(self):
         self._popups: dict[str, dict] = {}
@@ -138,7 +149,7 @@ class PanelPopupHub:
 
     # -- answer / close -----------------------------------------------------
 
-    def respond(self, popup_id: str, answer: str) -> dict:
+    def respond(self, popup_id: str, answer: str, via: str = "panel") -> dict:
         self._expire_stale()
         popup = self._popups.get(str(popup_id or ""))
         if not popup or popup["kind"] != "confirm":
@@ -150,11 +161,39 @@ class PanelPopupHub:
             return {"ok": False, "error": "Answer must be yes or no."}
         popup["status"] = "answered"
         popup["answer"] = answer
+        popup["answered_via"] = str(via or "panel")
         popup["finished_ts"] = time.time()
         event = self._events.get(popup["id"])
         if event:
             event.set()
-        return {"ok": True, "answer": answer}
+        return {"ok": True, "answer": answer, "via": popup["answered_via"]}
+
+    def answer_from_text(self, text: str) -> dict | None:
+        """Resolve the oldest pending confirm from a chat reply, if it matches.
+
+        Lets the user answer a confirm question from chat (Telegram, web)
+        instead of only the Panel. Only exact replies count — "yes", "no",
+        "y", "n", or the popup's own option labels — so ordinary messages
+        are never swallowed. Returns the respond() result, or None.
+        """
+        cleaned = _norm_reply(text)
+        if not cleaned:
+            return None
+        self._expire_stale()
+        pending = sorted(
+            (p for p in self._popups.values() if p["kind"] == "confirm" and p["status"] == "pending"),
+            key=lambda p: p["created_ts"],
+        )
+        if not pending:
+            return None
+        popup = pending[0]
+        yes = _norm_reply(popup.get("yes_label")) or "yes"
+        no = _norm_reply(popup.get("no_label")) or "no"
+        if cleaned in ("y", "yes") or cleaned == yes:
+            return self.respond(popup["id"], "yes", via="chat")
+        if cleaned in ("n", "no") or cleaned == no:
+            return self.respond(popup["id"], "no", via="chat")
+        return None
 
     def dismiss(self, popup_id: str) -> dict:
         self._expire_stale()
@@ -169,6 +208,26 @@ class PanelPopupHub:
             event.set()
         return {"ok": True}
 
+    def dismiss_pending_confirms(self) -> int:
+        """Close every pending confirm so it can't swallow later chat replies.
+
+        Used when the run that was waiting on an answer is stopped: a stale
+        pending confirm would otherwise eat a bare "yes"/"no" message sent
+        long after anyone was listening.
+        """
+        self._expire_stale()
+        count = 0
+        for popup in self._popups.values():
+            if popup["kind"] == "confirm" and popup["status"] == "pending":
+                popup["status"] = "dismissed"
+                popup["answer"] = None
+                popup["finished_ts"] = time.time()
+                event = self._events.get(popup["id"])
+                if event:
+                    event.set()
+                count += 1
+        return count
+
     # -- wait ---------------------------------------------------------------
 
     async def wait_for_answer(self, popup_id: str, timeout_s: int) -> dict:
@@ -177,7 +236,7 @@ class PanelPopupHub:
             return {"status": "missing"}
         event = self._events.get(popup["id"])
         if event is None:
-            return {"status": popup["status"], "answer": popup.get("answer")}
+            return {"status": popup["status"], "answer": popup.get("answer"), "via": popup.get("answered_via")}
         try:
             await asyncio.wait_for(event.wait(), timeout=max(1, int(timeout_s)))
         except asyncio.TimeoutError:
@@ -186,6 +245,7 @@ class PanelPopupHub:
         return {
             "status": popup["status"],
             "answer": popup.get("answer"),
+            "via": popup.get("answered_via"),
         }
 
     # -- read ---------------------------------------------------------------
@@ -220,3 +280,13 @@ hub = PanelPopupHub()
 
 def get_hub() -> PanelPopupHub:
     return hub
+
+
+def answer_from_text(text: str) -> dict | None:
+    """Resolve the oldest pending confirm from a chat reply, if it matches.
+
+    Convenience wrapper around PanelPopupHub.answer_from_text so chat
+    frontends (Telegram bot, web chat) can accept confirm answers without
+    touching hub internals. Returns None when the text is not an answer.
+    """
+    return hub.answer_from_text(text)

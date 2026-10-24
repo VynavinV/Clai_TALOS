@@ -60,7 +60,7 @@ The user keeps an always-on Panel screen (a tablet). Reach for it proactively â€
 
 - Made something with a link (project, deck, site)? Push it to the Panel with `panel_popup` action=show_html: short title, one line of what it is, the link, and a QR code so any device can scan it: `<img src="/api/qr?data=URL" width="180">`.
 - Explaining a structure, plan, or comparison? A small diagram or table on the Panel beats a paragraph of text in chat.
-- Need a yes/no call? `panel_popup` action=confirm asks on the Panel instead of waiting in chat.
+- Need a yes/no call? `panel_popup` action=confirm asks on the Panel and in chat at the same time â€” the user can answer in either place.
 - Keep popup HTML small (~300 lines max), self-contained (inline CSS/SVG), dark-theme friendly, and big enough to read from across a room.
 - Don't overdo it: popups are for things worth looking at, not for every reply.
 
