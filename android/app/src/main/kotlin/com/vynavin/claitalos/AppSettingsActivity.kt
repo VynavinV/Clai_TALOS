@@ -82,7 +82,13 @@ class AppSettingsActivity : AppCompatActivity() {
                     binding.settingsStatus.text = "Connected as ${result.value.botName}"
                 }
                 else -> {
-                    val fallback = listOf("Ray-Ban Meta Gen 1", "Ray-Ban Meta Gen 2", "Oakley Meta", "Other")
+                    val fallback = listOf(
+                        "Ray-Ban Meta Gen 1",
+                        "Ray-Ban Meta Gen 2",
+                        "Ray-Ban Meta Gen 3",
+                        "Oakley Meta",
+                        "Other",
+                    )
                     binding.glassesModelSpinner.adapter = ArrayAdapter(
                         this@AppSettingsActivity,
                         android.R.layout.simple_spinner_dropdown_item,

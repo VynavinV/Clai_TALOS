@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000">
+
+    <androidx.camera.view.PreviewView
+        android:id="@+id/previewView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- Scan window overlay -->
+    <View
+        android:id="@+id/scanOverlay"
+        android:layout_width="280dp"
+        android:layout_height="280dp"
+        android:layout_gravity="center"
+        android:background="@drawable/qr_scan_frame" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="48dp"
+        android:text="Point at the pairing QR code"
+        android:textColor="#e8ffffff"
+        android:textSize="16sp"
+        android:shadowColor="#80000000"
+        android:shadowRadius="6" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal|bottom"
+        android:layout_marginBottom="96dp"
+        android:text="Tap the screen to focus"
+        android:textColor="#b3ffffff"
+        android:textSize="13sp"
+        android:shadowColor="#80000000"
+        android:shadowRadius="6" />
+
+    <ImageButton
+        android:id="@+id/torchButton"
+        android:layout_width="52dp"
+        android:layout_height="52dp"
+        android:layout_gravity="bottom|end"
+        android:layout_margin="20dp"
+        android:background="@drawable/bg_native_menu"
+        android:contentDescription="Toggle flashlight"
+        android:src="@drawable/ic_torch"
+        android:scaleType="center"
+        android:alpha="0.55" />
+
+    <ImageButton
+        android:id="@+id/closeButton"
+        android:layout_width="52dp"
+        android:layout_height="52dp"
+        android:layout_gravity="top|start"
+        android:layout_margin="20dp"
+        android:background="@drawable/bg_native_menu"
+        android:contentDescription="Close scanner"
+        android:src="@drawable/ic_close"
+        android:scaleType="center" />
+</FrameLayout>

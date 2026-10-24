@@ -55,7 +55,12 @@ dependencies {
     implementation(libs.androidx.activity)
     implementation(libs.androidx.security.crypto)
     implementation(libs.kotlinx.coroutines.android)
-    implementation(libs.zxing.embedded)
+
+    implementation(libs.androidx.camera.core)
+    implementation(libs.androidx.camera.camera2)
+    implementation(libs.androidx.camera.lifecycle)
+    implementation(libs.androidx.camera.view)
+    implementation(libs.mlkit.barcode)
 
     implementation(libs.mwdat.core)
     implementation(libs.mwdat.speech)

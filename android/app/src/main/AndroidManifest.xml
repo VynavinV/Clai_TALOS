@@ -52,6 +52,11 @@
         </activity>
 
         <activity android:name=".PairingActivity" android:exported="false" />
+        <activity
+            android:name=".QrScanActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:keepScreenOn="true" />
         <activity android:name=".AppSettingsActivity" android:exported="false" />
         <activity android:name=".GlassesStatusActivity" android:exported="false" />
         <activity

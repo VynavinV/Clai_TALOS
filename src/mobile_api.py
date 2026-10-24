@@ -44,8 +44,14 @@ import db
 logger = logging.getLogger("talos.mobile")
 security_logger = logging.getLogger("talos.security")
 
-GLASSES_MODELS = ["Ray-Ban Meta Gen 1", "Ray-Ban Meta Gen 2", "Oakley Meta", "Other"]
-DEFAULT_GLASSES_MODEL = "Ray-Ban Meta Gen 2"
+GLASSES_MODELS = [
+    "Ray-Ban Meta Gen 1",
+    "Ray-Ban Meta Gen 2",
+    "Ray-Ban Meta Gen 3",
+    "Oakley Meta",
+    "Other",
+]
+DEFAULT_GLASSES_MODEL = "Ray-Ban Meta Gen 3"
 _GLASSES_MODEL_STATE_KEY = "mobile_glasses_model"
 
 # Bearer auth failure policy, mirroring the dashboard login limits.

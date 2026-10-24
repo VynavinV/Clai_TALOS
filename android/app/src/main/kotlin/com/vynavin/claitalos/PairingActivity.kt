@@ -10,8 +10,6 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.journeyapps.barcodescanner.ScanContract
-import com.journeyapps.barcodescanner.ScanOptions
 import com.vynavin.claitalos.databinding.ActivityPairingBinding
 import com.vynavin.claitalos.mobile.PairingPayload
 import com.vynavin.claitalos.mobile.TalosClient
@@ -26,8 +24,10 @@ class PairingActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityPairingBinding
 
-    private val qrScanner = registerForActivityResult(ScanContract()) { result ->
-        val contents = result.contents
+    private val qrScanner = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val contents = result.data?.getStringExtra(QrScanActivity.EXTRA_QR)
         if (!contents.isNullOrBlank()) {
             applyPayload(contents)
         }
@@ -63,13 +63,7 @@ class PairingActivity : AppCompatActivity() {
     }
 
     private fun launchScanner() {
-        qrScanner.launch(
-            ScanOptions()
-                .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                .setPrompt("Scan the QR from Settings → Mobile App & Glasses")
-                .setBeepEnabled(false)
-                .setOrientationLocked(true),
-        )
+        qrScanner.launch(Intent(this, QrScanActivity::class.java))
     }
 
     private fun applyPayload(raw: String) {
