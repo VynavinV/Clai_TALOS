@@ -32,6 +32,7 @@ import gateway
 import dynamic_tools
 import model_router
 import core
+import mobile_api
 import google_integration
 import homeassistant
 import activity_tracker
@@ -5234,6 +5235,14 @@ async def main():
     web_app.router.add_get("/api/incoming-call", handle_incoming_call_ws)
     web_app.router.add_static("/static", STATIC_DIR)
     gateway.setup_routes(web_app, auth_decorator=require_auth)
+    mobile_api.setup_routes(
+        web_app,
+        require_auth=require_auth,
+        require_auth_csrf=require_auth_csrf,
+        read_env=_read_env_file,
+        write_env=_write_env_file,
+        request_origin=_request_origin,
+    )
     whatsapp_bot.setup_routes(web_app)
     whatsapp_personal_bot.start()
     discord_bot.start_gateway()

@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/clai_bg"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="24dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Glasses"
+            android:textColor="@color/clai_text"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="20dp" />
+
+        <Button
+            android:id="@+id/registerButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/glasses_register"
+            android:layout_marginBottom="8dp" />
+
+        <Button
+            android:id="@+id/micPermissionButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Allow Glasses Microphone"
+            android:layout_marginBottom="8dp" />
+
+        <Button
+            android:id="@+id/startSessionButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/glasses_start_session"
+            android:layout_marginBottom="8dp" />
+
+        <Button
+            android:id="@+id/testTapButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/glasses_test_tap"
+            android:layout_marginBottom="8dp" />
+
+        <CheckBox
+            android:id="@+id/mockDeviceCheck"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Use mock glasses (debug, no hardware)"
+            android:textColor="@color/clai_text" />
+
+        <Button
+            android:id="@+id/simulateVoiceButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Simulate &quot;Hey Meta, start Clai&quot; (mock)"
+            android:layout_marginBottom="16dp" />
+
+        <TextView
+            android:id="@+id/registrationStateText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Registration: —"
+            android:textColor="@color/clai_text"
+            android:textSize="14sp"
+            android:layout_marginBottom="4dp" />
+
+        <TextView
+            android:id="@+id/devicesText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Devices: —"
+            android:textColor="@color/clai_text"
+            android:textSize="14sp"
+            android:layout_marginBottom="4dp" />
+
+        <TextView
+            android:id="@+id/sessionStateText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Session: —"
+            android:textColor="@color/clai_text"
+            android:textSize="14sp"
+            android:layout_marginBottom="4dp" />
+
+        <TextView
+            android:id="@+id/lastTapText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Last input: —"
+            android:textColor="@color/clai_text"
+            android:textSize="14sp"
+            android:layout_marginBottom="4dp" />
+
+        <TextView
+            android:id="@+id/glassesStatusLog"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/clai_muted"
+            android:textSize="12sp"
+            android:layout_marginTop="12dp" />
+    </LinearLayout>
+</ScrollView>

@@ -1,0 +1,19 @@
+<resources>
+    <string name="app_name">Clai</string>
+    <string name="pairing_title">Pair with your Clai server</string>
+    <string name="pairing_hint">Scan the QR code from Settings → Mobile App &amp; Glasses on your dashboard, or paste the server URL and token below.</string>
+    <string name="server_url">Server URL</string>
+    <string name="token_hint">App token (from the dashboard — shown once when created)</string>
+    <string name="scan_qr">Scan QR Code</string>
+    <string name="connect">Connect</string>
+    <string name="listening_title">Listening…</string>
+    <string name="listening_hint">Speak to Clai. Tap the touchpad on your glasses when you\'re done.</string>
+    <string name="stop_listening">Send now</string>
+    <string name="glasses_register">Register with Meta AI</string>
+    <string name="glasses_start_session">Start Glasses Session</string>
+    <string name="glasses_test_tap">Test Tap</string>
+    <string name="pingback_channel_name">Clai glasses replies</string>
+    <string name="pingback_running">Clai is working…</string>
+    <string name="pingback_running_detail">I\'ll speak the answer through your glasses when it\'s ready.</string>
+    <string name="notification_title">Clai</string>
+</resources>

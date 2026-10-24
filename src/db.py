@@ -71,6 +71,30 @@ def init():
                 key TEXT PRIMARY KEY,
                 value TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS app_tokens (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                token_hash TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                last_used TEXT,
+                revoked INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS mobile_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                token_id INTEGER NOT NULL,
+                run_id TEXT NOT NULL,
+                type TEXT NOT NULL,
+                text TEXT NOT NULL DEFAULT '',
+                speak_text TEXT NOT NULL DEFAULT '',
+                speak INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                delivered INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_mobile_events_token
+                ON mobile_events(token_id, id);
         """)
         cols = [r["name"] for r in conn.execute("PRAGMA table_info(user_settings)").fetchall()]
         if "summary" not in cols:
@@ -518,3 +542,126 @@ def clear_history(user_id: int) -> int:
             (user_id,),
         )
         return cur.rowcount
+
+
+# ---------------------------------------------------------------------------
+# Mobile app tokens (glasses pairing). Only the sha256 hash is ever stored.
+# ---------------------------------------------------------------------------
+
+def add_app_token(name: str, token_hash: str) -> int:
+    with _conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO app_tokens (name, token_hash) VALUES (?, ?)",
+            (name, token_hash),
+        )
+        return int(cur.lastrowid or 0)
+
+
+def list_app_tokens(include_revoked: bool = True) -> list[dict]:
+    query = "SELECT id, name, created_at, last_used, revoked FROM app_tokens"
+    if not include_revoked:
+        query += " WHERE revoked = 0"
+    query += " ORDER BY id DESC"
+    with _conn() as conn:
+        rows = conn.execute(query).fetchall()
+    return [dict(r) for r in rows]
+
+
+def find_app_token_by_hash(token_hash: str) -> dict | None:
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT id, name, token_hash, created_at, last_used, revoked FROM app_tokens WHERE token_hash = ?",
+            (token_hash,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def touch_app_token(token_id: int) -> None:
+    with _conn() as conn:
+        conn.execute(
+            "UPDATE app_tokens SET last_used = datetime('now') WHERE id = ?",
+            (token_id,),
+        )
+
+
+def revoke_app_token(token_id: int) -> bool:
+    with _conn() as conn:
+        cur = conn.execute(
+            "UPDATE app_tokens SET revoked = 1 WHERE id = ? AND revoked = 0",
+            (token_id,),
+        )
+        return bool(cur.rowcount)
+
+
+# ---------------------------------------------------------------------------
+# Mobile event queue — the long-run "ping the glasses" channel. Events are
+# persisted so an app that reconnects mid-run (network drop, phone lock, app
+# restart) resumes from its cursor and never misses a spoken reply.
+# ---------------------------------------------------------------------------
+
+def add_mobile_event(
+    token_id: int,
+    run_id: str,
+    type: str,
+    text: str = "",
+    speak_text: str = "",
+    speak: int = 1,
+) -> int:
+    with _conn() as conn:
+        cur = conn.execute(
+            """INSERT INTO mobile_events (token_id, run_id, type, text, speak_text, speak)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (token_id, run_id, type, text, speak_text, 1 if speak else 0),
+        )
+        return int(cur.lastrowid or 0)
+
+
+def list_mobile_events(token_id: int, since: int = 0, limit: int = 200) -> list[dict]:
+    with _conn() as conn:
+        rows = conn.execute(
+            """SELECT id, run_id, type, text, speak_text, speak, created_at
+               FROM mobile_events
+               WHERE token_id = ? AND id > ?
+               ORDER BY id ASC
+               LIMIT ?""",
+            (token_id, int(since), max(1, int(limit))),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def ack_mobile_events(token_id: int, last_id: int) -> int:
+    with _conn() as conn:
+        cur = conn.execute(
+            "UPDATE mobile_events SET delivered = 1 WHERE token_id = ? AND id <= ? AND delivered = 0",
+            (token_id, int(last_id)),
+        )
+        return int(cur.rowcount or 0)
+
+
+def prune_mobile_events(days: int) -> int:
+    keep_days = max(1, int(days))
+    with _conn() as conn:
+        cur = conn.execute(
+            """DELETE FROM mobile_events
+               WHERE created_at < datetime('now', ?)""",
+            (f"-{keep_days} days",),
+        )
+        return int(cur.rowcount or 0)
+
+
+def get_system_state(key: str) -> str | None:
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT value FROM system_state WHERE key = ?",
+            (key,),
+        ).fetchone()
+    return row["value"] if row else None
+
+
+def set_system_state(key: str, value: str) -> None:
+    with _conn() as conn:
+        conn.execute(
+            """INSERT INTO system_state (key, value) VALUES (?, ?)
+               ON CONFLICT(key) DO UPDATE SET value = excluded.value""",
+            (key, value),
+        )

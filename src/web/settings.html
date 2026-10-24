@@ -114,6 +114,11 @@
   .sub-fields .form-group { margin-bottom: 0.7rem; }
   .sub-fields.dim { opacity: 0.45; }
 
+  .mobile-token-list { display: flex; flex-direction: column; gap: 0.5rem; }
+  .mobile-token-row { display: flex; align-items: center; gap: 0.8rem; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.02); border-radius: 8px; padding: 0.6rem 0.9rem; }
+  .mobile-token-row .mobile-token-info { flex: 1; min-width: 0; font-size: 0.85rem; color: #ddd; }
+  .mobile-token-row .btn { padding: 0.35rem 0.8rem; font-size: 0.75rem; }
+
   .provider-tabs { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 1rem; }
   .provider-tab { padding: 0.45rem 0.9rem; border-radius: 8px; font-size: 0.8rem; font-weight: 500; cursor: pointer; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); color: #888; transition: all 0.15s; }
   .provider-tab:hover { background: rgba(255,255,255,0.06); color: #bbb; }
@@ -783,6 +788,58 @@
       <div class="form-group"><label>Stop jobs after (seconds)</label><input type="text" id="orchestrator-timeout" placeholder="1800" inputmode="numeric"><div class="form-hint">How long a job may go with no progress before it's stopped. Active work (new tokens, running tools) resets this, so a job that's still thinking or acting is never cut off. Default 1800 (30 minutes).</div></div>
       <div class="form-group"><label>Helper timeout (seconds)</label><input type="text" id="subagent-timeout" placeholder="900" inputmode="numeric"><div class="form-hint">The time limit for each sub-helper the main assistant spawns. Default 900 (15 minutes).</div></div>
     </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">📱 Mobile App &amp; Glasses</div>
+    <div class="form-hint" style="margin-bottom:0.9rem;">
+      Pair the Android app to use Clai from your glasses: say "Hey Meta, start Clai", speak your request, then tap the touchpad to send. When Clai finishes (even 20 minutes later), the answer is spoken back through the glasses and still lands on Telegram like always.
+    </div>
+    <div class="form-group">
+      <label>Glasses Model</label>
+      <select id="mobile-glasses-model"></select>
+      <div class="form-hint">Used for setup instructions and stop-gesture hints. Default: Ray-Ban Meta Gen 2.</div>
+    </div>
+    <div class="toggle-row">
+      <input type="checkbox" id="mobile-speak-enabled">
+      <div class="toggle-label"><strong>Speak replies through glasses</strong>
+        <div class="toggle-sub">Runs started from the glasses say their answers out loud (plain English, short). Turning this off keeps everything on Telegram and the app only.</div>
+      </div>
+    </div>
+    <div class="toggle-row">
+      <input type="checkbox" id="mobile-reply-telegram">
+      <div class="toggle-label"><strong>Mirror replies to Telegram</strong>
+        <div class="toggle-sub">Glasses-originated runs also send their text replies to your Telegram chat, so everything stays in one history.</div>
+      </div>
+    </div>
+    <div class="form-group" style="margin-top:1rem;">
+      <label>Paired Devices</label>
+      <div id="mobile-token-list" class="mobile-token-list"><div class="form-hint">Loading…</div></div>
+    </div>
+    <div class="form-group">
+      <label>New Device Name</label>
+      <input type="text" id="mobile-token-name" placeholder="e.g. My glasses" maxlength="60">
+    </div>
+    <button class="btn" id="mobile-token-create-btn" onclick="createMobileToken()">Pair New Device</button>
+    <div id="mobile-qr-area" style="display:none; margin-top:1rem; text-align:center;">
+      <img id="mobile-qr-img" alt="Pairing QR code" style="max-width:260px; width:100%; border-radius:8px; background:#fff; padding:8px;">
+      <div class="form-hint" style="margin-top:0.5rem;">Scan this QR in the Android app to pair. It contains the server URL and this device's token.</div>
+      <div id="mobile-token-once" style="font-family:monospace; font-size:0.72rem; color:#d69e2e; word-break:break-all; margin-top:0.5rem;"></div>
+      <div class="form-hint" style="color:#d69e2e;">Save the token now — it is shown only once.</div>
+    </div>
+    <details style="margin-top:1rem;">
+      <summary style="cursor:pointer; font-size:0.8rem; color:#9aa4b2;">Grandma setup guide</summary>
+      <div style="font-size:0.8rem; color:#888; line-height:1.7; margin-top:0.6rem;">
+        1. Pair this page first: give the device a name above and tap "Pair New Device".<br>
+        2. Install the Clai Android app on your phone (Android 10+, Meta AI app installed).<br>
+        3. Open the app and scan this QR code — that's the whole pairing.<br>
+        4. In the app, connect your glasses once (Register button).<br>
+        5. Say: "Hey Meta, start Clai" — then just speak. Tap the touchpad on the glasses when you're done talking. That sends it.<br>
+        6. Clai works and answers on Telegram and in the app — and when it's done, it says the answer through your glasses.<br>
+        Full walkthrough and troubleshooting: <a href="/docs" target="_blank" style="color:#63b3ed;">Documentation</a>.
+      </div>
+    </details>
+    <div class="status-line" id="mobile-status" style="margin-top:0.8rem;"></div>
   </div>
 
   <button class="btn" onclick="saveSettings()">Save Changes</button>
@@ -3006,7 +3063,124 @@ async function setupOllama() {
 
 function logout() { fetch('/logout', { method: 'POST' }).then(function() { window.location.href = '/'; }); }
 function toggleSidebar() { document.getElementById('sidebar').classList.toggle('open'); document.getElementById('sidebar-overlay').classList.toggle('open'); }
+
+var _mobileCardLoaded = false;
+
+function mobileMsg(text, ok) {
+  var el = document.getElementById('mobile-status');
+  if (!el) return;
+  el.textContent = text || '';
+  el.style.color = ok === false ? '#f56565' : (ok === true ? '#48bb78' : '#888');
+}
+
+function renderMobileTokens(tokens) {
+  var list = document.getElementById('mobile-token-list');
+  if (!list) return;
+  if (!tokens || !tokens.length) {
+    list.innerHTML = '<div class="form-hint">No devices paired yet. Name one above and tap "Pair New Device".</div>';
+    return;
+  }
+  var html = '';
+  tokens.forEach(function(t) {
+    var revoked = t.revoked ? ' <span style="color:#f56565;">(revoked)</span>' : '';
+    var used = t.last_used ? ' · last used ' + String(t.last_used).replace('T', ' ').replace('Z', ' UTC') : ' · never used';
+    html += '<div class="mobile-token-row">' +
+      '<div class="mobile-token-info"><strong>' + (t.name || 'Device') + revoked + '</strong>' +
+      '<div class="form-hint">' + used + '</div></div>' +
+      (t.revoked ? '' : '<button class="btn btn-danger" onclick="revokeMobileToken(' + t.id + ')">Revoke</button>') +
+      '</div>';
+  });
+  list.innerHTML = html;
+}
+
+async function loadMobileCard() {
+  try {
+    var res = await fetch('/api/mobile/tokens');
+    if (res.status === 401) { window.location.href = '/'; return; }
+    var d = await res.json();
+    if (!d.ok) { mobileMsg(d.error || 'Could not load mobile settings.', false); return; }
+
+    var select = document.getElementById('mobile-glasses-model');
+    if (select && !_mobileCardLoaded) {
+      select.innerHTML = '';
+      (d.glasses_models || []).forEach(function(m) {
+        var opt = document.createElement('option');
+        opt.value = m; opt.textContent = m;
+        select.appendChild(opt);
+      });
+      select.value = d.glasses_model;
+      select.onchange = saveMobileSettings;
+    }
+    var speak = document.getElementById('mobile-speak-enabled');
+    if (speak && !_mobileCardLoaded) { speak.checked = !!d.speak_enabled; speak.onchange = saveMobileSettings; }
+    var mirror = document.getElementById('mobile-reply-telegram');
+    if (mirror && !_mobileCardLoaded) { mirror.checked = !!d.reply_telegram; mirror.onchange = saveMobileSettings; }
+    _mobileCardLoaded = true;
+    renderMobileTokens(d.tokens);
+    mobileMsg(d.mobile_api_enabled === false ? 'Mobile API is disabled (MOBILE_API_ENABLED=0).' : '');
+  } catch (e) {
+    mobileMsg('Could not load mobile settings.', false);
+  }
+}
+
+async function saveMobileSettings() {
+  var payload = {};
+  var select = document.getElementById('mobile-glasses-model');
+  var speak = document.getElementById('mobile-speak-enabled');
+  var mirror = document.getElementById('mobile-reply-telegram');
+  if (select) payload.glasses_model = select.value;
+  if (speak) payload.MOBILE_SPEAK_ENABLED = speak.checked ? '1' : '0';
+  if (mirror) payload.MOBILE_REPLY_TELEGRAM = mirror.checked ? '1' : '0';
+  try {
+    var res = await _post('/api/mobile/settings', payload);
+    var d = await res.json();
+    if (d.ok) mobileMsg('Saved.', true);
+    else mobileMsg(d.error || 'Could not save.', false);
+  } catch (e) {
+    mobileMsg('Connection problem. Please try again.', false);
+  }
+}
+
+async function createMobileToken() {
+  var btn = document.getElementById('mobile-token-create-btn');
+  var nameEl = document.getElementById('mobile-token-name');
+  var name = (nameEl && nameEl.value.trim()) || 'My glasses';
+  if (btn) { btn.disabled = true; }
+  mobileMsg('Creating token…');
+  try {
+    var res = await _post('/api/mobile/tokens', { name: name });
+    var d = await res.json();
+    if (!d.ok) { mobileMsg(d.error || 'Could not create token.', false); return; }
+    var area = document.getElementById('mobile-qr-area');
+    var img = document.getElementById('mobile-qr-img');
+    var once = document.getElementById('mobile-token-once');
+    if (img) img.src = d.qr_url;
+    if (once) once.textContent = d.token || '';
+    if (area) area.style.display = 'block';
+    if (nameEl) nameEl.value = '';
+    mobileMsg('Device paired. Scan the QR in the app — the token is shown only once.', true);
+    await loadMobileCard();
+  } catch (e) {
+    mobileMsg('Connection problem. Please try again.', false);
+  } finally {
+    if (btn) { btn.disabled = false; }
+  }
+}
+
+async function revokeMobileToken(id) {
+  if (!window.confirm('Revoke this device? It will immediately lose access.')) return;
+  try {
+    var res = await _post('/api/mobile/tokens/revoke', { id: id });
+    var d = await res.json();
+    if (d.ok) { mobileMsg('Device revoked.', true); await loadMobileCard(); }
+    else mobileMsg(d.error || 'Could not revoke.', false);
+  } catch (e) {
+    mobileMsg('Connection problem. Please try again.', false);
+  }
+}
+
 loadSettings();
+loadMobileCard();
 </script>
 </body>
 </html>

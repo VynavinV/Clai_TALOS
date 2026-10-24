@@ -483,6 +483,88 @@ git push
         Tip: keep operational secrets out of public docs pages. Public docs should contain placeholders only.
       </p>
     </article>
+
+    <article class="panel span-12" id="glasses">
+      <h2>Glasses: "Hey Meta, start Clai"</h2>
+      <p>
+        Use Clai hands-free from Ray-Ban Meta glasses. Say <strong>"Hey Meta, start Clai"</strong>, speak your
+        request for as long as you like, then <strong>tap the touchpad on the glasses to send</strong>. Clai runs it
+        through the normal pipeline — answers arrive on Telegram and in the app as always — and when a long job
+        finishes (even 20 minutes later), the answer is also <strong>spoken in plain English through the glasses</strong>.
+      </p>
+
+      <div class="step">
+        <div class="n">Step 1</div>
+        <h3>Pair the server</h3>
+        <p>
+          On the dashboard go to <strong>Settings → 📱 Mobile App &amp; Glasses</strong>. Pick your glasses model,
+          name a device, and click <strong>Pair New Device</strong>. A QR code appears — scan it with the Android
+          app. Tokens are stored hashed; the server only shows a token once and you can revoke any device at
+          any time.
+        </p>
+      </div>
+
+      <div class="step">
+        <div class="n">Step 2</div>
+        <h3>Prepare the phone</h3>
+        <p>
+          Android 10+ with the <strong>Meta AI app</strong> installed and your glasses paired to it. Enable
+          <strong>Developer Mode</strong>: in the Meta AI app open Settings → App Info and tap the app version
+          five times.
+        </p>
+      </div>
+
+      <div class="step">
+        <div class="n">Step 3</div>
+        <h3>Register the app with the glasses</h3>
+        <p>
+          In the Clai app, tap <strong>Register</strong> on the glasses status screen and follow the prompts.
+          After registration the app appears under App Connections in the Meta AI app (you can revoke access
+          there too).
+        </p>
+      </div>
+
+      <div class="step">
+        <div class="n">Step 4</div>
+        <h3>Talk to Clai</h3>
+        <p>
+          Say <strong>"Hey Meta, start Clai"</strong>, then just speak — Clai keeps listening and shows live
+          text on the phone. <strong>Tap the touchpad</strong> when you're done: that sends everything to the
+          orchestrator through the same pipeline as any other message. Replies are mirrored to Telegram and
+          the app; when the run finishes, the app speaks the answer through the glasses. If the glasses
+          weren't connected at that moment, you get a phone notification instead and the message replays
+          when you reconnect.
+        </p>
+      </div>
+
+      <div class="callout">
+        How the late "ping" works: Meta provides no server-to-glasses push. The Android app keeps a
+        long-poll connection to your TALOS server open while a job runs (works over Tailscale HTTPS) and
+        speaks queued replies through the glasses when they arrive. Speech is additive — Telegram and
+        every other channel behave exactly as before.
+      </div>
+
+      <h3>Server settings</h3>
+      <pre><code>MOBILE_API_ENABLED=1          # master switch for the mobile API
+MOBILE_REPLY_TELEGRAM=1       # mirror glasses-run replies to Telegram
+MOBILE_SPEAK_ENABLED=1        # speak replies through the glasses
+MOBILE_ALLOW_HTTP=0           # plain HTTP only from localhost/LAN unless 1
+MOBILE_MAX_MESSAGE_CHARS=4000
+MOBILE_SPEAK_MAX_CHARS=300    # cap for spoken replies
+MOBILE_EVENT_RETENTION_DAYS=7 # how long undelivered events queue
+MOBILE_RATE_LIMIT_PER_MIN=120 # per-token request limit</code></pre>
+
+      <h3>Troubleshooting</h3>
+      <p>
+        <strong>401 from the app:</strong> token revoked or wrong server URL — re-pair from Settings.
+        <strong>426 HTTPS required:</strong> use your Tailscale HTTPS URL (or set
+        <code>MOBILE_ALLOW_HTTP=1</code> on a trusted LAN). <strong>"Hey Meta" doesn't launch Clai:</strong>
+        check the spoken name is registered as "Clai" in the Wearables Developer Center and that Voice
+        Invocations are approved for the app. <strong>No spoken answer:</strong> the run's replies still
+        arrive on Telegram; check that the phone kept the Clai foreground-service notification and that
+        the glasses are connected in the app.
+      </p>
+    </article>
   </section>
 </main>
 

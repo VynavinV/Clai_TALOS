@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/clai_bg"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="24dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Clai Settings"
+            android:textColor="@color/clai_text"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="20dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Server"
+            android:textColor="@color/clai_muted"
+            android:textSize="12sp" />
+        <TextView
+            android:id="@+id/serverUrlText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/clai_text"
+            android:textSize="15sp"
+            android:layout_marginBottom="16dp"
+            android:textIsSelectable="true" />
+
+        <Button
+            android:id="@+id/checkConnectionButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Check Connection"
+            android:layout_marginBottom="8dp" />
+
+        <Button
+            android:id="@+id/repairButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Pair Again (New Server or Token)"
+            android:layout_marginBottom="24dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Glasses model"
+            android:textColor="@color/clai_muted"
+            android:textSize="12sp" />
+        <Spinner
+            android:id="@+id/glassesModelSpinner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="24dp" />
+
+        <CheckBox
+            android:id="@+id/speakRepliesCheck"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Speak replies through glasses"
+            android:textColor="@color/clai_text" />
+
+        <CheckBox
+            android:id="@+id/speakFollowUpsCheck"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Speak follow-ups from long runs"
+            android:textColor="@color/clai_text" />
+
+        <TextView
+            android:id="@+id/settingsStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/clai_muted"
+            android:textSize="13sp"
+            android:layout_marginTop="16dp" />
+    </LinearLayout>
+</ScrollView>

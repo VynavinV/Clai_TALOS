@@ -1037,6 +1037,29 @@ Supported action families:
 
 Onboarding helper can auto-configure Gmail with app password, writing config under `.himalaya/config.toml` and setting env keys.
 
+## Glasses & Mobile App
+
+Say **"Hey Meta, start Clai"** on Ray-Ban Meta glasses, speak a request for as long as you like, then **tap the glasses touchpad to send**. The transcript goes through the normal orchestrator pipeline; replies land on Telegram and in the Android app as always, and when a long-running job finishes (even 10–20 minutes later), the answer is also **spoken in plain English through the glasses**.
+
+The Android app (`android/`, planned) is a WebView of the dashboard plus a native Meta DAT layer: voice invocation, glasses speech recognition, touchpad-tap stop, and text-to-speech back through the glasses.
+
+How the late spoken reply works: Meta exposes no server-to-glasses push, so the phone app is the bridge. `POST /api/mobile/message` returns `202` immediately with a `run_id`; the run executes in the background and every reply event is persisted to a per-device queue. The app long-polls `GET /api/mobile/events?since=<id>` (cursor + ack, survives drops and app restarts) and speaks `speak_text` events through the glasses. Speech is additive — Telegram mirroring and every other channel behave exactly as before.
+
+Pairing: Settings → **📱 Mobile App & Glasses** → pick your glasses model → create a device token → scan the QR in the app. Tokens are sha256-hashed at rest, shown once, rate-limited, and revocable. Full setup walkthrough: `/docs` on your dashboard.
+
+### Mobile API configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MOBILE_API_ENABLED` | `1` | Master switch for the mobile API |
+| `MOBILE_REPLY_TELEGRAM` | `1` | Mirror glasses-run text replies to Telegram |
+| `MOBILE_SPEAK_ENABLED` | `1` | Speak glasses-run replies through the glasses |
+| `MOBILE_ALLOW_HTTP` | `0` | Allow plain HTTP off-LAN (Tailscale HTTPS is preferred) |
+| `MOBILE_MAX_MESSAGE_CHARS` | `4000` | Max message text from the app |
+| `MOBILE_SPEAK_MAX_CHARS` | `300` | Cap for spoken replies |
+| `MOBILE_EVENT_RETENTION_DAYS` | `7` | How long undelivered events stay queued |
+| `MOBILE_RATE_LIMIT_PER_MIN` | `120` | Per-token request limit |
+
 ## Browser Automation Notes
 
 Browser automation is CDP-based and can reuse real logged-in Chrome state.

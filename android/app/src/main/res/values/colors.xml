@@ -1,0 +1,7 @@
+<resources>
+    <color name="clai_bg">#0a0a0f</color>
+    <color name="clai_surface">#16161f</color>
+    <color name="clai_accent">#63b3ed</color>
+    <color name="clai_text">#e0e0e0</color>
+    <color name="clai_muted">#888888</color>
+</resources>
