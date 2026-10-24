@@ -487,6 +487,34 @@
   </div>
 
   <div class="section">
+    <div class="section-title">WhatsApp Personal</div>
+    <div class="form-hint" style="margin-bottom:0.8rem;">
+      Use your own WhatsApp account instead of the Cloud API. The bot acts as you &mdash; reads and sends messages from your personal WhatsApp. Requires QR code scan on first setup.
+    </div>
+    <div class="toggle-row">
+      <input type="checkbox" id="whatsapp-personal-enabled" onchange="toggleWhatsAppPersonalFields()">
+      <div class="toggle-label"><strong>Enable Personal Mode</strong>
+        <div class="toggle-sub">Links your personal WhatsApp via QR code (like WhatsApp Desktop). Cannot be used at the same time as Cloud API.</div>
+      </div>
+    </div>
+    <div id="whatsapp-personal-config-area" style="display:none;">
+      <div class="toggle-row">
+        <input type="checkbox" id="whatsapp-personal-headless" checked>
+        <div class="toggle-label"><strong>Headless Browser</strong>
+          <div class="toggle-sub">Run the WhatsApp Web browser in the background. Turn off if you need to see the browser window (e.g. to re-scan QR code).</div>
+        </div>
+      </div>
+      <div class="form-hint">On first start, a browser window will open showing a QR code. Scan it with your phone to link the device.</div>
+      <div id="whatsapp-personal-qr-area" style="display:none; margin-top:1rem; text-align:center;">
+        <div class="form-hint" id="whatsapp-personal-qr-hint">Scan this QR code with WhatsApp on your phone:</div>
+        <img id="whatsapp-personal-qr-img" src="" alt="WhatsApp QR Code" style="max-width:300px; border:2px solid #444; border-radius:8px; margin:0.5rem auto; display:block;">
+        <button type="button" id="whatsapp-personal-qr-refresh" onclick="fetchWhatsAppQR()" style="margin-top:0.4rem;">Refresh QR Code</button>
+      </div>
+    </div>
+    <div class="status-line" id="whatsapp-personal-status"></div>
+  </div>
+
+  <div class="section">
     <div class="section-title">Discord Bot</div>
     <div class="form-hint" style="margin-bottom:0.8rem;">
       Connect Discord so you can message your assistant from a Discord server. Create a bot at <a href="https://discord.com/developers/applications" target="_blank">Discord Developer Portal</a>.
@@ -503,6 +531,77 @@
       <div class="form-hint">Enable the MESSAGE CONTENT intent in the Bot settings.</div>
     </div>
     <div class="status-line" id="discord-status"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Phone Calls (Bland.ai)</div>
+    <div class="form-hint" style="margin-bottom:0.8rem;">
+      Enable phone calling via <a href="https://www.bland.ai" target="_blank">Bland.ai</a>. Get your API key from the Bland dashboard.
+    </div>
+    <div class="toggle-row">
+      <input type="checkbox" id="bland-enabled" onchange="toggleBlandFields()">
+      <div class="toggle-label"><strong>Enable Phone Calls</strong>
+        <div class="toggle-sub">Allow the assistant to make and receive phone calls via Bland.ai.</div>
+      </div>
+    </div>
+    <div id="bland-config-area" style="display:none;">
+      <div class="form-group"><label>API Key</label><input type="password" id="bland-api-key" placeholder="sk-..." autocomplete="off"></div>
+      <div class="form-hint">Your Bland.ai API key. Keep this secret.</div>
+    </div>
+    <div class="status-line" id="bland-status"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Local Voice Agent (TALOS)</div>
+    <div class="form-hint" style="margin-bottom:0.8rem;">
+      Fully local voice pipeline: speech-to-text (Faster-Whisper), local LLM (Ollama), and text-to-speech. No cloud APIs needed.
+    </div>
+
+    <div id="talos-hw-box" class="form-hint" style="margin-bottom:0.8rem; padding:0.6rem 0.8rem; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.06); border-radius:8px;">Detecting hardware...</div>
+
+    <div class="toggle-row">
+      <input type="checkbox" id="talos-voice-enabled" onchange="toggleTalosFields()">
+      <div class="toggle-label"><strong>Enable Voice Agent</strong>
+        <div class="toggle-sub">Run local STT, LLM, and TTS pipeline with barge-in support and WebSocket telephony bridge.</div>
+      </div>
+    </div>
+
+    <div id="talos-config-area" style="display:none;">
+      <div class="form-group">
+        <label>STT Model</label>
+        <select id="talos-stt-model">
+          <option value="">Auto (hardware-detected)</option>
+          <option value="tiny.en">tiny.en (fastest)</option>
+          <option value="base.en">base.en (balanced)</option>
+          <option value="small.en">small.en (best, needs GPU)</option>
+        </select>
+        <div class="form-hint">Faster-Whisper model for speech recognition.</div>
+      </div>
+      <div class="form-group">
+        <label>TTS Backend</label>
+        <select id="talos-tts-backend">
+          <option value="">Auto (hardware-detected)</option>
+          <option value="piper">Piper (CPU)</option>
+          <option value="kokoro">Kokoro (GPU)</option>
+        </select>
+        <div class="form-hint">Text-to-speech engine.</div>
+      </div>
+      <div class="form-group">
+        <label>LLM Model</label>
+        <input type="text" id="talos-llm-model" placeholder="qwen2.5:7b" autocomplete="off">
+        <div class="form-hint">Ollama model for conversation.</div>
+      </div>
+      <div class="form-group">
+        <label>Ollama Host</label>
+        <input type="text" id="talos-llm-host" placeholder="http://localhost:11434" autocomplete="off">
+      </div>
+      <div class="form-group">
+        <label>WebSocket Port</label>
+        <input type="text" id="talos-ws-port" placeholder="8765" autocomplete="off">
+        <div class="form-hint">Port for the telephony WebSocket bridge.</div>
+      </div>
+    </div>
+    <div class="status-line" id="talos-voice-status"></div>
   </div>
 
   <div class="section">
@@ -1436,10 +1535,25 @@ async function loadSettings() {
     document.getElementById('whatsapp-phone-id').value = d.WHATSAPP_PHONE_NUMBER_ID || '';
     document.getElementById('whatsapp-verify-token').value = d.WHATSAPP_VERIFY_TOKEN || '';
     toggleWhatsAppFields();
+    document.getElementById('whatsapp-personal-enabled').checked = (d.WHATSAPP_PERSONAL_ENABLED || '0') === '1';
+    document.getElementById('whatsapp-personal-headless').checked = (d.WHATSAPP_PERSONAL_HEADLESS || '1') === '1';
+    toggleWhatsAppPersonalFields();
     document.getElementById('discord-enabled').checked = (d.DISCORD_ENABLED || '0') === '1';
     document.getElementById('discord-token').value = d.DISCORD_TOKEN || '';
     document.getElementById('discord-application-id').value = d.DISCORD_APPLICATION_ID || '';
     toggleDiscordFields();
+    document.getElementById('bland-enabled').checked = (d.BLAND_ENABLED || '0') === '1';
+    document.getElementById('bland-api-key').value = d.BLAND_API_KEY || '';
+    toggleBlandFields();
+
+    document.getElementById('talos-voice-enabled').checked = (d.TALOS_VOICE_ENABLED || '0') === '1';
+    document.getElementById('talos-stt-model').value = d.TALOS_STT_MODEL || '';
+    document.getElementById('talos-tts-backend').value = d.TALOS_TTS_BACKEND || '';
+    document.getElementById('talos-llm-model').value = d.TALOS_LLM_MODEL || '';
+    document.getElementById('talos-llm-host').value = d.TALOS_LLM_HOST || 'http://localhost:11434';
+    document.getElementById('talos-ws-port').value = d.TALOS_WEBSOCKET_PORT || '8765';
+    toggleTalosFields();
+    detectTalosHardwareSettings();
     document.getElementById('max-tool-rounds').value = d.MAX_TOOL_ROUNDS || '40';
     document.getElementById('max-tool-calls-per-round').value = d.MAX_TOOL_CALLS_PER_ROUND || '30';
     document.getElementById('max-command-timeout').value = d.MAX_COMMAND_TIMEOUT || '300';
@@ -2161,9 +2275,13 @@ async function saveSettings() {
     WHATSAPP_TOKEN: document.getElementById('whatsapp-token').value.trim(),
     WHATSAPP_PHONE_NUMBER_ID: document.getElementById('whatsapp-phone-id').value.trim(),
     WHATSAPP_VERIFY_TOKEN: document.getElementById('whatsapp-verify-token').value.trim(),
+    WHATSAPP_PERSONAL_ENABLED: document.getElementById('whatsapp-personal-enabled').checked ? '1' : '0',
+    WHATSAPP_PERSONAL_HEADLESS: document.getElementById('whatsapp-personal-headless').checked ? '1' : '0',
     DISCORD_ENABLED: document.getElementById('discord-enabled').checked ? '1' : '0',
     DISCORD_TOKEN: document.getElementById('discord-token').value.trim(),
     DISCORD_APPLICATION_ID: document.getElementById('discord-application-id').value.trim(),
+    BLAND_ENABLED: document.getElementById('bland-enabled').checked ? '1' : '0',
+    BLAND_API_KEY: document.getElementById('bland-api-key').value.trim(),
     CLIENT_BASE_URL: (document.getElementById('client-base-url') || {}).value || _baseUrlValues.zhipu || '',
     NVIDIA_BASE_URL: (document.getElementById('nvidia-base-url') || {}).value || _baseUrlValues.nvidia || '',
     CEREBRAS_BASE_URL: (document.getElementById('cerebras-base-url') || {}).value || _baseUrlValues.cerebras || '',
@@ -2229,7 +2347,13 @@ async function saveSettings() {
     LAYA_MODEL_TRIAGE: document.getElementById('laya-model-triage').checked ? '1' : '0',
     LAYA_BROWSER_AUTO: document.getElementById('laya-browser-auto').checked ? '1' : '0',
     LAYA_AUTO_UPDATE_OLLAMA: document.getElementById('laya-auto-upgrade-ollama').checked ? '1' : '0',
-    LAYA_AUTO_INSTALL: document.getElementById('laya-auto-install').checked ? '1' : '0'
+    LAYA_AUTO_INSTALL: document.getElementById('laya-auto-install').checked ? '1' : '0',
+    TALOS_VOICE_ENABLED: document.getElementById('talos-voice-enabled').checked ? '1' : '0',
+    TALOS_STT_MODEL: document.getElementById('talos-stt-model').value.trim(),
+    TALOS_TTS_BACKEND: document.getElementById('talos-tts-backend').value.trim(),
+    TALOS_LLM_MODEL: document.getElementById('talos-llm-model').value.trim(),
+    TALOS_LLM_HOST: document.getElementById('talos-llm-host').value.trim(),
+    TALOS_WEBSOCKET_PORT: document.getElementById('talos-ws-port').value.trim()
   };
 
   // Always sent: a masked value keeps the stored secret, empty clears it.
@@ -2732,9 +2856,85 @@ function toggleWhatsAppFields() {
   document.getElementById('whatsapp-config-area').style.display = enabled ? 'block' : 'none';
 }
 
+function toggleWhatsAppPersonalFields() {
+  var enabled = document.getElementById('whatsapp-personal-enabled').checked;
+  document.getElementById('whatsapp-personal-config-area').style.display = enabled ? 'block' : 'none';
+  if (enabled) {
+    fetchWhatsAppQR();
+  } else {
+    stopQRPolling();
+  }
+}
+
+var _qrPollTimer = null;
+function fetchWhatsAppQR() {
+  fetch('/api/whatsapp-personal/qr', {credentials:'include'})
+    .then(r => r.json())
+    .then(data => {
+      var area = document.getElementById('whatsapp-personal-qr-area');
+      var img = document.getElementById('whatsapp-personal-qr-img');
+      var hint = document.getElementById('whatsapp-personal-qr-hint');
+      var status = document.getElementById('whatsapp-personal-status');
+      if (data.status === 'waiting_for_scan' && data.qr_image) {
+        img.src = 'data:image/png;base64,' + data.qr_image;
+        area.style.display = 'block';
+        hint.textContent = 'Scan this QR code with WhatsApp on your phone:';
+        if (status) status.textContent = 'Waiting for QR scan...';
+      } else if (data.status === 'waiting_for_qr') {
+        area.style.display = 'block';
+        hint.textContent = 'Loading QR code...';
+        img.src = '';
+      } else if (data.status === 'connected') {
+        area.style.display = 'none';
+        if (status) status.textContent = 'Connected';
+        stopQRPolling();
+      } else if (data.status === 'error') {
+        area.style.display = 'none';
+        if (status) status.textContent = 'Error — check logs';
+        stopQRPolling();
+      } else {
+        area.style.display = 'none';
+      }
+    })
+    .catch(() => {});
+  if (!_qrPollTimer) {
+    _qrPollTimer = setInterval(fetchWhatsAppQR, 3000);
+  }
+}
+function stopQRPolling() {
+  if (_qrPollTimer) {
+    clearInterval(_qrPollTimer);
+    _qrPollTimer = null;
+  }
+}
+
 function toggleDiscordFields() {
   var enabled = document.getElementById('discord-enabled').checked;
   document.getElementById('discord-config-area').style.display = enabled ? 'block' : 'none';
+}
+
+function toggleBlandFields() {
+  var enabled = document.getElementById('bland-enabled').checked;
+  document.getElementById('bland-config-area').style.display = enabled ? 'block' : 'none';
+}
+
+function toggleTalosFields() {
+  var enabled = document.getElementById('talos-voice-enabled').checked;
+  document.getElementById('talos-config-area').style.display = enabled ? 'block' : 'none';
+}
+
+function detectTalosHardwareSettings() {
+  var el = document.getElementById('talos-hw-box');
+  fetch('/api/talos/hardware').then(function(r) { return r.json(); }).then(function(d) {
+    var bits = [];
+    bits.push(d.platform + ' | ' + d.cpu_count + ' CPUs');
+    if (d.ram_gb) bits.push(d.ram_gb + ' GB RAM');
+    if (d.has_cuda) bits.push('CUDA GPU (' + d.vram_gb + ' GB)');
+    else if (d.has_mps) bits.push('Apple Silicon (MPS)');
+    else bits.push('CPU-only');
+    bits.push('Recommended: ' + d.recommended_stt + ' / ' + d.recommended_llm);
+    el.textContent = bits.join(' | ');
+  }).catch(function() { el.textContent = 'Could not detect hardware.'; });
 }
 
 function toggleHomeAssistantFields() {

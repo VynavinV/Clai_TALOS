@@ -45,6 +45,7 @@ import diagnostics
 import claistore
 import system_stats
 import whatsapp_bot
+import whatsapp_personal_bot
 import discord_bot
 import webrtc_audio
 from auth_policy import MIN_DASHBOARD_PASSWORD_LENGTH, validate_dashboard_password
@@ -2630,24 +2631,34 @@ async def handle_api_onboarding_google(request):
 
 @require_auth_csrf
 async def handle_api_onboarding_whatsapp(request):
-    """Save WhatsApp Cloud API credentials during onboarding."""
+    """Save WhatsApp credentials during onboarding. Supports cloud and personal modes."""
     try:
         body = await request.json()
     except Exception:
         return web.json_response({"error": "Invalid request."}, status=400)
 
-    token = str(body.get("token", "")).strip()
-    phone_number_id = str(body.get("phone_number_id", "")).strip()
-    verify_token = str(body.get("verify_token", "")).strip()
-
-    if not token or not phone_number_id or not verify_token:
-        return web.json_response({"error": "All three WhatsApp fields are required."}, status=400)
-
+    mode = str(body.get("mode", "cloud")).strip().lower()
     env_vars = _read_env_file()
-    env_vars["WHATSAPP_TOKEN"] = token
-    env_vars["WHATSAPP_PHONE_NUMBER_ID"] = phone_number_id
-    env_vars["WHATSAPP_VERIFY_TOKEN"] = verify_token
-    env_vars["WHATSAPP_ENABLED"] = "true"
+
+    if mode == "personal":
+        env_vars["WHATSAPP_MODE"] = "personal"
+        env_vars["WHATSAPP_PERSONAL_ENABLED"] = "true"
+        # Disable cloud mode to avoid conflicts
+        env_vars["WHATSAPP_ENABLED"] = "false"
+    else:
+        token = str(body.get("token", "")).strip()
+        phone_number_id = str(body.get("phone_number_id", "")).strip()
+        verify_token = str(body.get("verify_token", "")).strip()
+
+        if not token or not phone_number_id or not verify_token:
+            return web.json_response({"error": "All three WhatsApp fields are required."}, status=400)
+
+        env_vars["WHATSAPP_TOKEN"] = token
+        env_vars["WHATSAPP_PHONE_NUMBER_ID"] = phone_number_id
+        env_vars["WHATSAPP_VERIFY_TOKEN"] = verify_token
+        env_vars["WHATSAPP_ENABLED"] = "true"
+        env_vars["WHATSAPP_MODE"] = "cloud"
+        env_vars["WHATSAPP_PERSONAL_ENABLED"] = "false"
 
     _write_env_file(env_vars)
 
@@ -2677,6 +2688,179 @@ async def handle_api_onboarding_discord(request):
 
     load_dotenv(dotenv_path=ENV_FILE, override=True)
     return web.json_response({"ok": True})
+
+
+async def handle_api_onboarding_bland(request):
+    """Save Bland.ai credentials during onboarding."""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid request."}, status=400)
+
+    api_key = str(body.get("api_key", "")).strip()
+
+    if not api_key:
+        return web.json_response({"error": "Bland API key is required."}, status=400)
+
+    env_vars = _read_env_file()
+    env_vars["BLAND_API_KEY"] = api_key
+    env_vars["BLAND_ENABLED"] = "true"
+
+    _write_env_file(env_vars)
+
+    load_dotenv(dotenv_path=ENV_FILE, override=True)
+    return web.json_response({"ok": True})
+
+
+async def handle_api_talos_hardware(request):
+    """Detect hardware capabilities for the TALOS voice agent."""
+    import platform
+    info = {
+        "platform": platform.system(),
+        "processor": platform.processor() or platform.machine(),
+        "cpu_count": os.cpu_count() or 1,
+        "has_cuda": False,
+        "has_mps": False,
+        "vram_gb": 0,
+        "ram_gb": 0,
+        "recommended_stt": "tiny.en",
+        "recommended_tts": "piper",
+        "recommended_llm": "qwen2.5:1.5b",
+        "profile": "cpu",
+    }
+
+    # RAM
+    try:
+        import shutil
+        total, used, free = shutil.disk_usage("/")
+        # Use psutil-like approach via /proc/meminfo on Linux
+        if platform.system() == "Linux":
+            with open("/proc/meminfo") as f:
+                for line in f:
+                    if line.startswith("MemTotal"):
+                        kb = int(line.split()[1])
+                        info["ram_gb"] = round(kb / 1024 / 1024, 1)
+                        break
+        elif platform.system() == "Darwin":
+            import subprocess
+            out = subprocess.check_output(["sysctl", "-n", "hw.memsize"], text=True).strip()
+            info["ram_gb"] = round(int(out) / 1024**3, 1)
+    except Exception:
+        pass
+
+    # GPU detection
+    try:
+        import torch
+        if torch.cuda.is_available():
+            info["has_cuda"] = True
+            vram = torch.cuda.get_device_properties(0).total_mem / 1024**3
+            info["vram_gb"] = round(vram, 1)
+            if vram >= 4:
+                info["recommended_stt"] = "small.en"
+                info["recommended_tts"] = "kokoro"
+                info["recommended_llm"] = "qwen2.5:7b"
+                info["profile"] = "gpu"
+            else:
+                info["recommended_stt"] = "base.en"
+                info["recommended_tts"] = "piper"
+                info["recommended_llm"] = "qwen2.5:3b"
+                info["profile"] = "gpu-low"
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            info["has_mps"] = True
+            info["recommended_stt"] = "small.en"
+            info["recommended_tts"] = "kokoro"
+            info["recommended_llm"] = "qwen2.5:7b"
+            info["profile"] = "mps"
+    except ImportError:
+        pass
+
+    # CPU-only sizing
+    if info["profile"] == "cpu":
+        if (info["cpu_count"] or 1) >= 4 and info["ram_gb"] >= 8:
+            info["recommended_stt"] = "base.en"
+            info["recommended_llm"] = "qwen2.5:3b"
+
+    return web.json_response(info)
+
+
+async def handle_api_onboarding_talos(request):
+    """Save TALOS voice agent settings during onboarding."""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid request."}, status=400)
+
+    enabled = str(body.get("enabled", False)).lower() in ("1", "true", "on", "yes")
+
+    env_vars = _read_env_file()
+    env_vars["TALOS_VOICE_ENABLED"] = "true" if enabled else "false"
+
+    if enabled:
+        if body.get("stt_model"):
+            env_vars["TALOS_STT_MODEL"] = str(body["stt_model"]).strip()
+        if body.get("tts_backend"):
+            env_vars["TALOS_TTS_BACKEND"] = str(body["tts_backend"]).strip()
+        if body.get("llm_model"):
+            env_vars["TALOS_LLM_MODEL"] = str(body["llm_model"]).strip()
+        if body.get("llm_host"):
+            env_vars["TALOS_LLM_HOST"] = str(body["llm_host"]).strip()
+        if body.get("websocket_port"):
+            env_vars["TALOS_WEBSOCKET_PORT"] = str(body["websocket_port"]).strip()
+
+    _write_env_file(env_vars)
+    load_dotenv(dotenv_path=ENV_FILE, override=True)
+    return web.json_response({"ok": True})
+
+
+async def handle_api_bland_call(request):
+    """Initiate an outbound phone call via Bland.ai."""
+    if not _check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid request."}, status=400)
+
+    phone = str(body.get("phone_number", "")).strip()
+    if not phone:
+        return web.json_response({"error": "phone_number is required."}, status=400)
+
+    import bland_bot
+    result = await bland_bot.initiate_call(
+        phone_number=phone,
+        agent_id=body.get("agent_id"),
+        from_number=body.get("from_number"),
+        custom_data=body.get("custom_data"),
+    )
+    return web.json_response(result)
+
+
+async def handle_api_bland_call_status(request):
+    """Get status of a Bland.ai call."""
+    if not _check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+
+    call_id = request.match_info.get("call_id", "")
+    if not call_id:
+        return web.json_response({"error": "call_id is required."}, status=400)
+
+    import bland_bot
+    result = await bland_bot.get_call_status(call_id)
+    return web.json_response(result)
+
+
+async def handle_api_bland_call_end(request):
+    """End an active Bland.ai call."""
+    if not _check_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+
+    call_id = request.match_info.get("call_id", "")
+    if not call_id:
+        return web.json_response({"error": "call_id is required."}, status=400)
+
+    import bland_bot
+    result = await bland_bot.end_call(call_id)
+    return web.json_response(result)
 
 
 def _serve_auth_page(request, template_name: str, **extra_vars):
@@ -2805,6 +2989,14 @@ async def handle_api_qr(request):
         content_type="image/png",
         headers={"Cache-Control": "public, max-age=86400"},
     )
+
+
+@require_auth
+async def handle_api_whatsapp_personal_qr(request):
+    """Return WhatsApp Personal QR status and image for the settings UI."""
+    import whatsapp_personal_bot
+    status = whatsapp_personal_bot.get_qr_status()
+    return web.json_response(status)
 
 
 @require_auth_csrf
@@ -3119,9 +3311,20 @@ async def handle_api_settings_get(request):
         "WHATSAPP_PHONE_NUMBER_ID": env_vars.get("WHATSAPP_PHONE_NUMBER_ID", ""),
         "WHATSAPP_VERIFY_TOKEN": env_vars.get("WHATSAPP_VERIFY_TOKEN", ""),
         "WHATSAPP_ENABLED": env_vars.get("WHATSAPP_ENABLED", "0"),
+        "WHATSAPP_MODE": env_vars.get("WHATSAPP_MODE", ""),
+        "WHATSAPP_PERSONAL_ENABLED": env_vars.get("WHATSAPP_PERSONAL_ENABLED", "0"),
+        "WHATSAPP_PERSONAL_HEADLESS": env_vars.get("WHATSAPP_PERSONAL_HEADLESS", "1"),
         "DISCORD_TOKEN": env_vars.get("DISCORD_TOKEN", ""),
         "DISCORD_APPLICATION_ID": env_vars.get("DISCORD_APPLICATION_ID", ""),
         "DISCORD_ENABLED": env_vars.get("DISCORD_ENABLED", "0"),
+        "BLAND_API_KEY": env_vars.get("BLAND_API_KEY", ""),
+        "BLAND_ENABLED": env_vars.get("BLAND_ENABLED", "0"),
+        "TALOS_VOICE_ENABLED": env_vars.get("TALOS_VOICE_ENABLED", "0"),
+        "TALOS_STT_MODEL": env_vars.get("TALOS_STT_MODEL", ""),
+        "TALOS_TTS_BACKEND": env_vars.get("TALOS_TTS_BACKEND", ""),
+        "TALOS_LLM_MODEL": env_vars.get("TALOS_LLM_MODEL", ""),
+        "TALOS_LLM_HOST": env_vars.get("TALOS_LLM_HOST", "http://localhost:11434"),
+        "TALOS_WEBSOCKET_PORT": env_vars.get("TALOS_WEBSOCKET_PORT", "8765"),
         "PIPER_VOICE": env_vars.get("PIPER_VOICE", "en_US-lessac-medium"),
         "CLIENT_BASE_URL": env_vars.get("CLIENT_BASE_URL", "https://api.z.ai/api/coding/paas/v4"),
         "NVIDIA_BASE_URL": env_vars.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
@@ -3441,7 +3644,10 @@ async def handle_api_settings_post(request):
         "GOOGLE_OAUTH_REDIRECT_URI", "GOOGLE_APPS_SCRIPT_URL", "GOOGLE_OAUTH_SCOPES",
         "HIMALAYA_BIN", "HIMALAYA_CONFIG", "HIMALAYA_DEFAULT_ACCOUNT",
         "WHATSAPP_TOKEN", "WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_VERIFY_TOKEN",
+        "WHATSAPP_MODE",
         "DISCORD_TOKEN", "DISCORD_APPLICATION_ID",
+        "BLAND_API_KEY",
+        "TALOS_STT_MODEL", "TALOS_TTS_BACKEND", "TALOS_LLM_MODEL", "TALOS_LLM_HOST", "TALOS_WEBSOCKET_PORT",
         "PIPER_VOICE", "CLIENT_BASE_URL", "NVIDIA_BASE_URL", "CEREBRAS_BASE_URL", "GROQ_BASE_URL", "QWEN_BASE_URL", "OPENROUTER_BASE_URL", "MISTRAL_BASE_URL", "OLLAMA_BASE_URL", "OTHER_BASE_URL", "OLLAMA_MODEL",
         "OLLAMA_NUM_CTX", "OLLAMA_TEMPERATURE", "OLLAMA_MAX_TOKENS", "OLLAMA_KEEP_ALIVE", "OLLAMA_KEEP_WARM", "OLLAMA_TIMEOUT_S",
         "OTHER_TIMEOUT_S",
@@ -3454,8 +3660,10 @@ async def handle_api_settings_post(request):
 
     # On/off switches, stored as "1"/"0" so they survive the flat .env format.
     _BOOL_KEYS = [
-        "HOMEASSISTANT_ENABLED", "WHATSAPP_ENABLED", "DISCORD_ENABLED",
-        "TALOS_STUCK_ENABLED", "ORCHESTRATOR_TIMEOUT_ENABLED", "TALOS_PROGRESS_ENABLED",
+        "HOMEASSISTANT_ENABLED", "WHATSAPP_ENABLED", "WHATSAPP_PERSONAL_ENABLED",
+        "WHATSAPP_PERSONAL_HEADLESS", "DISCORD_ENABLED", "BLAND_ENABLED",
+        "TALOS_VOICE_ENABLED", "TALOS_STUCK_ENABLED", "ORCHESTRATOR_TIMEOUT_ENABLED",
+        "TALOS_PROGRESS_ENABLED",
         "LAYA_ENABLED", "LAYA_AUTO_PULL", "LAYA_AUTO_INSTALL", "LAYA_AUTO_UPDATE_OLLAMA",
         "LAYA_EMAIL_TRIAGE", "LAYA_MEMORY_RERANK",
         "LAYA_CONTEXT_COMPACT", "LAYA_MODEL_TRIAGE", "LAYA_BROWSER_AUTO",
@@ -4946,6 +5154,12 @@ async def main():
     web_app.router.add_post("/api/onboarding/google", handle_api_onboarding_google)
     web_app.router.add_post("/api/onboarding/whatsapp", handle_api_onboarding_whatsapp)
     web_app.router.add_post("/api/onboarding/discord", handle_api_onboarding_discord)
+    web_app.router.add_post("/api/onboarding/bland", handle_api_onboarding_bland)
+    web_app.router.add_post("/api/onboarding/talos", handle_api_onboarding_talos)
+    web_app.router.add_get("/api/talos/hardware", handle_api_talos_hardware)
+    web_app.router.add_post("/api/bland/call", handle_api_bland_call)
+    web_app.router.add_get("/api/bland/call/{call_id}", handle_api_bland_call_status)
+    web_app.router.add_post("/api/bland/call/{call_id}/end", handle_api_bland_call_end)
     web_app.router.add_get("/dashboard", handle_dashboard)
     web_app.router.add_get("/activity", handle_activity)
     web_app.router.add_get("/keys", handle_keys)
@@ -4961,6 +5175,7 @@ async def main():
     web_app.router.add_post("/api/panel/popups/respond", handle_api_panel_popup_respond)
     web_app.router.add_post("/api/panel/popups/dismiss", handle_api_panel_popup_dismiss)
     web_app.router.add_get("/api/qr", handle_api_qr)
+    web_app.router.add_get("/api/whatsapp-personal/qr", handle_api_whatsapp_personal_qr)
     web_app.router.add_get("/api/tasks", handle_api_tasks)
     web_app.router.add_get("/api/homeassistant/status", handle_api_homeassistant_status)
     web_app.router.add_get("/api/homeassistant/states", handle_api_homeassistant_states)
@@ -5020,6 +5235,7 @@ async def main():
     web_app.router.add_static("/static", STATIC_DIR)
     gateway.setup_routes(web_app, auth_decorator=require_auth)
     whatsapp_bot.setup_routes(web_app)
+    whatsapp_personal_bot.start()
     discord_bot.start_gateway()
 
     runner = web.AppRunner(web_app)
@@ -5086,6 +5302,8 @@ async def main():
 
     if whatsapp_bot.is_configured():
         print("WhatsApp bot online (Cloud API webhook).")
+    elif whatsapp_personal_bot.is_configured():
+        print("WhatsApp personal mode active (QR auth via WhatsApp Web).")
     else:
         print("WhatsApp not configured. Set WHATSAPP_TOKEN/WHATSAPP_PHONE_NUMBER_ID/WHATSAPP_VERIFY_TOKEN/WHATSAPP_ENABLED to enable.")
 

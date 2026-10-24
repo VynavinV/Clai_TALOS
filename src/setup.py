@@ -326,6 +326,18 @@ def auto_heal():
             else:
                 fixed.append(f"{len(missing)} packages")
 
+    # Install Playwright browser binaries (chromium) if not already done
+    if not config.get("playwright_chromium_installed"):
+        python = get_python()
+        if os.path.isfile(python):
+            print(f"{DIM}[setup] Installing Playwright chromium browser...{RESET}")
+            result = run([python, "-m", "playwright", "install", "chromium"])
+            if result.returncode == 0:
+                config["playwright_chromium_installed"] = True
+                fixed.append("Playwright chromium")
+            else:
+                print(f"{YELLOW}[setup] Warning: Playwright chromium install failed (WhatsApp personal mode may not work){RESET}")
+
     # Ensure .env exists with browser defaults
     env = read_env()
     needs_write = False

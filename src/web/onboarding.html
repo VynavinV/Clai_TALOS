@@ -547,31 +547,59 @@
     </div>
   </div>
 
-  <!-- Step 6: Optional - WhatsApp -->
+  <!-- Step 7: Optional - WhatsApp -->
   <div class="step" data-step="6">
-    <h2>Step 6: WhatsApp (Optional)</h2>
+    <h2>Step 7: WhatsApp (Optional)</h2>
     <p class="desc">Connect WhatsApp so you can message your assistant from there too.</p>
-    <div class="info-box">
-      <ol>
-        <li>Go to <a href="https://developers.facebook.com/apps/" target="_blank">Meta for Developers</a> and create an app</li>
-        <li>Add the <strong>WhatsApp</strong> product to your app</li>
-        <li>Under <strong>WhatsApp &gt; API Setup</strong>, copy the <strong>Temporary access token</strong>, <strong>Phone number ID</strong></li>
-        <li>Set a <strong>Webhook verify token</strong> (any secret string you choose)</li>
-      </ol>
+
+    <div class="section-label">Choose Mode</div>
+    <div class="provider-grid" id="wa-mode-grid" style="margin-bottom:1.2rem;">
+      <div class="provider-card" id="wa-mode-cloud" onclick="selectWhatsAppMode('cloud')">
+        <div class="provider-name">Cloud API</div>
+        <div class="provider-desc">Business account via Meta Developer Portal. Needs a Facebook app.</div>
+      </div>
+      <div class="provider-card" id="wa-mode-personal" onclick="selectWhatsAppMode('personal')">
+        <div class="provider-name">Personal</div>
+        <div class="provider-desc">Use your own WhatsApp account. Scan a QR code to link (like WhatsApp Desktop).</div>
+      </div>
     </div>
-    <div class="field">
-      <label>Access Token</label>
-      <input type="password" id="wa-token" placeholder="EAAG..." autocomplete="off">
+
+    <div id="wa-cloud-area" style="display:none;">
+      <div class="info-box">
+        <ol>
+          <li>Go to <a href="https://developers.facebook.com/apps/" target="_blank">Meta for Developers</a> and create an app</li>
+          <li>Add the <strong>WhatsApp</strong> product to your app</li>
+          <li>Under <strong>WhatsApp &gt; API Setup</strong>, copy the <strong>Temporary access token</strong>, <strong>Phone number ID</strong></li>
+          <li>Set a <strong>Webhook verify token</strong> (any secret string you choose)</li>
+        </ol>
+      </div>
+      <div class="field">
+        <label>Access Token</label>
+        <input type="password" id="wa-token" placeholder="EAAG..." autocomplete="off">
+      </div>
+      <div class="field">
+        <label>Phone Number ID</label>
+        <input type="text" id="wa-phone-id" placeholder="1234567890" autocomplete="off">
+      </div>
+      <div class="field">
+        <label>Webhook Verify Token</label>
+        <input type="password" id="wa-verify-token" placeholder="your-secret-token" autocomplete="off">
+        <div class="hint">The secret string you set in the webhook configuration.</div>
+      </div>
     </div>
-    <div class="field">
-      <label>Phone Number ID</label>
-      <input type="text" id="wa-phone-id" placeholder="1234567890" autocomplete="off">
+
+    <div id="wa-personal-area" style="display:none;">
+      <div class="info-box">
+        Your personal WhatsApp will be linked to this assistant, similar to linking WhatsApp Desktop.
+        <ol>
+          <li>On the next screen (or when the bot starts), a QR code will appear</li>
+          <li>Open WhatsApp on your phone and go to <strong>Linked Devices</strong></li>
+          <li>Scan the QR code to connect</li>
+        </ol>
+        No API keys needed &mdash; just scan and go.
+      </div>
     </div>
-    <div class="field">
-      <label>Webhook Verify Token</label>
-      <input type="password" id="wa-verify-token" placeholder="your-secret-token" autocomplete="off">
-      <div class="hint">The secret string you set in the webhook configuration.</div>
-    </div>
+
     <div class="error" id="err-whatsapp"></div>
     <div class="btn-row">
       <button class="btn btn-skip" onclick="goStep(7)">Skip for now</button>
@@ -579,9 +607,9 @@
     </div>
   </div>
 
-  <!-- Step 7: Optional - Discord -->
+  <!-- Step 8: Optional - Discord -->
   <div class="step" data-step="7">
-    <h2>Step 7: Discord (Optional)</h2>
+    <h2>Step 8: Discord (Optional)</h2>
     <p class="desc">Connect Discord so you can message your assistant from a Discord server.</p>
     <div class="info-box">
       <ol>
@@ -606,8 +634,81 @@
     </div>
   </div>
 
-  <!-- Step 8: Done! -->
+  <!-- Step 8: Bland.ai -->
   <div class="step" data-step="8">
+    <h2>Step 8: Phone Calls (Optional)</h2>
+    <p class="desc">Enable phone calling via Bland.ai so your assistant can make and receive calls.</p>
+    <div class="info-box">
+      <ol>
+        <li>Sign up at <a href="https://www.bland.ai" target="_blank">Bland.ai</a></li>
+        <li>Go to your dashboard and copy your <strong>API Key</strong></li>
+        <li>Paste it below to enable phone calling</li>
+      </ol>
+    </div>
+    <div class="field">
+      <label>Bland API Key</label>
+      <input type="password" id="bland-api-key-onboard" placeholder="sk-..." autocomplete="off">
+    </div>
+    <div class="error" id="err-bland"></div>
+    <div class="btn-row">
+      <button class="btn btn-skip" onclick="goStep(9)">Skip for now</button>
+      <button class="btn btn-primary" onclick="saveBland()">Save & Continue</button>
+    </div>
+  </div>
+
+  <!-- Step 9: TALOS Voice Agent -->
+  <div class="step" data-step="9">
+    <h2>Step 9: Local Voice Agent (Optional)</h2>
+    <p class="desc">Enable a fully local voice pipeline: speech-to-text, local LLM, and text-to-speech. No cloud APIs needed.</p>
+
+    <div id="talos-hw-status" class="info-box">Detecting hardware...</div>
+
+    <div class="toggle-row" style="margin-bottom:1rem;">
+      <input type="checkbox" id="talos-enabled">
+      <div class="toggle-label"><strong>Enable Local Voice Agent</strong>
+        <div class="toggle-sub">Runs STT (Faster-Whisper), LLM (Ollama), and TTS entirely on this machine.</div>
+      </div>
+    </div>
+
+    <div id="talos-config-area" style="display:none;">
+      <div class="field">
+        <label>Speech-to-Text Model</label>
+        <select id="talos-stt-model">
+          <option value="">Auto (detected by hardware)</option>
+          <option value="tiny.en">tiny.en (fastest, least accurate)</option>
+          <option value="base.en">base.en (balanced)</option>
+          <option value="small.en">small.en (best quality, needs GPU)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Text-to-Speech Backend</label>
+        <select id="talos-tts-backend">
+          <option value="">Auto (detected by hardware)</option>
+          <option value="piper">Piper (CPU-friendly)</option>
+          <option value="kokoro">Kokoro (GPU, higher quality)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>LLM Model (Ollama)</label>
+        <input type="text" id="talos-llm-model" placeholder="qwen2.5:7b" autocomplete="off">
+        <div class="hint">Local model for conversation. Must be pulled in Ollama first.</div>
+      </div>
+      <div class="field">
+        <label>WebSocket Port</label>
+        <input type="text" id="talos-ws-port" placeholder="8765" autocomplete="off">
+        <div class="hint">Port for the telephony WebSocket bridge.</div>
+      </div>
+    </div>
+
+    <div class="error" id="err-talos"></div>
+    <div class="btn-row">
+      <button class="btn btn-skip" onclick="goStep(10)">Skip for now</button>
+      <button class="btn btn-primary" onclick="saveTalos()">Save & Continue</button>
+    </div>
+  </div>
+
+  <!-- Step 10: Done! -->
+  <div class="step" data-step="10">
     <div class="finish-wrap">
       <div class="finish-check">&#10003;</div>
       <h2>All set. You did it!</h2>
@@ -623,9 +724,10 @@
 </div>
 
 <script>
-var TOTAL_STEPS = 9;
+var TOTAL_STEPS = 11;
 var currentStep = 0;
 var selectedProvider = '';
+var _waMode = '';
 var _csrfToken = document.querySelector('meta[name="csrf-token"]') ? document.querySelector('meta[name="csrf-token"]').getAttribute('content') : '';
 
 function _post(url, body) {
@@ -714,6 +816,7 @@ function goStep(n) {
   document.querySelector('[data-step="' + n + '"]').classList.add('active');
   updateDots();
   window.scrollTo(0, 0);
+  if (n === 9 && !_talosHw) detectTalosHardware();
 }
 
 function initProviderGrid() {
@@ -1470,22 +1573,42 @@ async function connectGoogleOnboarding() {
   }
 }
 
+function selectWhatsAppMode(mode) {
+  _waMode = mode;
+  document.getElementById('wa-mode-cloud').classList.toggle('selected', mode === 'cloud');
+  document.getElementById('wa-mode-personal').classList.toggle('selected', mode === 'personal');
+  document.getElementById('wa-cloud-area').style.display = mode === 'cloud' ? 'block' : 'none';
+  document.getElementById('wa-personal-area').style.display = mode === 'personal' ? 'block' : 'none';
+}
+
 async function saveWhatsApp() {
-  var token = document.getElementById('wa-token').value.trim();
-  var phoneId = document.getElementById('wa-phone-id').value.trim();
-  var verifyToken = document.getElementById('wa-verify-token').value.trim();
   var err = document.getElementById('err-whatsapp');
   err.textContent = '';
 
-  if (!token || !phoneId || !verifyToken) { err.textContent = 'All three fields are required.'; return; }
+  if (!_waMode) { err.textContent = 'Please choose Cloud API or Personal mode.'; return; }
 
   try {
-    var res = await _post('/api/onboarding/whatsapp', {
-      token: token, phone_number_id: phoneId, verify_token: verifyToken
-    });
-    var data = await res.json();
-    if (data.ok) goStep(7);
-    else err.textContent = data.error || 'Could not save WhatsApp settings.';
+    if (_waMode === 'personal') {
+      var res = await _post('/api/onboarding/whatsapp', {
+        mode: 'personal'
+      });
+      var data = await res.json();
+      if (data.ok) goStep(7);
+      else err.textContent = data.error || 'Could not save WhatsApp settings.';
+    } else {
+      var token = document.getElementById('wa-token').value.trim();
+      var phoneId = document.getElementById('wa-phone-id').value.trim();
+      var verifyToken = document.getElementById('wa-verify-token').value.trim();
+
+      if (!token || !phoneId || !verifyToken) { err.textContent = 'All three fields are required.'; return; }
+
+      var res = await _post('/api/onboarding/whatsapp', {
+        mode: 'cloud', token: token, phone_number_id: phoneId, verify_token: verifyToken
+      });
+      var data = await res.json();
+      if (data.ok) goStep(7);
+      else err.textContent = data.error || 'Could not save WhatsApp settings.';
+    }
   } catch (e) { err.textContent = 'Connection problem. Please try again.'; }
 }
 
@@ -1504,6 +1627,21 @@ async function saveDiscord() {
     var data = await res.json();
     if (data.ok) goStep(8);
     else err.textContent = data.error || 'Could not save Discord settings.';
+  } catch (e) { err.textContent = 'Connection problem. Please try again.'; }
+}
+
+async function saveBland() {
+  var apiKey = document.getElementById('bland-api-key-onboard').value.trim();
+  var err = document.getElementById('err-bland');
+  err.textContent = '';
+
+  if (!apiKey) { err.textContent = 'API key is required.'; return; }
+
+  try {
+    var res = await _post('/api/onboarding/bland', { api_key: apiKey });
+    var data = await res.json();
+    if (data.ok) goStep(10);
+    else err.textContent = data.error || 'Could not save Bland settings.';
   } catch (e) { err.textContent = 'Connection problem. Please try again.'; }
 }
 
@@ -1554,6 +1692,57 @@ function getModelValue(selectId) {
   }
   return sel.value;
 }
+
+/* --- TALOS Voice Agent setup --- */
+var _talosHw = null;
+
+function toggleTalosFields() {
+  var enabled = document.getElementById('talos-enabled').checked;
+  document.getElementById('talos-config-area').style.display = enabled ? 'block' : 'none';
+}
+
+async function detectTalosHardware() {
+  var el = document.getElementById('talos-hw-status');
+  try {
+    var res = await fetch('/api/talos/hardware');
+    _talosHw = await res.json();
+    var bits = [];
+    bits.push('Platform: ' + _talosHw.platform);
+    bits.push('CPUs: ' + _talosHw.cpu_count);
+    if (_talosHw.ram_gb) bits.push('RAM: ' + _talosHw.ram_gb + ' GB');
+    if (_talosHw.has_cuda) bits.push('GPU: CUDA (' + _talosHw.vram_gb + ' GB VRAM)');
+    else if (_talosHw.has_mps) bits.push('GPU: Apple Silicon (MPS)');
+    else bits.push('GPU: none (CPU-only)');
+    bits.push('Recommended: ' + _talosHw.recommended_stt + ' / ' + _talosHw.recommended_llm);
+    el.innerHTML = '<strong>Hardware detected:</strong><br>' + bits.join('<br>');
+  } catch (e) {
+    el.innerHTML = 'Could not detect hardware. You can still enable the voice agent with default settings.';
+  }
+}
+
+async function saveTalos() {
+  var enabled = document.getElementById('talos-enabled').checked;
+  var err = document.getElementById('err-talos');
+  err.textContent = '';
+
+  var payload = {
+    enabled: enabled,
+    stt_model: document.getElementById('talos-stt-model').value.trim(),
+    tts_backend: document.getElementById('talos-tts-backend').value.trim(),
+    llm_model: document.getElementById('talos-llm-model').value.trim(),
+    llm_host: 'http://localhost:11434',
+    websocket_port: document.getElementById('talos-ws-port').value.trim()
+  };
+
+  try {
+    var res = await _post('/api/onboarding/talos', payload);
+    var data = await res.json();
+    if (data.ok) goStep(10);
+    else err.textContent = data.error || 'Could not save voice agent settings.';
+  } catch (e) { err.textContent = 'Connection problem. Please try again.'; }
+}
+
+document.getElementById('talos-enabled').addEventListener('change', toggleTalosFields);
 
 initDots();
 initProviderGrid();
