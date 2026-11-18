@@ -65,11 +65,12 @@ def test_falsy_but_real_values_survive():
 
 # ── 2. The system check must never invoke a model ──────────────────────
 
-def test_web_search_probe_does_not_call_the_model():
-    """websearch picks a model by calling generate_content on each candidate.
+def test_web_search_probe_does_not_run_a_live_search():
+    """websearch talks to the Parallel MCP service; a live query would spend
+    the user's rate-limited search quota.
 
-    The probe must validate the credential without triggering that, or the
-    "no AI model involved" guarantee is false and every check costs tokens.
+    The probe must validate the backend with a handshake (list_tools) instead
+    of routing through web_search, and must never touch an AI model.
     """
     import ast
 
@@ -79,22 +80,23 @@ def test_web_search_probe_does_not_call_the_model():
         if isinstance(n, ast.AsyncFunctionDef) and n.name == "probe_web_search"
     )
 
-    # Inspect real call sites, not the source text — the docstring legitimately
-    # mentions generate_content while explaining why it is never called.
+    # Inspect real call sites, not the source text.
     called = set()
+    referenced = set()
     for node in ast.walk(func):
+        if isinstance(node, ast.Attribute):
+            called.add(node.attr)
+            referenced.add(node.attr)
+        elif isinstance(node, ast.Name):
+            called.add(node.id)
         if not isinstance(node, ast.Call):
             continue
-        fn = node.func
-        if isinstance(fn, ast.Attribute):
-            called.add(fn.attr)
-        elif isinstance(fn, ast.Name):
-            called.add(fn.id)
 
-    assert "generate_content" not in called, "the probe performs an LLM inference"
-    assert "call_tool" not in called, "routing through web_search triggers an inference"
-    # It should still verify the credential rather than only reading the env var.
-    assert "list" in called, "the probe does not actually validate the API key"
+    assert "generate_content" not in referenced, "the probe performs an LLM inference"
+    assert "call_tool" not in referenced, "routing through web_search runs a live search"
+    assert "web_search" not in referenced, "the probe issues a real search query"
+    # It should still contact the real service rather than only checking config.
+    assert "list_tools" in referenced, "the probe does not actually reach the search service"
 
 
 # ── 3. .env permissions ────────────────────────────────────────────────

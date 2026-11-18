@@ -504,48 +504,35 @@ async def probe_pa_system() -> ProbeOutcome:
 # ---------------------------------------------------------------------------
 
 async def probe_web_search() -> ProbeOutcome:
-    """Validates the credential, deliberately without running a search.
+    """Confirms the Parallel search service is reachable, without running a live search.
 
-    Calling `web_search` would be a live LLM inference: the module picks its
-    search model by calling `generate_content` against each candidate until one
-    answers. This whole suite promises not to invoke the model, so the probe
-    checks that the key authenticates against the model-list endpoint instead —
-    real verification, no generation, no token spend.
+    The service is zero-auth, so there is no credential to validate. The probe
+    performs the real MCP handshake and checks that the `web_search` tool is
+    advertised. It deliberately issues no query: a real search would spend the
+    user's rate-limited quota, and this suite must not invoke external work.
     """
-    if not os.getenv("GEMINI_API_KEY", "").strip():
-        return skip("Skipped — web search needs GEMINI_API_KEY, which is not set.")
-
     try:
         import websearch
-        client = await asyncio.to_thread(websearch._get_client)
-        models = await asyncio.wait_for(
-            asyncio.to_thread(lambda: [m.name for m in client.models.list()]), timeout=30
+        tools = await asyncio.wait_for(
+            asyncio.to_thread(websearch.list_tools), timeout=30
         )
     except asyncio.TimeoutError:
-        return fail("Timed out reaching the Gemini API after 30s.")
+        return fail("Timed out reaching the Parallel search service after 30s.")
     except Exception as exc:
-        detail = str(exc)
-        lowered = detail.lower()
-        if "api key" in lowered or "unauthenticated" in lowered or "permission" in lowered:
-            return fail(
-                f"GEMINI_API_KEY was rejected: {detail[:180]}",
-                reset="web.clear_gemini_key",
-                hint="An invalid key cannot be repaired automatically. Clearing it stops web "
-                     "search from erroring; get a new one at https://aistudio.google.com/app/apikey.",
-            )
-        return fail(f"Could not reach the Gemini API: {detail[:200]}")
-
-    searchable = [m for m in models if any(c in m for c in websearch._CANDIDATE_MODELS)]
-    if not searchable:
-        return warn(
-            "The API key works, but none of the models web search knows how to use are available "
-            f"to it ({', '.join(websearch._CANDIDATE_MODELS[:3])}...). Search will fail.",
-            reset="web.clear_gemini_key",
-            hint="Usually a key from a project without Gemini API access enabled. Enable it, or "
-                 "clear the key to disable web search cleanly.",
+        return fail(
+            f"Could not reach the Parallel search service: {str(exc)[:200]}",
+            hint="Web search needs internet access to https://mcp.parallel.ai. "
+                 "Without it, searches fall back to DuckDuckGo.",
         )
 
-    return ok(f"Gemini credentials valid, {len(searchable)} search-capable model(s) available.")
+    if "web_search" not in tools:
+        return warn(
+            "The Parallel search service answered, but did not offer its web_search tool. "
+            "Searches will use the DuckDuckGo fallback.",
+            hint="The service may have changed; check https://parallel.ai for updates.",
+        )
+
+    return ok("Parallel web search is available; no API key required.")
 
 
 async def probe_scrape() -> ProbeOutcome:

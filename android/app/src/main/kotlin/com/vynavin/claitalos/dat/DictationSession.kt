@@ -30,7 +30,7 @@ import android.util.Log
  */
 class DictationSession(
     private val scope: CoroutineScope,
-    private val stopGesture: StopGesture = StopGesture.SELECT,
+    private val stopGesture: StopGesture = StopGesture.ACTION,
     private val maxListenSeconds: Long = DEFAULT_MAX_LISTEN_SECONDS,
 ) {
 
@@ -92,6 +92,18 @@ class DictationSession(
     }
 
     private fun attachSpeech(session: DeviceSession) {
+        // A single touchpad tap may be consumed by the glasses OS as a system
+        // pause instead of reaching Inputs as Select. Treat the session
+        // leaving STARTED while listening as the stop signal too, so the tap
+        // works either way.
+        jobs += scope.launch {
+            session.state.collect { state ->
+                if (state != DeviceSessionState.STARTED && _state.value is State.Listening) {
+                    Log.i(TAG, "session left STARTED mid-dictation ($state) — treating as stop")
+                    finishListening()
+                }
+            }
+        }
         session.addSpeech().fold(
             onSuccess = { speech ->
                 this.speech = speech
@@ -137,13 +149,40 @@ class DictationSession(
 
     private fun onTranscription(result: TranscriptionResult) {
         if (_state.value !is State.Listening) return
-        buffer.onTranscription(result.text, result.isFinal)
+        var text = result.text
+        var stop = false
+        if (result.isFinal) {
+            val (stripped, matched) = stripStopPhrase(text)
+            text = stripped
+            stop = matched
+        }
+        buffer.onTranscription(text, result.isFinal)
         _liveText.value = buffer.liveText
+        if (stop) {
+            Log.i(TAG, "stop phrase detected — sending")
+            finishListening()
+        }
+    }
+
+    /** Removes a trailing/contained stop phrase from the transcript so it is
+     * never sent to the orchestrator. Returns (cleanText, phraseFound). */
+    private fun stripStopPhrase(text: String): Pair<String, Boolean> {
+        val lower = text.lowercase()
+        for (phrase in STOP_PHRASES) {
+            val idx = lower.lastIndexOf(phrase)
+            if (idx >= 0) {
+                val cleaned = (text.substring(0, idx) + " " + text.substring(idx + phrase.length))
+                    .replace(Regex("\\s+"), " ").trim()
+                return cleaned to true
+            }
+        }
+        return text to false
     }
 
     private fun onInput(event: InputEvent) {
         if (_state.value !is State.Listening) return
         val stops = when (stopGesture) {
+            StopGesture.ACTION -> event is InputEvent.Button
             StopGesture.SELECT -> event is InputEvent.Select
             StopGesture.NAV_ANY -> event is InputEvent.Nav
             StopGesture.BACK -> event is InputEvent.Back
@@ -210,6 +249,11 @@ class DictationSession(
     companion object {
         private const val TAG = "ClaiDictation"
         const val DEFAULT_MAX_LISTEN_SECONDS = 900L
+
+        /** Spoken stop signals — saying any of these ends dictation and sends.
+         * The primary stop on glasses where the touchpad tap is reserved by
+         * the OS for media pause. */
+        val STOP_PHRASES = listOf("send it", "send", "that's all", "that's it", "go ahead clai")
     }
 }
 

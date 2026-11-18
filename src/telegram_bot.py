@@ -2230,7 +2230,7 @@ async def handle_api_onboarding_model(request):
 
 @require_auth
 async def handle_api_onboarding_gemini(request):
-    """Save Gemini key (for web search) during onboarding."""
+    """Legacy onboarding hook: save a Gemini key (used for Gemini chat models)."""
     try:
         body = await request.json()
     except Exception:

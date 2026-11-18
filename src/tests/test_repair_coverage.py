@@ -69,7 +69,7 @@ def test_full_reset_is_marked_destructive():
 
 
 def test_clearing_a_credential_is_marked_destructive():
-    _, destructive, _ = diagnostics.REPAIRS["web.clear_gemini_key"]
+    _, destructive, _ = diagnostics.REPAIRS["google.reset"]
     assert destructive is True
 
 

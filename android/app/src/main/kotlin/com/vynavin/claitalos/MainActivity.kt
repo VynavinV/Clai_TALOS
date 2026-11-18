@@ -45,14 +45,20 @@ class MainActivity : AppCompatActivity() {
         (application as GlassesApp).voiceInvocations.handleIntent(intent)
 
         binding.nativeMenuButton.setOnClickListener {
-            val options = arrayOf("Glasses (register, session, test tap)", "App settings", "Demo ping-back (60s)")
+            val options = arrayOf(
+                "New voice request (listen & tap to send)",
+                "Glasses (register, session, test tap)",
+                "App settings",
+                "Demo ping-back (60s)",
+            )
             androidx.appcompat.app.AlertDialog.Builder(this)
                 .setTitle("Clai")
                 .setItems(options) { _, which ->
                     when (which) {
-                        0 -> startActivity(Intent(this, GlassesStatusActivity::class.java))
-                        1 -> startActivity(Intent(this, AppSettingsActivity::class.java))
-                        2 -> {
+                        0 -> startActivity(Intent(this, VoiceSessionActivity::class.java))
+                        1 -> startActivity(Intent(this, GlassesStatusActivity::class.java))
+                        2 -> startActivity(Intent(this, AppSettingsActivity::class.java))
+                        3 -> {
                             com.vynavin.claitalos.service.PingbackService.startDemo(this, 60)
                             android.widget.Toast.makeText(
                                 this, "Demo reply will be spoken in 60s.", android.widget.Toast.LENGTH_SHORT,

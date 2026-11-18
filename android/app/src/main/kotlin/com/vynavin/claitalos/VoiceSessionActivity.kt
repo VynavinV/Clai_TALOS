@@ -88,7 +88,7 @@ class VoiceSessionActivity : AppCompatActivity() {
                     is DictationSession.State.Idle -> "Idle"
                     is DictationSession.State.Attaching -> "Connecting to glasses…"
                     is DictationSession.State.Listening ->
-                        "Listening — tap the touchpad when done."
+                        "Listening — press the action button or say \"send it\" when done."
                     is DictationSession.State.Stopping -> "Stopping…"
                     is DictationSession.State.Failed -> state.reason
                     is DictationSession.State.Finished -> "Sent."

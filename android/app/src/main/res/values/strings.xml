@@ -7,7 +7,7 @@
     <string name="scan_qr">Scan QR Code</string>
     <string name="connect">Connect</string>
     <string name="listening_title">Listening…</string>
-    <string name="listening_hint">Speak to Clai. Tap the touchpad on your glasses when you\'re done.</string>
+    <string name="listening_hint">Speak to Clai. Press the action button — or say \"send it\" — when you\'re done.</string>
     <string name="stop_listening">Send now</string>
     <string name="glasses_register">Register with Meta AI</string>
     <string name="glasses_start_session">Start Glasses Session</string>

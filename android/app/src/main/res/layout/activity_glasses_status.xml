@@ -35,6 +35,13 @@
             android:layout_marginBottom="8dp" />
 
         <Button
+            android:id="@+id/updateGlassesAppButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Update Glasses App (fixes &#8220;glasses need an update&#8221;)"
+            android:layout_marginBottom="8dp" />
+
+        <Button
             android:id="@+id/startSessionButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

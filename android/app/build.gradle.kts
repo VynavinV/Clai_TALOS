@@ -14,16 +14,31 @@ android {
         versionCode = 1
         versionName = "1.0"
 
-        // Developer Mode placeholders: real Wearables Developer Center values
-        // are only needed outside Developer Mode.
-        manifestPlaceholders["mwdat_application_id"] = "0"
-        manifestPlaceholders["mwdat_client_token"] = "0"
+        // Wearables Developer Center attestation for com.vynavin.claitalos.
+        // "0"/"0" is the Developer-Mode-only value; these are the real
+        // credentials from wearables.developer.meta.com (voice invocation
+        // spoken name: "Clai"). They ship inside the APK by design.
+        manifestPlaceholders["mwdat_application_id"] = "3616343835217280"
+        manifestPlaceholders["mwdat_client_token"] = "AR|3616343835217280|6363fb61fcce4ee94ad86937aabae113"
+    }
+
+    signingConfigs {
+        // Release-channel builds must carry the SAME signature that is
+        // registered in the Wearables Developer Center. We registered the
+        // debug keystore's cert, so release builds sign with it too.
+        create("channel") {
+            storeFile = rootProject.file(System.getProperty("user.home") + "/.android/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.getByName("channel")
         }
     }
 

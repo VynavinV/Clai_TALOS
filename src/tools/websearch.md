@@ -1,6 +1,6 @@
 # Web Search Tool
 
-Search the web for current information using Google Search via Gemini.
+Search the web for current information using Parallel's free, zero-auth search service.
 
 ## Parameters
 
@@ -40,15 +40,16 @@ web_search(query="weather forecast", location="New York")
 
 Returns a JSON object with:
 - `query`: The original search query
-- `results`: Array of search results with title, link, and content
+- `results`: Array of search results with title, link, content (answer-ready excerpts), and publish_date
 - `result_count`: Number of results found
-- `source`: "Google Search via Gemini"
+- `source`: "Parallel Web Search"
+- `note`: Reminds the model that excerpts usually suffice without scraping
 
 ## Notes
 
-- Requires GEMINI_API_KEY in .env
-- Uses Gemini 2.0 Flash with Google Search grounding
-- Results are grounded in real Google Search data
+- No API key needed — the Parallel MCP endpoint (https://mcp.parallel.ai/mcp) is free with hobbyist rate limits
+- Returns clean markdown excerpts, so scraping result links is usually unnecessary; combine with scrape_url only when excerpts are insufficient
+- If the service is unreachable, search falls back to DuckDuckGo
+- Set PARALLEL_MCP_URL in .env to point at a different MCP search server (e.g., with a paid key for higher limits)
 - Use specific queries for better results
 - Combine with memory to save important findings
-- Combine with scrape_url to get detailed content from result links

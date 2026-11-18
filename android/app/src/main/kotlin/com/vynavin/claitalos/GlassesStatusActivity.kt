@@ -1,22 +1,32 @@
 package com.vynavin.claitalos
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.widget.CheckBox
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.meta.wearable.dat.core.types.Permission
 import com.meta.wearable.dat.core.types.PermissionStatus
 import com.meta.wearable.dat.core.types.RegistrationState
+import com.meta.wearable.dat.core.session.DeviceSessionState
 import com.meta.wearable.dat.core.Wearables
 import com.meta.wearable.dat.inputs.addInputs
 import com.meta.wearable.dat.inputs.removeInputs
 import com.meta.wearable.dat.inputs.types.InputEvent
 import com.vynavin.claitalos.databinding.ActivityGlassesStatusBinding
 import com.vynavin.claitalos.mock.MockMode
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Glasses status screen: register with Meta AI, watch registration/devices,
@@ -44,6 +54,28 @@ class GlassesStatusActivity : AppCompatActivity() {
             )
         }
 
+    private val btPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (!granted) {
+                Toast.makeText(
+                    this,
+                    "Bluetooth permission is required to talk to the glasses.",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+        }
+
+    private fun ensureBluetoothPermission(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            return true
+        }
+        btPermissionLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT)
+        return false
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityGlassesStatusBinding.inflate(layoutInflater)
@@ -51,19 +83,43 @@ class GlassesStatusActivity : AppCompatActivity() {
 
         val app = application as GlassesApp
 
+        // Registration fails inside the Meta AI app without the runtime
+        // Bluetooth grant — ask up front instead of on first failure.
+        ensureBluetoothPermission()
+
         binding.registerButton.setOnClickListener {
-            Wearables.startRegistration(this)
+            if (ensureBluetoothPermission()) {
+                Wearables.startRegistration(this)
+            }
         }
         binding.micPermissionButton.setOnClickListener {
-            micPermissionLauncher.launch(Permission.MICROPHONE)
+            if (ensureBluetoothPermission()) {
+                micPermissionLauncher.launch(Permission.MICROPHONE)
+            }
+        }
+        binding.updateGlassesAppButton.setOnClickListener {
+            // DAT_APP_ON_THE_GLASSES_UPDATE_REQUIRED: the glasses' DAT app is
+            // older than the SDK needs. This deep-links the Meta AI update
+            // flow (the App Connections page only surfaces it via this link).
+            Wearables.openDATGlassesAppUpdate(this).fold(
+                onSuccess = {
+                    binding.glassesStatusLog.text =
+                        "Opened the Meta AI update flow — finish it there, then start the session again."
+                },
+                onFailure = { error, _ ->
+                    binding.glassesStatusLog.text = "Could not open update flow: ${error.description}"
+                },
+            )
         }
         binding.startSessionButton.setOnClickListener {
-            if (binding.mockDeviceCheck.isChecked) {
-                MockMode.pair(this)?.let {
+            if (ensureBluetoothPermission()) {
+                if (binding.mockDeviceCheck.isChecked) {
+                    MockMode.pair(this)?.let {
+                        app.connection.startSession()
+                    }
+                } else {
                     app.connection.startSession()
                 }
-            } else {
-                app.connection.startSession()
             }
         }
         binding.testTapButton.setOnClickListener {
@@ -104,7 +160,11 @@ class GlassesStatusActivity : AppCompatActivity() {
         }
         lifecycleScope.launch {
             app.connection.connState.collect { state ->
-                binding.sessionStateText.text = "Session: ${state.name}"
+                binding.sessionStateText.text = when (state) {
+                    com.vynavin.claitalos.dat.GlassesConnection.ConnState.PAUSED ->
+                        "Session: PAUSED (a tap pauses the glasses) — recovering…"
+                    else -> "Session: ${state.name}"
+                }
             }
         }
         lifecycleScope.launch {
@@ -123,7 +183,7 @@ class GlassesStatusActivity : AppCompatActivity() {
             Toast.makeText(this, "Start the session first.", Toast.LENGTH_SHORT).show()
             return
         }
-        binding.glassesStatusLog.text = "Waiting for an input — tap the touchpad now…"
+        binding.glassesStatusLog.text = "Waiting for an input — press the action button now…"
         binding.lastTapText.text = "Last input: (waiting)"
         lifecycleScope.launch {
             val added = session.addInputs(
@@ -131,13 +191,36 @@ class GlassesStatusActivity : AppCompatActivity() {
             )
             val inputs = added.getOrNull()
             if (added.isSuccess && inputs != null) {
-                val event = inputs.events.firstOrNull()
+                binding.glassesStatusLog.text = "Waiting for an input — press the action button now…"
+                binding.lastTapText.text = "Last input: (waiting)"
+                // The tap either arrives as an InputEvent, or the glasses OS
+                // consumes it as a system pause (session leaves STARTED).
+                val signal = withTimeoutOrNull(15_000) {
+                    kotlinx.coroutines.flow.merge(
+                        inputs.events.map { TapSignal.Event(it) },
+                        session.state.filter { it != DeviceSessionState.STARTED }
+                            .map { TapSignal.SystemPause },
+                    ).first()
+                }
                 runOnUiThread {
-                    binding.lastTapText.text = "Last input: ${event?.let(::describe)}"
-                    binding.glassesStatusLog.text = when (event) {
-                        is InputEvent.Select -> "Tap detected as Select — tap-to-stop works."
-                        null -> "No input received."
-                        else -> "Got ${event::class.simpleName} — configure an alternate stop gesture."
+                    when (signal) {
+                        is TapSignal.Event -> {
+                            binding.lastTapText.text = "Last input: ${describe(signal.event)}"
+                            binding.glassesStatusLog.text = when (signal.event) {
+                                is InputEvent.Select ->
+                                    "Stop gesture works (Select)."
+                                else ->
+                                    "Got ${signal.event::class.simpleName} — stop gesture works if this is your button."
+                            }
+                        }
+                        TapSignal.SystemPause -> {
+                            binding.lastTapText.text = "Last input: system pause"
+                            binding.glassesStatusLog.text =
+                                "Tap detected as system pause — the app treats that as the stop signal too."
+                        }
+                        null -> {
+                            binding.glassesStatusLog.text = "No input received."
+                        }
                     }
                 }
                 session.removeInputs()
@@ -152,6 +235,11 @@ class GlassesStatusActivity : AppCompatActivity() {
 
     private fun describe(event: InputEvent): String =
         "${event::class.simpleName} from ${event.source}"
+
+    private sealed class TapSignal {
+        data class Event(val event: InputEvent) : TapSignal()
+        data object SystemPause : TapSignal()
+    }
 
     companion object {
         private const val TAG = "ClaiGlassesStatus"

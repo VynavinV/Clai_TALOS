@@ -453,19 +453,16 @@
     </div>
   </div>
 
-  <!-- Step 4: Optional - Gemini (web search) -->
+  <!-- Step 4: Web Search - free, no key needed -->
   <div class="step" data-step="3">
-    <h2>Step 4: Web Search (Optional)</h2>
-    <p class="desc">A Gemini API key enables web search. If you already chose Gemini above, you can skip this step.</p>
-    <div class="field">
-      <label>Gemini API Key</label>
-      <input type="password" id="gemini-key" placeholder="Get from aistudio.google.com/app/apikey" autocomplete="off">
-      <div class="hint"><a href="https://aistudio.google.com/app/apikey" target="_blank">Get a free Gemini key here</a> if you want web search.</div>
+    <h2>Step 4: Web Search</h2>
+    <p class="desc">Web search works out of the box — no API key or setup required.</p>
+    <div class="info-box">
+      TALOS searches the web through Parallel's free search service. It needs no credentials;
+      if it is ever unreachable, a DuckDuckGo fallback takes over automatically.
     </div>
-    <div class="error" id="err-gemini"></div>
     <div class="btn-row">
-      <button class="btn btn-skip" onclick="goStep(4)">Skip for now</button>
-      <button class="btn btn-primary" onclick="saveGemini()">Save & Continue</button>
+      <button class="btn btn-primary" onclick="goStep(4)">Continue</button>
     </div>
   </div>
 
@@ -1435,21 +1432,6 @@ async function saveModel() {
       else goStep(3);
     }
     else { err.textContent = data.error || 'Could not save model settings yet.'; }
-  } catch (e) { err.textContent = 'Connection problem. Please try again.'; }
-}
-
-async function saveGemini() {
-  var key = document.getElementById('gemini-key').value.trim();
-  var err = document.getElementById('err-gemini');
-  err.textContent = '';
-
-  if (!key) { goStep(4); return; }
-
-  try {
-    var res = await _post('/api/onboarding/gemini', { api_key: key });
-    var data = await res.json();
-    if (data.ok) goStep(4);
-    else err.textContent = data.error || 'Could not save Gemini key.';
   } catch (e) { err.textContent = 'Connection problem. Please try again.'; }
 }
 

@@ -1229,34 +1229,6 @@ async def _repair_install_background_service() -> dict:
     }
 
 
-async def _repair_clear_gemini_key() -> dict:
-    """Destructive: remove a Gemini key the API rejected.
-
-    There is no way to repair an invalid credential automatically. Clearing it
-    at least returns web search to a clean "not configured" state instead of
-    failing on every call, and makes it obvious a new key is needed.
-    """
-    env = _read_env()
-    if not env.get("GEMINI_API_KEY", "").strip():
-        return {"ok": True, "message": "No Gemini API key was set."}
-
-    env["GEMINI_API_KEY"] = ""
-    _write_env(env)
-    os.environ["GEMINI_API_KEY"] = ""
-    try:
-        import websearch
-        websearch.reload_client()
-    except Exception:
-        pass
-
-    return {
-        "ok": True,
-        "needs_setup": "gemini",
-        "message": "Cleared the rejected Gemini API key. Add a working one in Settings to "
-                   "re-enable web search (https://aistudio.google.com/app/apikey).",
-    }
-
-
 async def _repair_enable_service_at_boot() -> dict:
     proc = await asyncio.create_subprocess_exec(
         "sudo", "-n", "systemctl", "enable", _SERVICE_NAME,
@@ -1495,7 +1467,6 @@ REPAIRS: dict[str, tuple[Callable[[], Awaitable[dict]], bool, str]] = {
     "deps.install_docx": (_repair_install_docx_node, False, "Install Word document support"),
     "service.install_background": (_repair_install_background_service, False, "Install background service"),
     "service.enable_boot": (_repair_enable_service_at_boot, False, "Start automatically at boot"),
-    "web.clear_gemini_key": (_repair_clear_gemini_key, True, "Clear rejected Gemini API key"),
     "network.enable_https": (_repair_enable_tailscale_https, False, "Enable HTTPS via Tailscale"),
     "network.reset_https": (_repair_reset_tailscale_https, True, "Reset and re-enable Tailscale HTTPS"),
     "files.reset_scratch": (_repair_clear_scratch, False, "Clear diagnostics scratch files"),

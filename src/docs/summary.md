@@ -120,7 +120,7 @@ Windows parity:
 ### Automation Surfaces
 - terminal_tools.py: command execution in native/docker/firejail modes with audit logging.
 - browser_automation.py: CDP/Playwright automation, tab state, deterministic step engine.
-- websearch.py: Gemini-based web search pipeline.
+- websearch.py: web search via Parallel's zero-auth MCP service, with a DuckDuckGo fallback.
 - cron_jobs.py: scheduled shell commands or self-prompts to TALOS.
 - gateway.py: live project registry and static serving under /projects.
 
